@@ -1,0 +1,26 @@
+{
+  "tools": [
+    {
+      "name": "find-usages",
+      "description": "Find all usages of a given symbol.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "symbol": { "type": "string" }
+        },
+        "required": ["symbol"]
+      }
+    },
+    {
+      "name": "find-definition",
+      "description": "Find the definition of a given symbol.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "symbol": { "type": "string" }
+        },
+        "required": ["symbol"]
+      }
+    }
+  ]
+}

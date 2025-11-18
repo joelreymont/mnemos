@@ -1,0 +1,30 @@
+{
+  "methods": [
+    {
+      "name": "hemis.explain-region",
+      "params": {
+        "type": "object",
+        "properties": {
+          "file": { "type": "string" },
+          "start": {
+            "type": "object",
+            "properties": {
+              "line": { "type": "integer" },
+              "column": { "type": "integer" }
+            },
+            "required": ["line", "column"]
+          },
+          "end": {
+            "type": "object",
+            "properties": {
+              "line": { "type": "integer" },
+              "column": { "type": "integer" }
+            },
+            "required": ["line", "column"]
+          }
+        },
+        "required": ["file", "start", "end"]
+      }
+    }
+  ]
+}
