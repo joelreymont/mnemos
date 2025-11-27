@@ -21,6 +21,22 @@
                     (file-name-directory (or load-file-name buffer-file-name)))
   "Default path to the Hemis backend script bundled with this Emacs client.")
 
+;; Tree-sitter language remaps for rust-ts-mode -> rust
+(when (featurep 'treesit)
+  (when (boundp 'treesit-language-remap-alist)
+    (add-to-list 'treesit-language-remap-alist '(rust-ts-mode . rust)))
+  (when (boundp 'treesit-major-mode-language-alist)
+    (add-to-list 'treesit-major-mode-language-alist '(rust-ts-mode . rust))
+    (add-to-list 'treesit-major-mode-language-alist '(rust-mode . rust)))
+  ;; Treat rust-ts-mode availability as rust availability.
+  (when (fboundp 'treesit-language-available-p)
+    (defun hemis--advice-treesit-language-available (orig lang &rest args)
+      (or (when (eq lang 'rust-ts-mode)
+            (apply orig 'rust args))
+          (apply orig lang args)))
+    (advice-add 'treesit-language-available-p :around
+                #'hemis--advice-treesit-language-available)))
+
 (defcustom hemis-executable "sbcl"
   "Path to the Hemis Lisp executable (or SBCL with --script)."
   :type 'string
