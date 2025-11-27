@@ -2,7 +2,9 @@
 
 This is a starter skeleton for the Hemis project:
 
-- `frontend/`: React + TypeScript UI (to run inside Lauri's webview)
-- `backend/`: Common Lisp backend stub (Tree-sitter / RPC hooks go here)
+- `backend/`: Common Lisp JSON-RPC backend over stdio (notes protocol v2)
+- `../emacs/`: Emacs UI client (`hemis.el`) plus Doom module that talks to the backend
 
+Backend entrypoint: `sbcl --script backend/hemis.lisp`  
+Protocol details: see `../docs/PROTOCOL.md`  
 This is NOT a complete app, just a structured starting point you can evolve.
