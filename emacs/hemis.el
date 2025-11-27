@@ -172,6 +172,11 @@ When FORCE is non-nil, attempt installation even if `major-mode` is not Rust."
               (assq-delete-all 'rust treesit-language-source-alist))
         (push '(rust "https://github.com/tree-sitter/tree-sitter-rust")
               treesit-language-source-alist)
+        (setq treesit-language-source-alist
+              (assq-delete-all 'rust-ts-mode treesit-language-source-alist))
+        (push '(rust-ts-mode "https://github.com/tree-sitter/tree-sitter-rust"
+                             :symbol "tree_sitter_rust")
+              treesit-language-source-alist)
         (when (boundp 'treesit-major-mode-language-alist)
           (setq treesit-major-mode-language-alist
                 (assq-delete-all 'rust-ts-mode treesit-major-mode-language-alist))
@@ -179,6 +184,10 @@ When FORCE is non-nil, attempt installation even if `major-mode` is not Rust."
                 (assq-delete-all 'rust-mode treesit-major-mode-language-alist))
           (push '(rust-ts-mode . rust) treesit-major-mode-language-alist)
           (push '(rust-mode . rust) treesit-major-mode-language-alist))
+        (when (boundp 'treesit-language-remap-alist)
+          (setq treesit-language-remap-alist
+                (assq-delete-all 'rust-ts-mode treesit-language-remap-alist))
+          (push '(rust-ts-mode . rust) treesit-language-remap-alist))
         (condition-case err
             (treesit-install-language-grammar 'rust)
           (error
