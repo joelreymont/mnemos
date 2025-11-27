@@ -58,9 +58,19 @@ When nil, defaults to `(\"--script\" hemis-backend-script)`."
   :type 'string
   :group 'hemis)
 
+(defcustom hemis-backend-env nil
+  "List of environment variables (\"KEY=VAL\") passed to the Hemis backend process."
+  :type '(repeat string)
+  :group 'hemis)
+
 (defcustom hemis-auto-install-treesit-grammars t
   "When non-nil, attempt to install required Tree-sitter grammars (e.g., Rust) automatically."
   :type 'boolean
+  :group 'hemis)
+
+(defcustom hemis-request-timeout 60
+  "Timeout (seconds) for JSON-RPC requests to the Hemis backend."
+  :type 'integer
   :group 'hemis)
 
 (defface hemis-note-marker-face
@@ -86,9 +96,14 @@ When nil, defaults to `(\"--script\" hemis-backend-script)`."
     (let* ((buf (get-buffer-create hemis-log-buffer))
            (args (or hemis-executable-args
                      (list "--script" hemis-backend-script)))
-           (proc (apply #'start-process
-                        "hemis-backend" buf
-                        hemis-executable args)))
+           (process-environment (append hemis-backend-env process-environment))
+           (proc (make-process
+                  :name "hemis-backend"
+                  :buffer buf
+                  :command (cons hemis-executable args)
+                  :connection-type 'pipe
+                  :stderr buf
+                  :coding 'no-conversion)))
       (set-process-query-on-exit-flag proc nil)
       (setq hemis--process proc)
       (setq hemis--conn
@@ -120,7 +135,7 @@ When nil, defaults to `(\"--script\" hemis-backend-script)`."
 (defun hemis--request (method &optional params)
   "Synchronously send JSON-RPC METHOD with PARAMS and return result."
   (hemis--ensure-connection)
-  (jsonrpc-request hemis--conn method params))
+  (jsonrpc-request hemis--conn method params :timeout hemis-request-timeout))
 
 (defun hemis--rust-grammar-available-p ()
   "Return non-nil when the Rust Tree-sitter grammar is available."
@@ -278,8 +293,7 @@ NOTE is an alist or plist parsed from JSON, keys like :id, :line, :column, :summ
   "Render NOTES as overlays in the current buffer.
 NOTES is a list of note objects (alist/plist) from the backend."
   (hemis--clear-note-overlays)
-  (dolist (note notes)
-    (hemis--make-note-overlay note)))
+  (seq-do #'hemis--make-note-overlay notes))
 
 
 ;;; Backend calls
@@ -298,6 +312,45 @@ NOTES is a list of note objects (alist/plist) from the backend."
     `((file . ,file)
       (projectRoot . ,root))))
 
+(defun hemis-index-file (&optional file)
+  "Send the current FILE (or current buffer) to the backend index."
+  (interactive)
+  (let* ((file (or file (buffer-file-name)))
+         (root (or (hemis--project-root) default-directory)))
+    (unless file
+      (user-error "No file to index"))
+    (let ((content (buffer-substring-no-properties (point-min) (point-max))))
+      (hemis--request "index/add-file"
+                      `((file . ,file)
+                        (projectRoot . ,root)
+                        (content . ,content))))
+    (message "Hemis: indexed %s" file)))
+
+(defun hemis-search-project (query)
+  "Search QUERY in indexed files for the current project and show results."
+  (interactive "sSearch query: ")
+  (let* ((root (or (hemis--project-root) default-directory))
+         (results (hemis--request "index/search"
+                                  `((query . ,query)
+                                    (projectRoot . ,root))))
+         (buf (get-buffer-create "*Hemis Search*")))
+    (with-current-buffer buf
+      (setq buffer-read-only nil)
+      (erase-buffer)
+      (let ((inhibit-read-only t))
+        (insert (format "Hemis search for \"%s\" in %s\n\n" query root))
+        (dolist (hit results)
+          (let* ((file (alist-get 'file hit))
+                 (line (alist-get 'line hit))
+                 (col  (alist-get 'column hit))
+                 (text (alist-get 'text hit)))
+            (insert (format "%s:%s:%s %s\n" file line col text))
+            (add-text-properties (line-beginning-position 0) (line-end-position)
+                                 (list 'hemis-search-hit hit)))))
+      (goto-char (point-min))
+      (hemis-search-results-mode))
+    (display-buffer buf)))
+
 (defun hemis-refresh-notes ()
   "Fetch and render all notes for the current buffer."
   (interactive)
@@ -311,12 +364,13 @@ NOTES is a list of note objects (alist/plist) from the backend."
   "Create a new Hemis note at point with TEXT and optional TAGS list."
   (interactive "sNote text: ")
   (let* ((node-path (hemis--node-path-at-point))
+         (node-path-json (and node-path (vconcat node-path)))
          (params (append (hemis--buffer-params)
                          `((line . ,(line-number-at-pos))
                            (column . ,(current-column))
                            (text . ,text)
                            (tags . ,tags)
-                           (nodePath . ,node-path))))
+                           (nodePath . ,node-path-json))))
          (note   (hemis--request "notes/create" params)))
     (hemis--make-note-overlay note)
     (message "Hemis: note created.")))
@@ -389,6 +443,8 @@ NOTES is a list of note objects (alist/plist) from the backend."
     (define-key map (kbd "C-c h a") #'hemis-add-note)
     (define-key map (kbd "C-c h r") #'hemis-refresh-notes)
     (define-key map (kbd "C-c h l") #'hemis-list-notes)
+    (define-key map (kbd "C-c h i") #'hemis-index-file)
+    (define-key map (kbd "C-c h s") #'hemis-search-project)
     map)
   "Keymap for `hemis-notes-mode'.")
 
@@ -410,6 +466,31 @@ NOTES is a list of note objects (alist/plist) from the backend."
 
 (define-derived-mode hemis-notes-list-mode special-mode "Hemis-Notes"
   "Mode for listing Hemis notes."
+  (setq buffer-read-only t))
+
+(defvar hemis-search-results-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "RET") #'hemis-search-visit)
+    map)
+  "Keymap for `hemis-search-results-mode'.")
+
+(defun hemis-search-visit ()
+  "Visit the search hit on the current line."
+  (interactive)
+  (let* ((hit (get-text-property (line-beginning-position) 'hemis-search-hit))
+         (file (alist-get 'file hit))
+         (line (alist-get 'line hit))
+         (col  (alist-get 'column hit)))
+    (unless file
+      (user-error "No search hit on this line"))
+    (find-file file)
+    (goto-char (point-min))
+    (forward-line (max 0 (1- (or line 1))))
+    (move-to-column (or col 0))
+    (recenter)))
+
+(define-derived-mode hemis-search-results-mode special-mode "Hemis-Search"
+  "Mode for Hemis search results."
   (setq buffer-read-only t))
 
 (provide 'hemis)

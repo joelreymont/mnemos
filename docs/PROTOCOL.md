@@ -1,6 +1,6 @@
 # Hemis Protocol v2 (JSON-RPC 2.0)
 
-Transport: **stdio** (one JSON object per line, UTF-8).  
+Transport: **stdio** (UTF-8). Accepts either newline-delimited JSON objects or LSP-style `Content-Length` framed messages. Responses mirror the framing used by the client.  
 Protocol: **JSON-RPC 2.0**.
 
 ## Note Object
@@ -29,4 +29,6 @@ Protocol: **JSON-RPC 2.0**.
 - `notes/update` → update an existing note
 - `notes/delete` → delete a note
 - `notes/search` → naive text search across notes
+- `index/add-file` → store file content (for search)
+- `index/search` → naive text search across indexed files
 - `shutdown` → cleanly terminate the backend

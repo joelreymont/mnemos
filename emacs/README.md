@@ -15,6 +15,7 @@ Quick start:
 ```
 
 Use `M-x hemis-notes-mode` in a buffer to show sticky notes; `C-c h a` to add a note, `C-c h r` to refresh, `C-c h l` to list notes. `M-x hemis-shutdown` stops the backend.
+Indexing/search: `C-c h i` to index the current file; `C-c h s` to search indexed files in the current project. Backend stores notes/files in SQLite (`HEMIS_DB_PATH` env var can override the default location).
 
 ## Testing
 

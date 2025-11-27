@@ -28,6 +28,18 @@
                     (_ (error "Unexpected method in mock: %s" method))))))
        ,@body)))
 
+(defmacro hemis-test-with-backend (&rest body)
+  "Run BODY with a real backend using a temp SQLite DB."
+  (declare (indent 0))
+  `(let* ((hemis-backend-env (list (concat "HEMIS_DB_PATH=" (make-temp-file "hemis-test-db"))))
+          (hemis-executable "sbcl")
+          (hemis-executable-args nil))
+     (unwind-protect
+         (progn
+           (hemis-shutdown)
+           ,@body)
+       (hemis-shutdown))))
+
 (ert-deftest hemis-refresh-notes-creates-overlay ()
   (hemis-test-with-mocked-backend
     (with-temp-buffer
@@ -80,7 +92,27 @@
       (hemis-add-note "test note")
       (should (equal hemis-test-last-method "notes/create"))
       (let ((node-path (cdr (assoc 'nodePath hemis-test-last-params))))
-        (should (listp node-path))
-        (should (stringp (car node-path)))))))
+        (should (sequencep node-path))
+        (should (stringp (elt node-path 0)))))))
+
+(ert-deftest hemis-index-rust-integration ()
+  (skip-unless (and (fboundp 'rust-ts-mode)
+                    (file-readable-p "../bebop/util/src/lib.rs")))
+  (hemis-test-with-backend
+    (let* ((file (expand-file-name "../bebop/util/src/lib.rs" default-directory)))
+      (with-temp-buffer
+        (insert-file-contents file)
+        (set-visited-file-name file t t)
+        (rust-ts-mode)
+        (let ((proj (hemis--project-root)))
+          (hemis-index-file)
+          (hemis-add-note "integration note")
+          (hemis-refresh-notes)
+          (should (consp hemis--overlays))
+          (let* ((results (hemis--request "index/search"
+                                          `((query . "fn")
+                                            (projectRoot . ,proj)))))
+            (should (sequencep results))
+            (should (> (length results) 0))))))))
 
 (provide 'hemis-test)
