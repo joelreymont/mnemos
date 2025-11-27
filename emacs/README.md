@@ -15,3 +15,18 @@ Quick start:
 ```
 
 Use `M-x hemis-notes-mode` in a buffer to show sticky notes; `C-c h a` to add a note, `C-c h r` to refresh, `C-c h l` to list notes. `M-x hemis-shutdown` stops the backend.
+
+## Testing
+
+Run ERT from the repo root:
+
+```bash
+emacs -Q --batch \
+  -L emacs \
+  -l hemis.el \
+  -L emacs/tests \
+  -l hemis-test.el \
+  -f ert-run-tests-batch-and-exit
+```
+
+Rust/Tree-sitter tests skip automatically if the runtime lacks `treesit` or `rust-ts-mode`.

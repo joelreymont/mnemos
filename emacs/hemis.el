@@ -8,6 +8,7 @@
 
 (require 'jsonrpc)
 (require 'cl-lib)
+(require 'project)
 
 (defgroup hemis nil
   "Hemis – a second brain for your code."
@@ -98,6 +99,25 @@ When nil, defaults to `(\"--script\" hemis-backend-script)`."
   (hemis--ensure-connection)
   (jsonrpc-request hemis--conn method params))
 
+(defun hemis--treesit-available-p ()
+  "Return non-nil when Tree-sitter is available for the current mode."
+  (and (fboundp 'treesit-node-at)
+       (fboundp 'treesit-ready-p)
+       (treesit-ready-p major-mode)))
+
+(defun hemis--node-path-at-point (&optional max-depth)
+  "Return list of node types from innermost to outermost at point.
+Limits to MAX-DEPTH parents (default 6) to avoid excessively long chains."
+  (when (hemis--treesit-available-p)
+    (let* ((node (treesit-node-at (point)))
+           (depth (or max-depth 6))
+           (path '()))
+      (while (and node (> depth 0))
+        (push (treesit-node-type node) path)
+        (setq node (treesit-node-parent node)
+              depth (1- depth)))
+      (nreverse path))))
+
 
 ;;; Notes data & overlays
 
@@ -170,11 +190,13 @@ NOTES is a list of note objects (alist/plist) from the backend."
 (defun hemis-add-note (text &optional tags)
   "Create a new Hemis note at point with TEXT and optional TAGS list."
   (interactive "sNote text: ")
-  (let* ((params (append (hemis--buffer-params)
+  (let* ((node-path (hemis--node-path-at-point))
+         (params (append (hemis--buffer-params)
                          `((line . ,(line-number-at-pos))
                            (column . ,(current-column))
                            (text . ,text)
-                           (tags . ,tags))))
+                           (tags . ,tags)
+                           (nodePath . ,node-path))))
          (note   (hemis--request "notes/create" params)))
     (hemis--make-note-overlay note)
     (message "Hemis: note created.")))
