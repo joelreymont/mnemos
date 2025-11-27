@@ -9,6 +9,7 @@
 (require 'jsonrpc)
 (require 'cl-lib)
 (require 'project)
+(require 'seq)
 (require 'treesit nil t)
 
 (defgroup hemis nil
@@ -109,8 +110,50 @@ When nil, defaults to `(\"--script\" hemis-backend-script)`."
   "Return non-nil when the Rust Tree-sitter grammar is available."
   (and (featurep 'treesit)
        (fboundp 'treesit-language-available-p)
-       (or (treesit-language-available-p 'rust)
-           (treesit-language-available-p 'rust-ts-mode))))
+       (treesit-language-available-p 'rust)))
+
+(defun hemis--treesit-install-dir ()
+  "Return the directory where grammars are installed or should be installed."
+  (expand-file-name "tree-sitter/" user-emacs-directory))
+
+(defun hemis--ensure-treesit-path ()
+  "Ensure the grammar install directory exists and is on `treesit-extra-load-path`."
+  (when (featurep 'treesit)
+    (let ((dir (hemis--treesit-install-dir)))
+      (unless (file-directory-p dir)
+        (make-directory dir t))
+      (unless (member dir treesit-extra-load-path)
+        (push dir treesit-extra-load-path))
+      dir)))
+
+(defun hemis--find-rust-grammar ()
+  "Return the path to an installed rust grammar library, if any."
+  (when (featurep 'treesit)
+    (let* ((dirs (append treesit-extra-load-path (list (hemis--treesit-install-dir))))
+           (candidates (seq-mapcat
+                        (lambda (dir)
+                          (when (file-directory-p dir)
+                            (directory-files dir t "^libtree-sitter-rust\\..*$")))
+                        dirs)))
+      (car candidates))))
+
+(defun hemis--copy-rust-grammar-alias (src)
+  "Copy rust grammar SRC to rust-ts-mode alias names alongside it."
+  (when (and src (file-exists-p src))
+    (let* ((dir (file-name-directory src))
+           (stem (file-name-sans-extension (file-name-nondirectory src)))
+           (ext  (concat "." (file-name-extension src)))
+           (dest (expand-file-name (concat stem "-ts-mode" ext) dir)))
+      (condition-case err
+          (copy-file src dest t)
+        (error
+         (message "Hemis: failed to copy rust grammar alias (%s): %s" dest err))))))
+
+(defun hemis--ensure-rust-alias ()
+  "Ensure rust grammar has rust-ts-mode alias file present."
+  (let ((src (hemis--find-rust-grammar)))
+    (when src
+      (hemis--copy-rust-grammar-alias src))))
 
 (defun hemis--ensure-rust-grammar (&optional force)
   "Ensure the Rust Tree-sitter grammar is installed.
@@ -120,25 +163,32 @@ When FORCE is non-nil, attempt installation even if `major-mode` is not Rust."
              (fboundp 'treesit-install-language-grammar)
              (or force (memq major-mode '(rust-mode rust-ts-mode))))
     (unless (hemis--rust-grammar-available-p)
-      ;; Ensure source entry exists before install.
-      (setq treesit-language-source-alist
-            (assq-delete-all 'rust treesit-language-source-alist))
-      (push '(rust "https://github.com/tree-sitter/tree-sitter-rust")
-            treesit-language-source-alist)
-      (when (boundp 'treesit-major-mode-language-alist)
-        (setq treesit-major-mode-language-alist
-              (assq-delete-all 'rust-ts-mode treesit-major-mode-language-alist))
-        (setq treesit-major-mode-language-alist
-              (assq-delete-all 'rust-mode treesit-major-mode-language-alist))
-        (push '(rust-ts-mode . rust) treesit-major-mode-language-alist)
-        (push '(rust-mode . rust) treesit-major-mode-language-alist))
-      (condition-case err
-          (treesit-install-language-grammar 'rust)
-        (error
-         (message "Hemis: failed to install Rust Tree-sitter grammar: %s" err)))
-      ;; Re-check after installation.
-      (unless (treesit-language-available-p 'rust)
-        (message "Hemis: Rust grammar install did not succeed."))))
+      (let ((dir (hemis--ensure-treesit-path)))
+        (when dir
+          (add-to-list 'treesit-extra-load-path dir))
+        ;; Prefer rust-ts-mode mapping to rust language.
+        ;; Ensure source entry exists before install.
+        (setq treesit-language-source-alist
+              (assq-delete-all 'rust treesit-language-source-alist))
+        (push '(rust "https://github.com/tree-sitter/tree-sitter-rust")
+              treesit-language-source-alist)
+        (when (boundp 'treesit-major-mode-language-alist)
+          (setq treesit-major-mode-language-alist
+                (assq-delete-all 'rust-ts-mode treesit-major-mode-language-alist))
+          (setq treesit-major-mode-language-alist
+                (assq-delete-all 'rust-mode treesit-major-mode-language-alist))
+          (push '(rust-ts-mode . rust) treesit-major-mode-language-alist)
+          (push '(rust-mode . rust) treesit-major-mode-language-alist))
+        (condition-case err
+            (treesit-install-language-grammar 'rust)
+          (error
+           (message "Hemis: failed to install Rust Tree-sitter grammar: %s" err)))
+        (hemis--copy-rust-grammar-alias (hemis--find-rust-grammar))
+        ;; Re-check after installation.
+        (unless (treesit-language-available-p 'rust)
+          (message "Hemis: Rust grammar install did not succeed."))))
+    ;; Ensure alias files exist even if grammar was already present.
+    (hemis--ensure-rust-alias))
   (hemis--rust-grammar-available-p))
 
 (defun hemis--treesit-available-p ()

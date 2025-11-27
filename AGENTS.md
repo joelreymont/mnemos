@@ -29,12 +29,17 @@ Author: `Joel Reymont <18791+joelreymont@users.noreply.github.com>`
 
 ### Workflow
 
+- Never ask the user to run tests; run them yourself
 - Work continuously without pausing for confirmation unless blocked
 - Prioritize optimal/performant solutions even if harder to implement
 - Break work into small steps; execute end-to-end
 - State assumptions briefly and continue
 - Update CONTEXT.md after each major step (not checked into git)
 - Do NOT read or update SESSION.md (deprecated, use CONTEXT.md instead)
+
+### Tools (Lisp/Elisp helpers)
+
+- `scripts/check_parens.py` verifies parenthesis balance for Lisp/Elisp files; use it when editing Lisp code. (Used for emacs/hemis.el)
 
 ### Context and Compaction
 

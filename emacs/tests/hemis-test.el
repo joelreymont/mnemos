@@ -49,8 +49,7 @@
   (with-temp-buffer
     (insert "fn add(x: i32, y: i32) -> i32 {\n    x + y\n}\n")
     (set-visited-file-name "/tmp/add.rs" t t)
-    (hemis--ensure-rust-grammar t)
-    (unless (hemis--rust-grammar-available-p)
+    (unless (hemis--ensure-rust-grammar t)
       (ert-skip "Rust Tree-sitter grammar unavailable"))
     (rust-ts-mode)
     (unless (hemis--treesit-available-p)
@@ -71,8 +70,7 @@
     (with-temp-buffer
       (insert "fn add(x: i32, y: i32) -> i32 {\n    x + y\n}\n")
       (set-visited-file-name "/tmp/add.rs" t t)
-      (hemis--ensure-rust-grammar t)
-      (unless (hemis--rust-grammar-available-p)
+      (unless (hemis--ensure-rust-grammar t)
         (ert-skip "Rust Tree-sitter grammar unavailable"))
       (rust-ts-mode)
       (unless (hemis--treesit-available-p)
