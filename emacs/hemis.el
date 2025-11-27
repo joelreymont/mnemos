@@ -9,6 +9,7 @@
 (require 'jsonrpc)
 (require 'cl-lib)
 (require 'project)
+(require 'treesit nil t)
 
 (defgroup hemis nil
   "Hemis – a second brain for your code."
@@ -38,6 +39,11 @@ When nil, defaults to `(\"--script\" hemis-backend-script)`."
 (defcustom hemis-log-buffer "*Hemis Log*"
   "Name of the buffer used to log Hemis backend output."
   :type 'string
+  :group 'hemis)
+
+(defcustom hemis-auto-install-treesit-grammars t
+  "When non-nil, attempt to install required Tree-sitter grammars (e.g., Rust) automatically."
+  :type 'boolean
   :group 'hemis)
 
 (defface hemis-note-marker-face
@@ -99,11 +105,50 @@ When nil, defaults to `(\"--script\" hemis-backend-script)`."
   (hemis--ensure-connection)
   (jsonrpc-request hemis--conn method params))
 
+(defun hemis--rust-grammar-available-p ()
+  "Return non-nil when the Rust Tree-sitter grammar is available."
+  (and (featurep 'treesit)
+       (fboundp 'treesit-language-available-p)
+       (or (treesit-language-available-p 'rust)
+           (treesit-language-available-p 'rust-ts-mode))))
+
+(defun hemis--ensure-rust-grammar (&optional force)
+  "Ensure the Rust Tree-sitter grammar is installed.
+When FORCE is non-nil, attempt installation even if `major-mode` is not Rust."
+  (when (and hemis-auto-install-treesit-grammars
+             (featurep 'treesit)
+             (fboundp 'treesit-install-language-grammar)
+             (or force (memq major-mode '(rust-mode rust-ts-mode))))
+    (unless (hemis--rust-grammar-available-p)
+      ;; Ensure source entry exists before install.
+      (setq treesit-language-source-alist
+            (assq-delete-all 'rust treesit-language-source-alist))
+      (push '(rust "https://github.com/tree-sitter/tree-sitter-rust")
+            treesit-language-source-alist)
+      (when (boundp 'treesit-major-mode-language-alist)
+        (setq treesit-major-mode-language-alist
+              (assq-delete-all 'rust-ts-mode treesit-major-mode-language-alist))
+        (setq treesit-major-mode-language-alist
+              (assq-delete-all 'rust-mode treesit-major-mode-language-alist))
+        (push '(rust-ts-mode . rust) treesit-major-mode-language-alist)
+        (push '(rust-mode . rust) treesit-major-mode-language-alist))
+      (condition-case err
+          (treesit-install-language-grammar 'rust)
+        (error
+         (message "Hemis: failed to install Rust Tree-sitter grammar: %s" err)))
+      ;; Re-check after installation.
+      (unless (treesit-language-available-p 'rust)
+        (message "Hemis: Rust grammar install did not succeed."))))
+  (hemis--rust-grammar-available-p))
+
 (defun hemis--treesit-available-p ()
   "Return non-nil when Tree-sitter is available for the current mode."
-  (and (fboundp 'treesit-node-at)
-       (fboundp 'treesit-ready-p)
-       (treesit-ready-p major-mode)))
+  (when (and (featurep 'treesit)
+             (fboundp 'treesit-node-at)
+             (fboundp 'treesit-ready-p))
+    (when (memq major-mode '(rust-mode rust-ts-mode))
+      (hemis--ensure-rust-grammar))
+    (treesit-ready-p major-mode)))
 
 (defun hemis--node-path-at-point (&optional max-depth)
   "Return list of node types from innermost to outermost at point.

@@ -30,3 +30,5 @@ emacs -Q --batch \
 ```
 
 Rust/Tree-sitter tests skip automatically if the runtime lacks `treesit` or `rust-ts-mode`.
+When `hemis-auto-install-treesit-grammars` is non-nil (default), Hemis will attempt
+to install the Rust Tree-sitter grammar automatically if missing.
