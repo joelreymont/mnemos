@@ -1,0 +1,46 @@
+---
+source: backend/tests/rpc_snapshot.rs
+expression: responses
+---
+[
+  {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "column": 2,
+      "createdAt": "<ts>",
+      "file": "/tmp/test.rs",
+      "id": "<id>",
+      "line": 3,
+      "projectRoot": "/tmp",
+      "stale": false,
+      "summary": "snapshot note",
+      "tags": [
+        "x"
+      ],
+      "text": "snapshot note",
+      "updatedAt": "<ts>"
+    }
+  },
+  {
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": [
+      {
+        "column": 2,
+        "createdAt": "<ts>",
+        "file": "/tmp/test.rs",
+        "id": "<id>",
+        "line": 3,
+        "projectRoot": "/tmp",
+        "stale": false,
+        "summary": "snapshot note",
+        "tags": [
+          "x"
+        ],
+        "text": "snapshot note",
+        "updatedAt": "<ts>"
+      }
+    ]
+  }
+]
