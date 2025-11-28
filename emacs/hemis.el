@@ -42,9 +42,9 @@
   :type 'string
   :group 'hemis)
 
-(defcustom hemis-rust-executable nil
-  "Optional path to the Hemis Rust backend binary (Content-Length JSON-RPC)."
-  :type '(choice (const :tag "Disabled" nil) string)
+(defcustom hemis-backend nil
+  "Optional path to the Hemis backend binary (Rust JSON-RPC). When nil, fall back to Lisp script."
+  :type '(choice (const :tag "Lisp backend" nil) string)
   :group 'hemis)
 
 (defcustom hemis-backend-script hemis--default-backend-script
@@ -117,9 +117,10 @@ When nil, defaults to `(\"--script\" hemis-backend-script)`."
   "Start the Hemis backend process if it is not already running."
   (unless (and hemis--process (process-live-p hemis--process))
     (let* ((buf (get-buffer-create hemis-log-buffer))
-           (exe (or hemis-rust-executable hemis-executable))
+           (use-rust (and hemis-backend (file-executable-p hemis-backend)))
+           (exe (if use-rust hemis-backend hemis-executable))
            (args (cond
-                  (hemis-rust-executable nil)
+                  (use-rust nil)
                   (hemis-executable-args hemis-executable-args)
                   (t (list "--script" hemis-backend-script))))
            (process-environment (append hemis-backend-env process-environment))
