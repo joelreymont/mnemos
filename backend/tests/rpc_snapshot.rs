@@ -319,3 +319,78 @@ fn snapshot_invalid_params() -> anyhow::Result<()> {
     assert_json_snapshot!("invalid_params", responses);
     Ok(())
 }
+
+#[test]
+fn snapshot_missing_id_update_delete() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let req_update = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/update",
+        "params": {
+            "text": "oops"
+        }
+    })
+    .to_string();
+    let req_delete = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/delete",
+        "params": {}
+    })
+    .to_string();
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        req_update.len(),
+        req_update,
+        req_delete.len(),
+        req_delete
+    );
+    let assert = cargo_bin_cmd!("backend")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    let responses: Vec<Value> = bodies
+        .into_iter()
+        .map(|b| serde_json::from_slice(&b).unwrap())
+        .collect();
+    assert_json_snapshot!("missing_id_update_delete", responses);
+    Ok(())
+}
+
+#[test]
+fn snapshot_unknown_method() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 99,
+        "method": "unknown/method",
+        "params": {}
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let assert = cargo_bin_cmd!("backend")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    let responses: Vec<Value> = bodies
+        .into_iter()
+        .map(|b| serde_json::from_slice(&b).unwrap())
+        .collect();
+    assert_json_snapshot!("unknown_method", responses);
+    Ok(())
+}

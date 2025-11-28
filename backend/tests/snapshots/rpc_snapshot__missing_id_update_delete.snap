@@ -1,0 +1,22 @@
+---
+source: backend/tests/rpc_snapshot.rs
+expression: responses
+---
+[
+  {
+    "error": {
+      "code": -32601,
+      "message": "missing id"
+    },
+    "id": 1,
+    "jsonrpc": "2.0"
+  },
+  {
+    "error": {
+      "code": -32601,
+      "message": "missing id"
+    },
+    "id": 2,
+    "jsonrpc": "2.0"
+  }
+]
