@@ -15,3 +15,8 @@ storage = { path = "../crates/storage" }
 git = { path = "../crates/git" }
 rusqlite = { workspace = true }
 memchr = "2"
+
+[dev-dependencies]
+assert_cmd = "2"
+serde_json = { workspace = true }
+tempfile = { workspace = true }
