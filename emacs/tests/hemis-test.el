@@ -228,4 +228,24 @@
           (goto-char (point-min))
           (should (search-forward "][abc]]" nil t)))))))
 
+(ert-deftest hemis-notes-mode-hook-triggers-link ()
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (hemis-notes-mode 1)
+      (let ((req-calls 0))
+        (cl-letf (((symbol-function 'hemis--request)
+                   (lambda (&rest _)
+                     (setq req-calls (1+ req-calls))
+                     (list '((id . "xyz") (summary . "Desc") (file . "/tmp/file")))))
+                  ((symbol-function 'completing-read)
+                   (lambda (&rest _) "Desc (xyz)"))
+                  ((symbol-function 'read-string)
+                   (lambda (&rest _) "Desc")))
+          (insert "[[")
+          (let ((last-command-event ?\[))
+            (hemis--maybe-trigger-link))
+          (goto-char (point-min))
+          (should (= req-calls 1))
+          (should (search-forward "][xyz]]" nil t)))))))
+
 (provide 'hemis-test)
