@@ -40,6 +40,11 @@ Protocol: **JSON-RPC 2.0**.
 
 Notes attach to files, git versions, node paths, and tags. Backend returns JSON objects.
 
+### Index
+
+- `index/add-file` stores a file’s content for text search.
+- `index/search` searches indexed files for a substring and returns hits with file/line/column/text.
+
 ### Notes
 
 #### `notes/create`
