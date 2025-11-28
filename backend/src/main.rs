@@ -9,6 +9,7 @@ use index as idx;
 use git::info_for_file;
 use rusqlite::Connection;
 use rpc::{decode_framed, encode_response};
+use std::collections::VecDeque;
 
 fn handle(req: Request, db: &Connection) -> Response {
     let id = req.id.clone();
@@ -146,25 +147,33 @@ fn main() -> Result<()> {
     let mut stdin = Vec::new();
     io::stdin().read_to_end(&mut stdin)?;
     let mut out = Vec::new();
-    let input_str = String::from_utf8_lossy(&stdin);
-    if input_str.contains("Content-Length:") {
-        if let Some(body) = decode_framed(input_str.as_bytes()) {
+    let mut buffer: VecDeque<u8> = stdin.into();
+    loop {
+        // Try framed message first.
+        if let Some(body) = decode_framed(buffer.make_contiguous()) {
+            let consumed = body.len();
+            buffer.drain(..consumed);
             match rpc::parse_request(&body) {
                 Ok(req) => out.extend(encode_response(&handle(req, &conn))),
                 Err(_) => out.extend(encode_response(&Response::error(None, PARSE_ERROR, "parse error"))),
             }
+            continue;
         }
-    } else {
-        for line in input_str.lines() {
-            let bytes = line.as_bytes();
-            let req: Request = match rpc::parse_request(bytes) {
+        // If no framed message, fall back to a single line if present.
+        if let Some(pos) = buffer.iter().position(|b| *b == b'\n') {
+            let line: Vec<u8> = buffer.drain(..=pos).collect();
+            let trimmed = line.iter().filter(|b| **b != b'\n' && **b != b'\r').cloned().collect::<Vec<u8>>();
+            if trimmed.is_empty() { continue; }
+            let req: Request = match rpc::parse_request(&trimmed) {
                 Ok(r) => r,
                 Err(_) => { out.extend(encode_response(&Response::error(None, PARSE_ERROR, "parse error"))); continue; }
             };
             let resp = handle(req, &conn);
             out.extend(encode_response(&resp));
             out.push(b'\n');
+            continue;
         }
+        break;
     }
     if !out.is_empty() {
         io::stdout().write_all(&out)?;
