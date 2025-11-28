@@ -4,10 +4,86 @@ use notes::{self, NoteFilters};
 use rpc::{Request, Response, INTERNAL_ERROR, METHOD_NOT_FOUND, PARSE_ERROR};
 use rusqlite::Connection;
 use serde_json::json;
+use std::fs;
+use std::path::Path;
+
+const IGNORE_DIRS: &[&str] = &[
+    ".git",
+    "target",
+    "node_modules",
+    ".hg",
+    ".svn",
+    ".idea",
+    ".direnv",
+    "venv",
+    "env",
+    "__pycache__",
+    "build",
+];
+
+fn list_files(root: &Path) -> anyhow::Result<Vec<String>> {
+    let mut stack = vec![root.to_path_buf()];
+    let mut files = Vec::new();
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if entry.file_type()?.is_dir() {
+                if IGNORE_DIRS.contains(&name.as_str()) {
+                    continue;
+                }
+                stack.push(path);
+            } else if entry.file_type()?.is_file() {
+                files.push(path.to_string_lossy().to_string());
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}
 
 pub fn handle(req: Request, db: &Connection) -> Response {
     let id = req.id.clone();
     match req.method.as_str() {
+        "hemis/list-files" => {
+            if let Some(root) = req.params.get("projectRoot").and_then(|v| v.as_str()) {
+                match list_files(Path::new(root)) {
+                    Ok(files) => Response::result(id, serde_json::to_value(files).unwrap()),
+                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                }
+            } else {
+                Response::error(id, METHOD_NOT_FOUND, "missing projectRoot")
+            }
+        }
+        "hemis/get-file" => {
+            if let Some(path) = req.params.get("file").and_then(|v| v.as_str()) {
+                match fs::read_to_string(path) {
+                    Ok(content) => {
+                        let resp = json!({
+                            "file": path,
+                            "content": content,
+                        });
+                        Response::result(id, resp)
+                    }
+                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                }
+            } else {
+                Response::error(id, METHOD_NOT_FOUND, "missing file")
+            }
+        }
+        "hemis/open-project" => {
+            if req
+                .params
+                .get("projectRoot")
+                .and_then(|v| v.as_str())
+                .is_some()
+            {
+                Response::result(id, json!({"ok": true}))
+            } else {
+                Response::error(id, METHOD_NOT_FOUND, "missing projectRoot")
+            }
+        }
         "notes/list-for-file" => {
             let file = req.params.get("file").and_then(|v| v.as_str());
             let proj = req.params.get("projectRoot").and_then(|v| v.as_str());

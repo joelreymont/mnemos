@@ -345,3 +345,71 @@ fn filters_stale_notes_by_blob() -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn lists_and_reads_files() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let root = tempfile::tempdir()?;
+    let file_path = root.path().join("a.rs");
+    fs::write(&file_path, "fn main() {}\n")?;
+    let root_str = root.path().to_string_lossy().to_string();
+    let file_str = file_path.to_string_lossy().to_string();
+
+    let req_list = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/list-files",
+        "params": { "projectRoot": root_str }
+    })
+    .to_string();
+    let req_get = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "hemis/get-file",
+        "params": { "file": file_str }
+    })
+    .to_string();
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        req_list.len(),
+        req_list,
+        req_get.len(),
+        req_get
+    );
+    let assert = cargo_bin_cmd!("backend")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    assert_eq!(bodies.len(), 2);
+    let list_resp: Response = serde_json::from_slice(&bodies[0])?;
+    let files = list_resp
+        .result
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(files.len(), 1);
+    assert_eq!(
+        files[0].as_str().unwrap(),
+        file_path.to_string_lossy().to_string()
+    );
+    let get_resp: Response = serde_json::from_slice(&bodies[1])?;
+    let obj = get_resp
+        .result
+        .as_ref()
+        .and_then(|v| v.as_object())
+        .unwrap();
+    assert_eq!(obj.get("file").and_then(|v| v.as_str()).unwrap(), file_str);
+    assert_eq!(
+        obj.get("content").and_then(|v| v.as_str()).unwrap(),
+        "fn main() {}\n"
+    );
+    Ok(())
+}

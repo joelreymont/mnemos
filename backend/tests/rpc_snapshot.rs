@@ -394,3 +394,51 @@ fn snapshot_unknown_method() -> anyhow::Result<()> {
     assert_json_snapshot!("unknown_method", responses);
     Ok(())
 }
+
+#[test]
+fn snapshot_list_files() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let root = tempfile::tempdir()?;
+    let file_path = root.path().join("foo.txt");
+    std::fs::write(&file_path, "hello")?;
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/list-files",
+        "params": { "projectRoot": root.path().to_string_lossy() }
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let assert = cargo_bin_cmd!("backend")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    let responses: Vec<Value> = bodies
+        .into_iter()
+        .map(|b| serde_json::from_slice(&b).unwrap())
+        .collect();
+    let redacted = responses
+        .into_iter()
+        .map(|mut v| {
+            if let Some(arr) = v.get_mut("result").and_then(|r| r.as_array_mut()) {
+                for item in arr.iter_mut() {
+                    if let Some(path) = item.as_str() {
+                        *item = serde_json::Value::String(
+                            path.replace(root.path().to_string_lossy().as_ref(), "<root>"),
+                        );
+                    }
+                }
+            }
+            v
+        })
+        .collect::<Vec<_>>();
+    assert_json_snapshot!("list_files", redacted);
+    Ok(())
+}
