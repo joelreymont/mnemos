@@ -1,0 +1,30 @@
+---
+source: backend/tests/rpc_snapshot.rs
+expression: responses
+---
+[
+  {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "bytes": 32,
+      "content": "fn add(x: i32) -> i32 { x + 1 }\n",
+      "file": "/tmp/foo.rs",
+      "lines": 1,
+      "projectRoot": "/tmp",
+      "updatedAt": "<ts>"
+    }
+  },
+  {
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": [
+      {
+        "column": 3,
+        "file": "/tmp/foo.rs",
+        "line": 1,
+        "text": "fn add(x: i32) -> i32 { x + 1 }"
+      }
+    ]
+  }
+]

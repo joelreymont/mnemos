@@ -4,22 +4,26 @@ use rpc::decode_framed;
 use serde_json::{self, json, Value};
 use tempfile::NamedTempFile;
 
-fn scrub_note(note: &mut serde_json::Map<String, Value>) {
-    if note.contains_key("file") {
-        note.insert("id".into(), json!("<id>"));
-        note.insert("createdAt".into(), json!("<ts>"));
-        note.insert("updatedAt".into(), json!("<ts>"));
+fn scrub_obj(obj: &mut serde_json::Map<String, Value>) {
+    if obj.contains_key("id") {
+        obj.insert("id".into(), json!("<id>"));
+    }
+    if obj.contains_key("createdAt") {
+        obj.insert("createdAt".into(), json!("<ts>"));
+    }
+    if obj.contains_key("updatedAt") {
+        obj.insert("updatedAt".into(), json!("<ts>"));
     }
 }
 
 fn scrub_response(mut resp: Value) -> Value {
     if let Some(result) = resp.get_mut("result") {
         match result {
-            Value::Object(obj) => scrub_note(obj),
+            Value::Object(obj) => scrub_obj(obj),
             Value::Array(arr) => {
                 for val in arr {
                     if let Some(obj) = val.as_object_mut() {
-                        scrub_note(obj);
+                        scrub_obj(obj);
                     }
                 }
             }
@@ -173,5 +177,112 @@ fn snapshot_update_and_delete() -> anyhow::Result<()> {
     // Prepend the create response for context.
     responses.insert(0, scrub_response(created));
     assert_json_snapshot!("update_and_delete", responses);
+    Ok(())
+}
+
+#[test]
+fn snapshot_list_by_node() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 5,
+            "column": 1,
+            "nodePath": ["fn", "body"],
+            "text": "by-node",
+            "tags": []
+        }
+    })
+    .to_string();
+    let req_list = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/list-by-node",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "nodePath": ["fn", "body"]
+        }
+    })
+    .to_string();
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        req_create.len(),
+        req_create,
+        req_list.len(),
+        req_list
+    );
+    let assert = cargo_bin_cmd!("backend")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    let responses: Vec<Value> = bodies
+        .into_iter()
+        .map(|b| serde_json::from_slice(&b).unwrap())
+        .map(scrub_response)
+        .collect();
+    assert_json_snapshot!("list_by_node", responses);
+    Ok(())
+}
+
+#[test]
+fn snapshot_index_search() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let add_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "index/add-file",
+        "params": {
+            "file": "/tmp/foo.rs",
+            "projectRoot": "/tmp",
+            "content": "fn add(x: i32) -> i32 { x + 1 }\n"
+        }
+    })
+    .to_string();
+    let search_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "index/search",
+        "params": {
+            "query": "add",
+            "projectRoot": "/tmp"
+        }
+    })
+    .to_string();
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        add_req.len(),
+        add_req,
+        search_req.len(),
+        search_req
+    );
+    let assert = cargo_bin_cmd!("backend")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    let responses: Vec<Value> = bodies
+        .into_iter()
+        .map(|b| serde_json::from_slice(&b).unwrap())
+        .map(scrub_response)
+        .collect();
+    assert_json_snapshot!("index_search", responses);
     Ok(())
 }
