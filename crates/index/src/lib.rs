@@ -2,8 +2,7 @@
 
 use anyhow::{anyhow, Result};
 use rusqlite::Connection;
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::env;
 use storage::{exec, now_unix, query_all};
 
@@ -120,8 +119,7 @@ pub fn upsert_embedding_for_file(
     project_root: &str,
     content: &str,
 ) -> Result<()> {
-    let vector =
-        call_embedder(&embedding_input(content)).unwrap_or_else(|_| derive_vector(content));
+    let vector = call_embedder(&embedding_input(content)).unwrap_or_else(|_| derive_vector(content));
     upsert_embedding(conn, file, project_root, &vector, content)
 }
 

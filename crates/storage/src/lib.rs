@@ -35,6 +35,15 @@ CREATE TABLE IF NOT EXISTS embeddings (
   text TEXT,
   updated_at INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS edges (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  src TEXT,
+  dst TEXT,
+  kind TEXT,
+  project_root TEXT,
+  updated_at INTEGER
+);
 "#;
 
 pub fn connect(path: &str) -> Result<Connection> {
