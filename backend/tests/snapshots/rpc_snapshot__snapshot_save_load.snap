@@ -1,0 +1,39 @@
+---
+source: backend/tests/rpc_snapshot.rs
+expression: responses
+---
+[
+  {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "bytes": 13,
+      "content": "fn main() {}\n",
+      "file": "/tmp/code.rs",
+      "lines": 1,
+      "projectRoot": "/tmp",
+      "updatedAt": "<ts>"
+    }
+  },
+  {
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+      "ok": true,
+      "path": "/tmp/snapshot.json"
+    }
+  },
+  {
+    "id": 3,
+    "jsonrpc": "2.0",
+    "result": {
+      "counts": {
+        "files": 1,
+        "notes": 0
+      },
+      "createdAt": "<ts>",
+      "projectRoot": "/tmp",
+      "version": 1
+    }
+  }
+]

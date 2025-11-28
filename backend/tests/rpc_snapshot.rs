@@ -479,3 +479,96 @@ fn snapshot_explain_region() -> anyhow::Result<()> {
     assert_json_snapshot!("explain_region", responses);
     Ok(())
 }
+
+#[test]
+fn snapshot_save_and_load() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let root = tempfile::tempdir()?;
+    let file_path = root.path().join("code.rs");
+    std::fs::write(&file_path, "fn main() {}\n")?;
+    // Index a file so the snapshot has counts.
+    let add_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "index/add-file",
+        "params": {
+            "file": file_path.to_string_lossy(),
+            "projectRoot": root.path().to_string_lossy(),
+            "content": "fn main() {}\n"
+        }
+    })
+    .to_string();
+    let snap_path = tempfile::NamedTempFile::new()?;
+    let save_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "hemis/save-snapshot",
+        "params": {
+            "path": snap_path.path(),
+            "projectRoot": root.path().to_string_lossy()
+        }
+    })
+    .to_string();
+    let load_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "hemis/load-snapshot",
+        "params": {
+            "path": snap_path.path()
+        }
+    })
+    .to_string();
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        add_req.len(),
+        add_req,
+        save_req.len(),
+        save_req,
+        load_req.len(),
+        load_req
+    );
+    let assert = cargo_bin_cmd!("backend")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    let responses: Vec<Value> = bodies
+        .into_iter()
+        .map(|b| serde_json::from_slice(&b).unwrap())
+        .map(|mut v: Value| {
+            if let Some(result) = v.get_mut("result") {
+                if let Some(map) = result.as_object_mut() {
+                    for key in ["file", "projectRoot", "path"] {
+                        if let Some(val) = map.get_mut(key) {
+                            if let Some(s) = val.as_str() {
+                                *val = Value::String(
+                                    s.replace(root.path().to_string_lossy().as_ref(), "/tmp"),
+                                );
+                            }
+                        }
+                    }
+                    for key in ["updatedAt", "createdAt"] {
+                        if map.contains_key(key) {
+                            map.insert(key.to_string(), Value::String("<ts>".into()));
+                        }
+                    }
+                    if map.get("path").is_some() {
+                        map.insert(
+                            "path".to_string(),
+                            Value::String("/tmp/snapshot.json".into()),
+                        );
+                    }
+                }
+            }
+            v
+        })
+        .collect();
+    assert_json_snapshot!("snapshot_save_load", responses);
+    Ok(())
+}

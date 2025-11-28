@@ -2,7 +2,7 @@ use git::info_for_file;
 use index as idx;
 use notes::{self, NoteFilters};
 use rpc::{Request, Response, INTERNAL_ERROR, METHOD_NOT_FOUND, PARSE_ERROR};
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use serde_json::json;
 use std::fs;
 use std::path::Path;
@@ -42,6 +42,30 @@ fn list_files(root: &Path) -> anyhow::Result<Vec<String>> {
     }
     files.sort();
     Ok(files)
+}
+
+fn count_notes(conn: &Connection, project_root: Option<&str>) -> anyhow::Result<i64> {
+    if let Some(root) = project_root {
+        let mut stmt = conn.prepare("SELECT COUNT(*) FROM notes WHERE project_root = ?1")?;
+        let cnt: i64 = stmt.query_row(params![root], |row| row.get(0))?;
+        Ok(cnt)
+    } else {
+        let mut stmt = conn.prepare("SELECT COUNT(*) FROM notes")?;
+        let cnt: i64 = stmt.query_row([], |row| row.get(0))?;
+        Ok(cnt)
+    }
+}
+
+fn count_indexed_files(conn: &Connection, project_root: Option<&str>) -> anyhow::Result<i64> {
+    if let Some(root) = project_root {
+        let mut stmt = conn.prepare("SELECT COUNT(*) FROM files WHERE project_root = ?1")?;
+        let cnt: i64 = stmt.query_row(params![root], |row| row.get(0))?;
+        Ok(cnt)
+    } else {
+        let mut stmt = conn.prepare("SELECT COUNT(*) FROM files")?;
+        let cnt: i64 = stmt.query_row([], |row| row.get(0))?;
+        Ok(cnt)
+    }
 }
 
 pub fn handle(req: Request, db: &Connection) -> Response {
@@ -139,10 +163,17 @@ pub fn handle(req: Request, db: &Connection) -> Response {
         }
         "hemis/save-snapshot" => {
             if let Some(path) = req.params.get("path").and_then(|v| v.as_str()) {
+                let project_root = req.params.get("projectRoot").and_then(|v| v.as_str());
+                let files = count_indexed_files(db, project_root).unwrap_or(0);
+                let notes = count_notes(db, project_root).unwrap_or(0);
                 let payload = json!({
                     "version": 1,
-                    "projectRoot": req.params.get("projectRoot").and_then(|v| v.as_str()),
+                    "projectRoot": project_root,
                     "createdAt": now_unix(),
+                    "counts": {
+                        "files": files,
+                        "notes": notes
+                    }
                 });
                 match fs::write(path, serde_json::to_vec_pretty(&payload).unwrap()) {
                     Ok(_) => Response::result(id, json!({"ok": true, "path": path})),
