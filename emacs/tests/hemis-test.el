@@ -305,6 +305,20 @@
         (goto-char (point-min))
         (should (search-forward "hello" nil t))))))
 
+(ert-deftest hemis-list-notes-renders-buffer ()
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (set-visited-file-name "/tmp/mock.rs" t t)
+      (let ((hemis-test-last-params nil))
+        (hemis-list-notes)
+        (with-current-buffer "*Hemis Notes*"
+          (goto-char (point-min))
+          (let ((found nil))
+            (while (and (not found) (not (eobp)))
+              (setq found (get-text-property (line-beginning-position) 'hemis-note))
+              (forward-line 1))
+            (should found)))))))
+
 (ert-deftest hemis-insert-note-link-inserts-format ()
   (hemis-test-with-mocked-backend
     (with-temp-buffer
