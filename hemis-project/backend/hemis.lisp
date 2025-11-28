@@ -15,7 +15,8 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (handler-case
       (let ((*standard-output* *error-output*))
-        (ql:quickload '(:jonathan :dbi :dbd-sqlite3 :split-sequence)))
+        (ql:quickload '(:jonathan :dbi :dbd-sqlite3 :split-sequence)
+                      :silent t))
     (error (c)
       (format *error-output* "Error loading deps: ~A~%" c)
       (uiop:quit 1))))
@@ -35,6 +36,7 @@
        (merge-pathnames "hemis-notes.db"
                         (uiop:ensure-directory-pathname (uiop:getcwd))))))
 (defparameter *hemis-debug-io* (uiop:getenv "HEMIS_DEBUG_IO"))
+(defparameter *git-cli* "git")
 
 (defun now-unix ()
   (truncate (get-universal-time)))
@@ -63,6 +65,13 @@
     ((listp value)
      (mapcar #'normalize-json value))
     (t value)))
+
+(defun ensure-column (table column type)
+  (let* ((info (db-fetch-all (format nil "PRAGMA table_info(~A);" table)))
+         (names (mapcar (lambda (row) (string-downcase (getf row :|name|)))
+                        info)))
+    (unless (member (string-downcase column) names :test #'string=)
+      (db-exec (format nil "ALTER TABLE ~A ADD COLUMN ~A ~A;" table column type)))))
 
 (defun read-json-payload ()
   "Read a JSON payload from stdin.
@@ -129,6 +138,8 @@ framing was used."
                    tags TEXT,
                    text TEXT,
                    summary TEXT,
+                   commit_sha TEXT,
+                   blob_sha TEXT,
                    created_at INTEGER,
                    updated_at INTEGER
                  );")
@@ -138,7 +149,9 @@ framing was used."
                    project_root TEXT,
                    content TEXT,
                    updated_at INTEGER
-                 );")))
+                 );")
+    (ensure-column "notes" "commit_sha" "TEXT")
+    (ensure-column "notes" "blob_sha" "TEXT")))
 
 (defun db-exec (sql &rest params)
   (ensure-db)
@@ -157,6 +170,36 @@ framing was used."
   (when (and string (> (length string) 0))
     (parse string)))
 
+;;; Git helpers
+
+(defun run-git (args &optional cwd)
+  (handler-case
+      (uiop:run-program (cons *git-cli* args)
+                        :directory cwd
+                        :output '(:string :stripped t)
+                        :error-output :string
+                        :ignore-error-status t)
+    (error () nil)))
+
+(defun git-root (file)
+  (let ((dir (uiop:native-namestring
+              (uiop:pathname-directory-pathname file))))
+    (run-git '("rev-parse" "--show-toplevel") dir)))
+
+(defun git-head (root)
+  (and root (run-git '("rev-parse" "HEAD") root)))
+
+(defun git-blob (file root)
+  (and root (run-git (list "hash-object" file) root)))
+
+(defun file-git-info (file)
+  "Return plist (:commit <sha> :blob <sha>) or NIL if not in git."
+  (let* ((root (git-root file))
+         (commit (git-head root))
+         (blob (git-blob file root)))
+    (when (and root commit)
+      (list :commit commit :blob blob :root root))))
+
 ;;; Notes
 
 (defun make-note-id ()
@@ -168,7 +211,7 @@ framing was used."
     ((<= (length text) 60) text)
     (t (concatenate 'string (subseq text 0 57) "..."))))
 
-(defun row->note (row)
+(defun row->note (row &optional stale)
   (json-obj
    "id" (getf row :|id|)
    "file" (getf row :|file|)
@@ -179,13 +222,29 @@ framing was used."
    "tags" (or (maybe-parse-json (getf row :|tags|)) '())
    "text" (getf row :|text|)
    "summary" (getf row :|summary|)
+   "commitSha" (getf row :|commit_sha|)
+   "blobSha" (getf row :|blob_sha|)
+   "stale" stale
    "createdAt" (getf row :|created_at|)
    "updatedAt" (getf row :|updated_at|)))
 
+(defun note-stale-p (row commit blob)
+  (let ((note-commit (getf row :|commit_sha|))
+        (note-blob   (getf row :|blob_sha|)))
+    (and (or commit blob)
+         (or (and note-commit commit (not (string= note-commit commit)))
+             (and note-blob blob (not (string= note-blob blob)))))))
+
 (defun handle-notes-list-for-file (params)
-  (let* ((file (gethash "file" params)))
-    (mapcar #'row->note
-            (db-fetch-all "SELECT * FROM notes WHERE file = ? ORDER BY updated_at DESC;" file))))
+  (let* ((file (gethash "file" params))
+         (commit (gethash "commit" params))
+         (blob (gethash "blob" params))
+         (include-stale (gethash "includeStale" params))
+         (rows (db-fetch-all "SELECT * FROM notes WHERE file = ? ORDER BY updated_at DESC;" file)))
+    (loop for row in rows
+          for stale = (note-stale-p row commit blob)
+          unless (and stale (not include-stale))
+            collect (row->note row stale))))
 
 (defun handle-notes-list-project (params)
   (let* ((project-root (gethash "projectRoot" params)))
@@ -201,14 +260,17 @@ framing was used."
          (node   (gethash "nodePath" params))
          (tags   (gethash "tags" params))
          (text   (gethash "text" params))
+         (git    (or (file-git-info file) '()))
+         (commit (or (gethash "commit" params) (getf git :commit)))
+         (blob   (or (gethash "blob" params) (getf git :blob)))
          (id     (make-note-id))
          (ts     (now-unix))
          (summary (summarize-text text)))
     (db-exec "INSERT INTO notes
-              (id, file, project_root, line, column, node_path, tags, text, summary, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);"
+              (id, file, project_root, line, column, node_path, tags, text, summary, commit_sha, blob_sha, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);"
              id file proj line column (maybe-to-json node) (maybe-to-json tags)
-             text summary ts ts)
+             text summary commit blob ts ts)
     (row->note
      (first (db-fetch-all "SELECT * FROM notes WHERE id = ?;" id)))))
 
@@ -255,11 +317,16 @@ framing was used."
 (defun handle-notes-list-by-node (params)
   (let* ((file   (gethash "file" params))
          (proj   (gethash "projectRoot" params))
+         (commit (gethash "commit" params))
+         (blob   (gethash "blob" params))
+         (include-stale (gethash "includeStale" params))
          (node   (maybe-to-json (gethash "nodePath" params))))
-    (mapcar #'row->note
-            (db-fetch-all
-             "SELECT * FROM notes WHERE file = ? AND project_root = ? AND node_path = ? ORDER BY updated_at DESC;"
-             file proj node))))
+    (loop for row in (db-fetch-all
+                      "SELECT * FROM notes WHERE file = ? AND project_root = ? AND node_path = ? ORDER BY updated_at DESC;"
+                      file proj node)
+          for stale = (note-stale-p row commit blob)
+          unless (and stale (not include-stale))
+            collect (row->note row stale))))
 
 ;;; File indexing and search
 

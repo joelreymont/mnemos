@@ -87,6 +87,24 @@ When nil, defaults to `(\"--script\" hemis-backend-script)`."
 (defvar hemis--overlays nil
   "List of Hemis note overlays in the current buffer.")
 
+(defun hemis--git-run (default-directory &rest args)
+  "Run git ARGS in DEFAULT-DIRECTORY, returning trimmed output or nil."
+  (when (and default-directory (executable-find "git"))
+    (with-temp-buffer
+      (let ((exit (apply #'process-file "git" nil t nil args)))
+        (when (zerop exit)
+          (string-trim (buffer-string)))))))
+
+(defun hemis--git-info (file)
+  "Return alist with commit/blob for FILE, or nil if not in git."
+  (let* ((default-directory (file-name-directory file))
+         (root (hemis--git-run default-directory "rev-parse" "--show-toplevel"))
+         (commit (and root (hemis--git-run root "rev-parse" "HEAD")))
+         (blob (and root (hemis--git-run root "hash-object" file))))
+    (when commit
+      `((commit . ,commit)
+        (blob . ,blob)))))
+
 
 ;;; Process & JSON-RPC management
 
@@ -307,10 +325,14 @@ NOTES is a list of note objects (alist/plist) from the backend."
 
 (defun hemis--buffer-params ()
   "Return an alist describing the current buffer for the backend."
-  (let ((file (or (buffer-file-name) (buffer-name)))
-        (root (or (hemis--project-root) default-directory)))
+  (let* ((file (or (buffer-file-name) (buffer-name)))
+         (root (or (hemis--project-root) default-directory))
+         (git (and (buffer-file-name) (hemis--git-info (buffer-file-name)))))
     `((file . ,file)
-      (projectRoot . ,root))))
+      (projectRoot . ,root)
+      ,@(when git
+          `((commit . ,(alist-get 'commit git))
+            (blob . ,(alist-get 'blob git)))))))
 
 (defun hemis-index-file (&optional file)
   "Send the current FILE (or current buffer) to the backend index."
@@ -383,10 +405,17 @@ NOTES is a list of note objects (alist/plist) from the backend."
 
 (defun hemis-notes-for-node (node-path)
   "Return notes for NODE-PATH in the current file/project."
-  (hemis--request "notes/list-by-node"
-                  `((file . ,(buffer-file-name))
-                    (projectRoot . ,(hemis--project-root))
-                    (nodePath . ,(and node-path (vconcat node-path))))))
+  (let* ((params (hemis--buffer-params))
+         (file (alist-get 'file params))
+         (proj (alist-get 'projectRoot params))
+         (commit (alist-get 'commit params))
+         (blob (alist-get 'blob params)))
+    (hemis--request "notes/list-by-node"
+                    `((file . ,file)
+                      (projectRoot . ,proj)
+                      (commit . ,commit)
+                      (blob . ,blob)
+                      (nodePath . ,(and node-path (vconcat node-path)))))))
 
 (defun hemis-list-notes ()
   "List all Hemis notes for the current file in a separate buffer."

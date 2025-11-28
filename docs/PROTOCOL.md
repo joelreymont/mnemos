@@ -10,6 +10,9 @@ Protocol: **JSON-RPC 2.0**.
   "id": "string",
   "file": "/abs/path/to/file",
   "projectRoot": "/abs/path/to/project",
+  "commitSha": "git commit hex (optional)",
+  "blobSha": "git blob hash (optional)",
+  "stale": false,
   "line": 42,
   "column": 0,
   "nodePath": ["function_definition", 0, "parameters", 1],   // optional
@@ -28,7 +31,63 @@ Protocol: **JSON-RPC 2.0**.
 - `notes/create` → create a new note
 - `notes/update` → update an existing note
 - `notes/delete` → delete a note
+- `notes/get` → fetch a single note by id
 - `notes/search` → naive text search across notes
+- `notes/list-by-node` → list notes for a specific nodePath
 - `index/add-file` → store file content (for search)
 - `index/search` → naive text search across indexed files
 - `shutdown` → cleanly terminate the backend
+
+Notes attach to files, git versions, node paths, and tags. Backend returns JSON objects.
+
+### Notes
+
+#### `notes/create`
+
+Request params:
+
+```json
+{
+  "file": "/abs/path/file.rs",
+  "projectRoot": "/abs/path",
+  "line": 10,
+  "column": 2,
+  "nodePath": ["function_item", "parameters"], // optional
+  "commit": "HEAD sha",                        // optional (auto-detected if omitted)
+  "blob": "blob sha",                          // optional (auto-detected if omitted)
+  "text": "note text",
+  "tags": ["todo", "rust"]                     // optional
+}
+```
+
+Response: note object.
+
+#### `notes/list-for-file`
+
+```json
+{
+  "file": "/abs/path/file.rs",
+  "projectRoot": "/abs/path",
+  "commit": "HEAD sha",     // optional filter; when present, stale notes are excluded
+  "blob": "blob sha",       // optional filter
+  "includeStale": false     // optional; include notes from other commits/blobs (stale=true)
+}
+```
+
+Response: array of note objects.
+
+#### `notes/list-by-node`
+
+Same filters as `list-for-file`, plus:
+
+```json
+{ "nodePath": ["function_item", "parameters"] }
+```
+
+#### `notes/get`
+
+```json
+{ "id": "note-id" }
+```
+
+Response: note object.
