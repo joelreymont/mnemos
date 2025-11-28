@@ -41,7 +41,7 @@ hemis
 > If `doom sync` shows “Skipping hemis because it is out-of-tree”, add the `package! hemis` stanza in your personal `~/.doom.d/packages.el` as shown above and rerun `doom sync -u`—this tells Doom where to fetch Hemis from.
 
 ## Key bindings (notes mode)
-- `C-c h a` add note at point
+- `C-c h a` add note at point (multiline prompt; RET inserts newline, `C-c C-c` saves)
 - `C-c h r` refresh notes overlays
 - `C-c h l` list notes for buffer
 - `C-c h i` index current file; `C-c h p` index project
@@ -64,6 +64,7 @@ hemis
      ```
    - `C-c h r` to refresh overlays.
 7) Search for the linked note: `C-c h s` → query “Parser”. In `*Hemis Search*`, note hits show `kind` “note”; `RET` jumps to the location.
+8) View a note as Markdown: in `*Hemis Notes*`, press `v` on a note line to open it in `*Hemis Note*` with `markdown-mode` (falls back to `text-mode` if Markdown is unavailable).
 
 ## Troubleshooting
 - Backend path: ensure `hemis-backend` points to the built binary; check `*Hemis Log*` for process output.

@@ -297,6 +297,37 @@ Prefers the start of the Tree-sitter node at point; falls back to point."
 
 ;;; Notes data & overlays
 
+(defvar hemis--note-input-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map minibuffer-local-map)
+    (define-key map (kbd "RET") #'newline)
+    (define-key map (kbd "C-j") #'newline)
+    (define-key map (kbd "C-c C-c") #'exit-minibuffer)
+    (define-key map (kbd "C-c C-k") #'abort-recursive-edit)
+    map)
+  "Keymap for multi-line Hemis note entry (RET inserts newline, C-c C-c to save).")
+
+(defvar hemis--note-history nil
+  "Input history for Hemis note text.")
+
+(defun hemis--read-note-text ()
+  "Read multi-line note text from the minibuffer.
+RET inserts a newline; use C-c C-c to finish or C-c C-k to cancel."
+  (condition-case nil
+      (read-from-minibuffer
+       "Hemis note (RET=newline, C-c C-c to save, C-c C-k to cancel):\n"
+       nil hemis--note-input-map nil 'hemis--note-history)
+    (quit nil)))
+
+(defun hemis--note-text (note)
+  "Extract note text or summary from NOTE."
+  (or (alist-get 'text note)
+      (plist-get note :text)
+      (alist-get "text" note nil nil #'equal)
+      (alist-get 'summary note)
+      (plist-get note :summary)
+      (alist-get "summary" note nil nil #'equal)))
+
 (defun hemis--clear-note-overlays ()
   "Remove all Hemis note overlays from the current buffer."
   (when hemis--overlays
@@ -618,7 +649,9 @@ NOTES is a list of note objects (alist/plist) from the backend."
 
 (defun hemis-add-note (text &optional tags)
   "Create a new Hemis note at point with TEXT and optional TAGS list."
-  (interactive "sNote text: ")
+  (interactive
+   (let ((t (hemis--read-note-text)))
+     (list (or t (user-error "Note entry canceled")))))
   (let* ((anchor (hemis--note-anchor))
          (node-path (hemis--node-path-at-point))
          (node-path-json (when (and node-path (> (length node-path) 0))
@@ -689,6 +722,26 @@ NOTES is a list of note objects (alist/plist) from the backend."
       (goto-char (point-min)))
     (display-buffer buf)))
 
+(defun hemis-view-note (&optional note)
+  "View NOTE text in a Markdown buffer.
+If NOTE is nil, use the note at point in *Hemis Notes*, or prompt for an id."
+  (interactive)
+  (let* ((note (or note
+                   (get-text-property (line-beginning-position) 'hemis-note)
+                   (let ((id (read-string "Note id: ")))
+                     (hemis-get-note id))))
+         (text (or (hemis--note-text note) "")))
+    (with-current-buffer (get-buffer-create "*Hemis Note*")
+      (setq buffer-read-only nil)
+      (erase-buffer)
+      (insert text)
+      (goto-char (point-min))
+      (if (fboundp 'markdown-mode)
+          (markdown-mode)
+        (text-mode))
+      (view-mode 1)
+      (display-buffer (current-buffer)))))
+
 (defun hemis-notes-list-visit ()
   "Visit the note on the current line in its file."
   (interactive)
@@ -742,6 +795,7 @@ NOTES is a list of note objects (alist/plist) from the backend."
 (defvar hemis-notes-list-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "RET") #'hemis-notes-list-visit)
+    (define-key map (kbd "v")   #'hemis-view-note)
     map)
   "Keymap for `hemis-notes-list-mode'.")
 

@@ -16,7 +16,14 @@
                                  'file (cdr (assoc 'file params))
                                  'line 1
                                  'column 0
-                                 'summary "Mock note")))
+                                 'summary "Mock note"
+                                 'text "Mock note body")))
+                    ("notes/get"
+                     (list 'id (cdr (assoc 'id params))
+                           'file "/tmp/mock.rs"
+                           'line 1
+                           'column 0
+                           'text "Title\n\n- bullet"))
                     ("notes/create"
                      (list 'id "2"
                            'file (cdr (assoc 'file params))
@@ -102,9 +109,18 @@
       (search-forward "add")
       (hemis-add-note "test note")
       (should (equal hemis-test-last-method "notes/create"))
-      (let ((node-path (cdr (assoc 'nodePath hemis-test-last-params))))
-        (should (sequencep node-path))
-        (should (stringp (elt node-path 0)))))))
+        (let ((node-path (cdr (assoc 'nodePath hemis-test-last-params))))
+          (should (sequencep node-path))
+          (should (stringp (elt node-path 0)))))))
+
+(ert-deftest hemis-add-note-allows-multiline ()
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (insert "fn main() {}\n")
+      (set-visited-file-name "/tmp/main.rs" t t)
+      (hemis-add-note "line1\nline2")
+      (should (equal (cdr (assoc 'text hemis-test-last-params))
+                     "line1\nline2")))))
 
 (ert-deftest hemis-add-note-anchors-to-node-start ()
   (skip-unless (and (fboundp 'rust-ts-mode)
@@ -172,6 +188,26 @@
           (goto-char (overlay-start marker))
           (should (= (line-number-at-pos) 2))
           (should (= (current-column) 8)))))))
+
+(ert-deftest hemis-view-note-uses-markdown-mode-when-available ()
+  (hemis-test-with-mocked-backend
+    ;; Build a notes buffer with a note property, then view it.
+    (let ((note '((id . "1") (file . "/tmp/mock.rs") (line . 1) (column . 0)
+                  (text . "Heading\n\n- bullet"))))
+      (with-current-buffer (get-buffer-create "*Hemis Notes*")
+        (setq buffer-read-only nil)
+        (erase-buffer)
+        (insert "mock\n")
+        (add-text-properties (point-min) (point-max)
+                             (list 'hemis-note note)))
+      (with-current-buffer "*Hemis Notes*"
+        (goto-char (point-min)))
+      (with-current-buffer "*Hemis Notes*"
+        (hemis-view-note))
+      (with-current-buffer "*Hemis Note*"
+        (should (string-match-p "- bullet" (buffer-string)))
+        (when (fboundp 'markdown-mode)
+          (should (eq major-mode 'markdown-mode)))))))
 
 (ert-deftest hemis-index-rust-integration ()
   (skip-unless (and (fboundp 'rust-ts-mode)
