@@ -21,11 +21,19 @@ fn info_git2(path: &str) -> Option<Option<GitInfo>> {
     let head = repo.head().ok()?.target()?;
     let commit = head.to_string();
     let blob = repo.blob_path(p).ok().map(|id| id.to_string());
-    Some(Some(GitInfo { root: root.to_string_lossy().into_owned(), commit, blob }))
+    Some(Some(GitInfo {
+        root: root.to_string_lossy().into_owned(),
+        commit,
+        blob,
+    }))
 }
 
 fn info_cli(path: &str) -> Result<Option<GitInfo>> {
-    if std::process::Command::new("git").arg("--version").output().is_err() {
+    if std::process::Command::new("git")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
         return Ok(None);
     }
     let p = Path::new(path);
@@ -52,8 +60,8 @@ fn cmd(dir: &Path, args: impl IntoIterator<Item = &'static str>) -> Result<Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::fs;
+    use tempfile::tempdir;
     #[test]
     fn cli_info_handles_non_repo() {
         let dir = tempdir().unwrap();

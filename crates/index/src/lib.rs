@@ -1,9 +1,9 @@
 //! index: naive text indexing and search.
 
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
-use storage::{exec, query_all, now_unix};
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
+use storage::{exec, now_unix, query_all};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -25,11 +25,18 @@ pub struct SearchHit {
     pub text: String,
 }
 
-pub fn add_file(conn: &Connection, file: &str, project_root: &str, content: &str) -> Result<IndexedFile> {
+pub fn add_file(
+    conn: &Connection,
+    file: &str,
+    project_root: &str,
+    content: &str,
+) -> Result<IndexedFile> {
     let updated = now_unix();
-    exec(conn,
+    exec(
+        conn,
         "INSERT OR REPLACE INTO files (file, project_root, content, updated_at) VALUES (?,?,?,?);",
-        &[&file, &project_root, &content, &updated])?;
+        &[&file, &project_root, &content, &updated],
+    )?;
     Ok(IndexedFile {
         file: file.to_string(),
         project_root: project_root.to_string(),
@@ -40,13 +47,22 @@ pub fn add_file(conn: &Connection, file: &str, project_root: &str, content: &str
     })
 }
 
-pub fn search(conn: &Connection, query: &str, project_root: Option<&str>) -> Result<Vec<SearchHit>> {
+pub fn search(
+    conn: &Connection,
+    query: &str,
+    project_root: Option<&str>,
+) -> Result<Vec<SearchHit>> {
     let rows = if let Some(root) = project_root {
-        query_all(conn, "SELECT file, content FROM files WHERE project_root = ?;", &[&root], |row| {
-            let file: String = row.get(0)?;
-            let content: String = row.get(1)?;
-            Ok((file, content))
-        })?
+        query_all(
+            conn,
+            "SELECT file, content FROM files WHERE project_root = ?;",
+            &[&root],
+            |row| {
+                let file: String = row.get(0)?;
+                let content: String = row.get(1)?;
+                Ok((file, content))
+            },
+        )?
     } else {
         query_all(conn, "SELECT file, content FROM files;", &[], |row| {
             let file: String = row.get(0)?;

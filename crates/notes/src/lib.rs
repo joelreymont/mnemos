@@ -1,12 +1,12 @@
 //! notes: note models and operations.
 
 use anyhow::Result;
+use git::GitInfo;
+use rusqlite;
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use storage::{exec, now_unix, query_all};
-use rusqlite::Connection;
-use git::GitInfo;
 use uuid::Uuid;
-use rusqlite;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -54,16 +54,34 @@ impl<'a> Clone for NoteFilters<'a> {
 }
 
 fn summarize(text: &str) -> String {
-    if text.len() <= 60 { text.to_string() } else { format!("{}...", &text[..57]) }
+    if text.len() <= 60 {
+        text.to_string()
+    } else {
+        format!("{}...", &text[..57])
+    }
 }
 
-pub fn create(conn: &Connection, file: &str, project_root: &str, line: i64, column: i64, node_path: Option<serde_json::Value>, tags: serde_json::Value, text: &str, git: Option<GitInfo>) -> Result<Note> {
+pub fn create(
+    conn: &Connection,
+    file: &str,
+    project_root: &str,
+    line: i64,
+    column: i64,
+    node_path: Option<serde_json::Value>,
+    tags: serde_json::Value,
+    text: &str,
+    git: Option<GitInfo>,
+) -> Result<Note> {
     let id = Uuid::new_v4().to_string();
     let ts = now_unix();
     let summary = summarize(text);
-    let (commit, blob) = git.map(|g| (Some(g.commit), g.blob)).unwrap_or((None, None));
+    let (commit, blob) = git
+        .map(|g| (Some(g.commit), g.blob))
+        .unwrap_or((None, None));
     let tags_str = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
-    let node_path_str = node_path.as_ref().map(|v| serde_json::to_string(v).unwrap());
+    let node_path_str = node_path
+        .as_ref()
+        .map(|v| serde_json::to_string(v).unwrap());
     exec(conn, "INSERT INTO notes (id,file,project_root,line,column,node_path,tags,text,summary,commit_sha,blob_sha,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
          &[&id, &file, &project_root, &line, &column, &node_path_str, &tags_str, &text, &summary, &commit, &blob, &ts, &ts])?;
     Ok(Note {
@@ -107,7 +125,12 @@ fn map_note(row: &rusqlite::Row<'_>, stale: bool) -> Result<Note> {
     })
 }
 
-fn stale(note_commit: &Option<String>, note_blob: &Option<String>, commit: Option<&str>, blob: Option<&str>) -> bool {
+fn stale(
+    note_commit: &Option<String>,
+    note_blob: &Option<String>,
+    commit: Option<&str>,
+    blob: Option<&str>,
+) -> bool {
     match (note_commit, note_blob, commit, blob) {
         (Some(nc), _, Some(c), _) if nc != c => true,
         (_, Some(nb), _, Some(b)) if nb != b => true,
@@ -116,12 +139,17 @@ fn stale(note_commit: &Option<String>, note_blob: &Option<String>, commit: Optio
 }
 
 pub fn list_for_file(conn: &Connection, filters: NoteFilters<'_>) -> Result<Vec<Note>> {
-    let rows = query_all(conn, "SELECT * FROM notes WHERE file = ? ORDER BY updated_at DESC;", &[&filters.file], |row| {
-        let note_commit: Option<String> = row.get("commit_sha").ok();
-        let note_blob: Option<String> = row.get("blob_sha").ok();
-        let is_stale = stale(&note_commit, &note_blob, filters.commit, filters.blob);
-        map_note(row, is_stale)
-    })?;
+    let rows = query_all(
+        conn,
+        "SELECT * FROM notes WHERE file = ? ORDER BY updated_at DESC;",
+        &[&filters.file],
+        |row| {
+            let note_commit: Option<String> = row.get("commit_sha").ok();
+            let note_blob: Option<String> = row.get("blob_sha").ok();
+            let is_stale = stale(&note_commit, &note_blob, filters.commit, filters.blob);
+            map_note(row, is_stale)
+        },
+    )?;
     Ok(rows
         .into_iter()
         .filter(|n| filters.include_stale || !n.stale)
@@ -129,7 +157,10 @@ pub fn list_for_file(conn: &Connection, filters: NoteFilters<'_>) -> Result<Vec<
 }
 
 pub fn list_by_node(conn: &Connection, filters: NoteFilters<'_>) -> Result<Vec<Note>> {
-    let np = filters.node_path.as_ref().map(|v| serde_json::to_string(v).unwrap());
+    let np = filters
+        .node_path
+        .as_ref()
+        .map(|v| serde_json::to_string(v).unwrap());
     let rows = query_all(conn,
         "SELECT * FROM notes WHERE file = ? AND project_root = ? AND node_path = ? ORDER BY updated_at DESC;",
         &[&filters.file, &filters.project_root, &np],
@@ -146,12 +177,21 @@ pub fn list_by_node(conn: &Connection, filters: NoteFilters<'_>) -> Result<Vec<N
 }
 
 pub fn get(conn: &Connection, id: &str) -> Result<Note> {
-    let rows = query_all(conn, "SELECT * FROM notes WHERE id = ?;", &[&id], |row| map_note(row, false))?;
-    rows.into_iter().next().ok_or_else(|| anyhow::anyhow!("note not found"))
+    let rows = query_all(conn, "SELECT * FROM notes WHERE id = ?;", &[&id], |row| {
+        map_note(row, false)
+    })?;
+    rows.into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("note not found"))
 }
 
 pub fn list_project(conn: &Connection, project_root: &str) -> Result<Vec<Note>> {
-    query_all(conn, "SELECT * FROM notes WHERE project_root = ? ORDER BY updated_at DESC;", &[&project_root], |row| map_note(row, false))
+    query_all(
+        conn,
+        "SELECT * FROM notes WHERE project_root = ? ORDER BY updated_at DESC;",
+        &[&project_root],
+        |row| map_note(row, false),
+    )
 }
 
 pub fn delete(conn: &Connection, id: &str) -> Result<bool> {
@@ -159,14 +199,28 @@ pub fn delete(conn: &Connection, id: &str) -> Result<bool> {
     Ok(count > 0)
 }
 
-pub fn update(conn: &Connection, id: &str, text: Option<&str>, tags: Option<serde_json::Value>) -> Result<Note> {
+pub fn update(
+    conn: &Connection,
+    id: &str,
+    text: Option<&str>,
+    tags: Option<serde_json::Value>,
+) -> Result<Note> {
     let mut note = get(conn, id)?;
     let new_text = text.unwrap_or(&note.text).to_string();
     let new_tags = tags.unwrap_or(note.tags.clone());
     let summary = summarize(&new_text);
     let now = now_unix();
-    exec(conn, "UPDATE notes SET text = ?, summary = ?, tags = ?, updated_at = ? WHERE id = ?;",
-         &[&new_text, &summary, &serde_json::to_string(&new_tags)?, &now, &id])?;
+    exec(
+        conn,
+        "UPDATE notes SET text = ?, summary = ?, tags = ?, updated_at = ? WHERE id = ?;",
+        &[
+            &new_text,
+            &summary,
+            &serde_json::to_string(&new_tags)?,
+            &now,
+            &id,
+        ],
+    )?;
     note.text = new_text;
     note.tags = new_tags;
     note.summary = summary;
@@ -183,9 +237,13 @@ pub fn search(conn: &Connection, query: &str, project_root: Option<&str>) -> Res
     };
     let pattern_b = pattern.clone();
     let rows = if let Some(proj) = project_root {
-        query_all(conn, sql, &[&proj, &pattern, &pattern, &pattern_b], |row| map_note(row, false))?
+        query_all(conn, sql, &[&proj, &pattern, &pattern, &pattern_b], |row| {
+            map_note(row, false)
+        })?
     } else {
-        query_all(conn, sql, &[&pattern, &pattern, &pattern_b], |row| map_note(row, false))?
+        query_all(conn, sql, &[&pattern, &pattern, &pattern_b], |row| {
+            map_note(row, false)
+        })?
     };
     Ok(rows)
 }

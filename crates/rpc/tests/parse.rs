@@ -1,4 +1,4 @@
-use rpc::{parse_request, decode_framed};
+use rpc::{decode_framed, parse_request};
 
 #[test]
 fn parse_simple_request() {

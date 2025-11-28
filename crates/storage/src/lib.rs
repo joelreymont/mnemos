@@ -51,10 +51,16 @@ fn ensure_column(conn: &Connection, table: &str, column: &str, ty: &str) -> Resu
     let cols = stmt.query_map([], |row| row.get::<_, String>(1))?;
     let mut present = false;
     for col in cols {
-        if col? == column { present = true; break; }
+        if col? == column {
+            present = true;
+            break;
+        }
     }
     if !present {
-        conn.execute(&format!("ALTER TABLE {} ADD COLUMN {} {};", table, column, ty), [])?;
+        conn.execute(
+            &format!("ALTER TABLE {} ADD COLUMN {} {};", table, column, ty),
+            [],
+        )?;
     }
     Ok(())
 }
@@ -67,13 +73,22 @@ pub fn exec(conn: &Connection, sql: &str, params: &[&dyn rusqlite::ToSql]) -> Re
     Ok(conn.execute(sql, params)?)
 }
 
-pub fn query_all<T, F>(conn: &Connection, sql: &str, params: &[&dyn rusqlite::ToSql], map: F) -> Result<Vec<T>>
+pub fn query_all<T, F>(
+    conn: &Connection,
+    sql: &str,
+    params: &[&dyn rusqlite::ToSql],
+    map: F,
+) -> Result<Vec<T>>
 where
     F: Fn(&rusqlite::Row<'_>) -> Result<T>,
 {
     let mut stmt = conn.prepare(sql)?;
-    let rows = stmt.query_map(params, |row| map(row).map_err(|_e| rusqlite::Error::ExecuteReturnedResults))?;
+    let rows = stmt.query_map(params, |row| {
+        map(row).map_err(|_e| rusqlite::Error::ExecuteReturnedResults)
+    })?;
     let mut out = Vec::new();
-    for r in rows { out.push(r?); }
+    for r in rows {
+        out.push(r?);
+    }
     Ok(out)
 }
