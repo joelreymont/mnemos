@@ -91,3 +91,23 @@ Same filters as `list-for-file`, plus:
 ```
 
 Response: note object.
+
+#### `notes/delete`
+
+```json
+{ "id": "note-id" }
+```
+
+Response:
+
+```json
+{ "ok": true }
+```
+
+#### `notes/update`
+
+```json
+{ "id": "note-id", "text": "new text", "tags": ["tag"] }
+```
+
+Response: updated note object.
