@@ -26,6 +26,15 @@ CREATE TABLE IF NOT EXISTS files (
   content TEXT,
   updated_at INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS embeddings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  file TEXT,
+  project_root TEXT,
+  vector TEXT,
+  text TEXT,
+  updated_at INTEGER
+);
 "#;
 
 pub fn connect(path: &str) -> Result<Connection> {

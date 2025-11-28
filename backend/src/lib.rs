@@ -161,8 +161,23 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                 .get("includeNotes")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
+            let query_vec: Option<Vec<f32>> = req
+                .params
+                .get("vector")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_f64().map(|f| f as f32))
+                        .collect::<Vec<f32>>()
+                });
             match idx::search(db, query, proj) {
                 Ok(mut results) => {
+                    // If a query vector is provided, blend semantic hits.
+                    if let Some(vec) = query_vec {
+                        if let Ok(mut semantic_hits) = idx::semantic_search(db, &vec, proj, 5) {
+                            results.append(&mut semantic_hits);
+                        }
+                    }
                     if include_notes {
                         if let Ok(notes) = notes::search(db, query, proj) {
                             for n in notes {

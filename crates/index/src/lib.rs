@@ -26,6 +26,77 @@ pub struct SearchHit {
     pub score: f32,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Embedding {
+    pub file: String,
+    pub project_root: String,
+    pub vector: Vec<f32>,
+    pub text: String,
+    pub updated_at: i64,
+}
+
+fn derive_vector(content: &str) -> Vec<f32> {
+    vec![content.len() as f32, content.lines().count() as f32]
+}
+
+fn upsert_embedding(
+    conn: &Connection,
+    file: &str,
+    project_root: &str,
+    vector: &[f32],
+    text: &str,
+) -> Result<()> {
+    let updated = now_unix();
+    exec(
+        conn,
+        "INSERT OR REPLACE INTO embeddings (id, file, project_root, vector, text, updated_at)
+         VALUES (
+            (SELECT id FROM embeddings WHERE file = ?1),
+            ?1, ?2, ?3, ?4, ?5
+         );",
+        &[
+            &file,
+            &project_root,
+            &serde_json::to_string(vector)?,
+            &text,
+            &updated,
+        ],
+    )?;
+    Ok(())
+}
+
+fn embedding_from_row(row: &rusqlite::Row<'_>) -> Result<Embedding> {
+    let vector_str: String = row.get("vector")?;
+    let vector: Vec<f32> = serde_json::from_str(&vector_str).unwrap_or_default();
+    Ok(Embedding {
+        file: row.get("file")?,
+        project_root: row.get("project_root")?,
+        vector,
+        text: row.get("text")?,
+        updated_at: row.get("updated_at")?,
+    })
+}
+
+fn dot(a: &[f32], b: &[f32]) -> f32 {
+    let len = a.len().min(b.len());
+    let mut sum = 0.0;
+    for i in 0..len {
+        sum += a[i] * b[i];
+    }
+    sum
+}
+
+pub fn upsert_embedding_for_file(
+    conn: &Connection,
+    file: &str,
+    project_root: &str,
+    content: &str,
+) -> Result<()> {
+    let vector = derive_vector(content);
+    upsert_embedding(conn, file, project_root, &vector, content)
+}
+
 pub fn add_file(
     conn: &Connection,
     file: &str,
@@ -38,6 +109,7 @@ pub fn add_file(
         "INSERT OR REPLACE INTO files (file, project_root, content, updated_at) VALUES (?,?,?,?);",
         &[&file, &project_root, &content, &updated],
     )?;
+    upsert_embedding_for_file(conn, file, project_root, content)?;
     Ok(IndexedFile {
         file: file.to_string(),
         project_root: project_root.to_string(),
@@ -86,5 +158,39 @@ pub fn search(
         }
     }
     hits.sort_by(|a, b| b.score.total_cmp(&a.score));
+    Ok(hits)
+}
+
+pub fn semantic_search(
+    conn: &Connection,
+    query_vector: &[f32],
+    project_root: Option<&str>,
+    top_k: usize,
+) -> Result<Vec<SearchHit>> {
+    let rows = if let Some(root) = project_root {
+        query_all(
+            conn,
+            "SELECT * FROM embeddings WHERE project_root = ?;",
+            &[&root],
+            embedding_from_row,
+        )?
+    } else {
+        query_all(conn, "SELECT * FROM embeddings;", &[], embedding_from_row)?
+    };
+    let mut hits = Vec::new();
+    for emb in rows {
+        let score = dot(&emb.vector, query_vector);
+        hits.push(SearchHit {
+            file: emb.file.clone(),
+            line: 1,
+            column: 0,
+            text: emb.text.clone(),
+            score,
+        });
+    }
+    hits.sort_by(|a, b| b.score.total_cmp(&a.score));
+    if hits.len() > top_k {
+        hits.truncate(top_k);
+    }
     Ok(hits)
 }
