@@ -248,4 +248,12 @@
           (should (= req-calls 1))
           (should (search-forward "][xyz]]" nil t)))))))
 
+(ert-deftest hemis-insert-note-link-no-results ()
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (cl-letf (((symbol-function 'hemis--request)
+                 (lambda (&rest _) nil)))
+        (should-error (hemis-insert-note-link "missing")
+                      :type 'user-error)))))
+
 (provide 'hemis-test)
