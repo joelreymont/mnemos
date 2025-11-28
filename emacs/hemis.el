@@ -364,7 +364,8 @@ NOTES is a list of note objects (alist/plist) from the backend."
   "Create a new Hemis note at point with TEXT and optional TAGS list."
   (interactive "sNote text: ")
   (let* ((node-path (hemis--node-path-at-point))
-         (node-path-json (and node-path (vconcat node-path)))
+         (node-path-json (when (and node-path (> (length node-path) 0))
+                           (vconcat node-path)))
          (params (append (hemis--buffer-params)
                          `((line . ,(line-number-at-pos))
                            (column . ,(current-column))
