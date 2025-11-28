@@ -156,8 +156,28 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
+            let include_notes = req
+                .params
+                .get("includeNotes")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             match idx::search(db, query, proj) {
-                Ok(results) => Response::result(id, serde_json::to_value(results).unwrap()),
+                Ok(mut results) => {
+                    if include_notes {
+                        if let Ok(notes) = notes::search(db, query, proj) {
+                            for n in notes {
+                                results.push(idx::SearchHit {
+                                    file: n.file.clone(),
+                                    line: n.line as usize,
+                                    column: n.column as usize,
+                                    text: n.summary.clone(),
+                                    score: 0.5,
+                                });
+                            }
+                        }
+                    }
+                    Response::result(id, serde_json::to_value(results).unwrap())
+                }
                 Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
             }
         }

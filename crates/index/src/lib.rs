@@ -23,6 +23,7 @@ pub struct SearchHit {
     pub line: usize,
     pub column: usize,
     pub text: String,
+    pub score: f32,
 }
 
 pub fn add_file(
@@ -79,9 +80,11 @@ pub fn search(
                     line: idx + 1,
                     column: pos,
                     text: line.to_string(),
+                    score: 1.0,
                 });
             }
         }
     }
+    hits.sort_by(|a, b| b.score.total_cmp(&a.score));
     Ok(hits)
 }

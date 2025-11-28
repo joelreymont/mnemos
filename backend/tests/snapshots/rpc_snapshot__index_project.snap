@@ -20,6 +20,7 @@ expression: responses
         "column": 3,
         "file": "/tmp/foo.rs",
         "line": 1,
+        "score": 1.0,
         "text": "fn foo() {}"
       }
     ]

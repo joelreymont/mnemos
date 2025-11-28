@@ -345,7 +345,8 @@ NOTES is a list of note objects (alist/plist) from the backend."
   (let* ((root (or (hemis--project-root) default-directory))
          (results (hemis--request "hemis/search"
                                   `((query . ,query)
-                                    (projectRoot . ,root))))
+                                    (projectRoot . ,root)
+                                    (includeNotes . t))))
          (buf (get-buffer-create "*Hemis Search*")))
     (with-current-buffer buf
       (setq buffer-read-only nil)
@@ -356,8 +357,9 @@ NOTES is a list of note objects (alist/plist) from the backend."
           (let* ((file (alist-get 'file hit))
                  (line (alist-get 'line hit))
                  (col  (alist-get 'column hit))
-                 (text (alist-get 'text hit)))
-            (insert (format "%s:%s:%s %s\n" file line col text))
+                 (text (alist-get 'text hit))
+                 (score (alist-get 'score hit)))
+            (insert (format "%s:%s:%s [%s] %s\n" file line col score text))
             (add-text-properties (line-beginning-position 0) (line-end-position)
                                  (list 'hemis-search-hit hit)))))
       (goto-char (point-min))
