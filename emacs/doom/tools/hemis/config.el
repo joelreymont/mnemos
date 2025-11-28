@@ -5,6 +5,5 @@
   :hook (prog-mode . hemis-notes-mode)
   :config
   ;; Adjust these to point at your Hemis backend (protocol v2).
-  (setq hemis-executable "sbcl"
-        hemis-executable-args nil
-        hemis-backend-script hemis--default-backend-script))
+  (setq hemis-backend (or (getenv "HEMIS_BACKEND")
+                          hemis--default-backend)))

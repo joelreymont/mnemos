@@ -1,7 +1,6 @@
 use assert_cmd::Command;
-use rpc::Response;
-use serde::Deserialize;
-use serde_json::{self, Deserializer};
+use rpc::{decode_framed, Response};
+use serde_json;
 use tempfile::NamedTempFile;
 
 #[test]
@@ -46,13 +45,15 @@ fn handles_multiple_framed_requests() -> anyhow::Result<()> {
         .write_stdin(input)
         .assert()
         .success();
-    let stdout = assert.get_output().stdout.clone();
-    let mut de = Deserializer::from_slice(&stdout);
-    let first: Response = Deserialize::deserialize(&mut de)?;
-    let second: Response = Deserialize::deserialize(&mut de)?;
-    // Ensure the stream was fully consumed.
-    let remaining: Vec<serde_json::Value> = de.into_iter().collect::<Result<_, _>>()?;
-    assert!(remaining.is_empty());
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    assert_eq!(bodies.len(), 2, "expected two framed responses");
+    let first: Response = serde_json::from_slice(&bodies[0])?;
+    let second: Response = serde_json::from_slice(&bodies[1])?;
 
     let note_val = first.result.expect("create response should have result");
     let note_id = note_val

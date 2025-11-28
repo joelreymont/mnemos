@@ -1,6 +1,6 @@
 # Hemis Emacs UI
 
-- Backend: Common Lisp JSON-RPC server over stdio at `hemis-project/backend/hemis.lisp` (run with `sbcl --script`).
+- Backend: Rust JSON-RPC server over stdio (`backend/` bin in the Cargo workspace).
 - Client: `hemis.el` provides notes overlays and a notes list; uses built-in Emacs `jsonrpc`.
 - Doom: module stubs live in `emacs/doom/tools/hemis/`.
 
@@ -9,9 +9,8 @@ Quick start:
 ```elisp
 (add-to-list 'load-path "/path/to/hemis/emacs")
 (require 'hemis)
-;; Optional: adjust if you use a different Lisp or backend script path
-(setq hemis-executable "sbcl"
-      hemis-backend-script (expand-file-name "hemis-project/backend/hemis.lisp" "/path/to/hemis"))
+;; Point to the built Rust backend (or set env HEMIS_BACKEND).
+(setq hemis-backend (expand-file-name "target/debug/backend" "/path/to/hemis"))
 ```
 
 Use `M-x hemis-notes-mode` in a buffer to show sticky notes; `C-c h a` to add a note, `C-c h r` to refresh, `C-c h l` to list notes. `M-x hemis-shutdown` stops the backend.
@@ -19,15 +18,16 @@ Indexing/search: `C-c h i` to index the current file; `C-c h s` to search indexe
 
 ## Testing
 
-Run all automated tests (backend note-path persistence + Emacs UI) from the repo root:
+Run Rust backend + Emacs ERT suite from the repo root:
 
 ```bash
-./scripts/run-tests.sh
+./scripts/run-rust-tests.sh
 ```
 
 Run only the Emacs ERT suite:
 
 ```bash
+HEMIS_BACKEND=/path/to/target/debug/backend \
 emacs -Q --batch \
   -L emacs \
   -l hemis.el \
@@ -36,10 +36,6 @@ emacs -Q --batch \
   -f ert-run-tests-batch-and-exit
 ```
 
-Rust/Tree-sitter tests skip automatically if the runtime lacks `treesit` or `rust-ts-mode`.
+Tree-sitter tests skip automatically if the runtime lacks `treesit` or `rust-ts-mode`.
 When `hemis-auto-install-treesit-grammars` is non-nil (default), Hemis will attempt
 to install the Rust Tree-sitter grammar automatically if missing.
-
-### Rust backend (in progress)
-
-A new Rust backend lives in the Cargo workspace at repo root (`backend/` bin plus crates under `crates/`). Set `hemis-backend` to the built Rust binary (e.g., `target/debug/backend`); protocol remains JSON-RPC over stdio with Content-Length framing.

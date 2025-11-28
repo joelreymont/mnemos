@@ -1,6 +1,6 @@
 ;;; hemis.el --- Hemis: a second brain for your code  -*- lexical-binding: t; -*-
 
-;; Emacs frontend for the Hemis Lisp backend (protocol v2).
+;; Emacs frontend for the Hemis Rust backend (protocol v2).
 ;; - JSON-RPC 2.0 over stdio
 ;; - Notes minor mode with stickies as overlays
 ;; - Notes list buffer
@@ -16,10 +16,12 @@
   "Hemis – a second brain for your code."
   :group 'tools)
 
-(defconst hemis--default-backend-script
-  (expand-file-name "../hemis-project/backend/hemis.lisp"
-                    (file-name-directory (or load-file-name buffer-file-name)))
-  "Default path to the Hemis backend script bundled with this Emacs client.")
+(defconst hemis--default-backend
+  (let* ((here (file-name-directory (or load-file-name buffer-file-name)))
+         (root (expand-file-name ".." here))
+         (candidate (expand-file-name "target/debug/backend" root)))
+    (when (file-exists-p candidate) candidate))
+  "Default path to the Hemis Rust backend binary (if built locally).")
 
 ;; Tree-sitter language remaps for rust-ts-mode -> rust
 (when (featurep 'treesit)
@@ -37,25 +39,9 @@
     (advice-add 'treesit-language-available-p :around
                 #'hemis--advice-treesit-language-available)))
 
-(defcustom hemis-executable "sbcl"
-  "Path to the Hemis Lisp executable (or SBCL with --script)."
-  :type 'string
-  :group 'hemis)
-
-(defcustom hemis-backend nil
+(defcustom hemis-backend hemis--default-backend
   "Path to the Hemis backend binary (Rust JSON-RPC over stdio)."
   :type 'string
-  :group 'hemis)
-
-(defcustom hemis-backend-script hemis--default-backend-script
-  "Path to the Hemis backend script (JSON-RPC over stdio)."
-  :type 'string
-  :group 'hemis)
-
-(defcustom hemis-executable-args nil
-  "Arguments passed to `hemis-executable` when starting the server.
-When nil, defaults to `(\"--script\" hemis-backend-script)`."
-  :type '(choice (const :tag "Default" nil) (repeat string))
   :group 'hemis)
 
 (defcustom hemis-log-buffer "*Hemis Log*"
