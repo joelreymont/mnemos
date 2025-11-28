@@ -69,18 +69,22 @@ pub fn encode_response(resp: &Response) -> Vec<u8> {
 }
 
 /// Simple Content-Length framing for stdin/stdout.
-pub fn decode_framed(input: &str) -> Option<String> {
-    let mut lines = input.split("\r\n");
+pub fn decode_framed(buf: &[u8]) -> Option<Vec<u8>> {
+    let s = std::str::from_utf8(buf).ok()?;
+    let mut headers = s.split("\r\n");
     let mut len = None;
-    while let Some(line) = lines.next() {
+    while let Some(line) = headers.next() {
         if line.is_empty() { break; }
         if let Some(rest) = line.strip_prefix("Content-Length:") {
             len = rest.trim().parse::<usize>().ok();
         }
     }
-    let body: String = lines.collect();
+    let body: String = headers.collect();
     if let Some(l) = len {
-        if body.len() >= l { return Some(body[..l].to_string()); }
+        let bytes = body.as_bytes();
+        if bytes.len() >= l {
+            return Some(bytes[..l].to_vec());
+        }
     }
     None
 }
