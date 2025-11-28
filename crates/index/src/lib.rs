@@ -1,6 +1,6 @@
 //! index: naive text indexing and search.
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use storage::{exec, now_unix, query_all};
@@ -38,6 +38,18 @@ pub struct Embedding {
 
 fn derive_vector(content: &str) -> Vec<f32> {
     vec![content.len() as f32, content.lines().count() as f32]
+}
+
+fn embedding_input(content: &str) -> String {
+    content.lines().take(64).collect::<Vec<_>>().join("\n")
+}
+
+fn call_embedder(text: &str) -> Result<Vec<f32>> {
+    // Stub: replace with real model call (e.g., llama.cpp/HTTP).
+    if text.is_empty() {
+        return Err(anyhow!("empty text"));
+    }
+    Ok(vec![text.len() as f32, 1.0])
 }
 
 fn upsert_embedding(
@@ -93,7 +105,8 @@ pub fn upsert_embedding_for_file(
     project_root: &str,
     content: &str,
 ) -> Result<()> {
-    let vector = derive_vector(content);
+    let vector =
+        call_embedder(&embedding_input(content)).unwrap_or_else(|_| derive_vector(content));
     upsert_embedding(conn, file, project_root, &vector, content)
 }
 
