@@ -37,6 +37,13 @@ Protocol: **JSON-RPC 2.0**.
 - `index/add-file` → store file content (for search)
 - `index/search` → naive text search across indexed files
 - `shutdown` → cleanly terminate the backend
+- `hemis/open-project` → select a project root
+- `hemis/list-files` → recursively list project files (ignores common dirs)
+- `hemis/get-file` → fetch file contents
+- `hemis/explain-region` → return a snippet for a file range (LLM-ready hook)
+- `hemis/search` → semantic/text search (currently mirrors `index/search`)
+- `hemis/save-snapshot` → write a snapshot summary (version, counts, timestamps)
+- `hemis/load-snapshot` → load a snapshot file
 
 Notes attach to files, git versions, node paths, and tags. Backend returns JSON objects.
 
