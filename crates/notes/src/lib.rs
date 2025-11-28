@@ -150,6 +150,10 @@ pub fn get(conn: &Connection, id: &str) -> Result<Note> {
     rows.into_iter().next().ok_or_else(|| anyhow::anyhow!("note not found"))
 }
 
+pub fn list_project(conn: &Connection, project_root: &str) -> Result<Vec<Note>> {
+    query_all(conn, "SELECT * FROM notes WHERE project_root = ? ORDER BY updated_at DESC;", &[&project_root], |row| map_note(row, false))
+}
+
 pub fn delete(conn: &Connection, id: &str) -> Result<bool> {
     let count = exec(conn, "DELETE FROM notes WHERE id = ?;", &[&id])?;
     Ok(count > 0)
