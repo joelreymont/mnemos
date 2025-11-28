@@ -41,3 +41,7 @@ emacs -Q --batch \
 Tree-sitter tests skip automatically if the runtime lacks `treesit` or `rust-ts-mode`.
 When `hemis-auto-install-treesit-grammars` is non-nil (default), Hemis will attempt
 to install the Rust Tree-sitter grammar automatically if missing.
+
+## Semantic search
+
+Set `HEMIS_EMBED_URL` to point at an embedding HTTP endpoint (POST body `{ "text": "..." }`, response `{ "vector": [f32...] }`). `hemis/search` blends semantic hits when `vector` is provided; Emacs search displays scores alongside results.
