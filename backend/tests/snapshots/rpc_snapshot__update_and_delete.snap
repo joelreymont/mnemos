@@ -1,0 +1,47 @@
+---
+source: backend/tests/rpc_snapshot.rs
+expression: responses
+---
+[
+  {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "column": 0,
+      "createdAt": "<ts>",
+      "file": "/tmp/test.rs",
+      "id": "<id>",
+      "line": 1,
+      "projectRoot": "/tmp",
+      "stale": false,
+      "summary": "initial",
+      "tags": [],
+      "text": "initial",
+      "updatedAt": "<ts>"
+    }
+  },
+  {
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+      "column": 0,
+      "createdAt": "<ts>",
+      "file": "/tmp/test.rs",
+      "id": "<id>",
+      "line": 1,
+      "projectRoot": "/tmp",
+      "stale": false,
+      "summary": "updated",
+      "tags": [],
+      "text": "updated",
+      "updatedAt": "<ts>"
+    }
+  },
+  {
+    "id": 3,
+    "jsonrpc": "2.0",
+    "result": {
+      "ok": true
+    }
+  }
+]

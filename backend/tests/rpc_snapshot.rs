@@ -5,9 +5,11 @@ use serde_json::{self, json, Value};
 use tempfile::NamedTempFile;
 
 fn scrub_note(note: &mut serde_json::Map<String, Value>) {
-    note.insert("id".into(), json!("<id>"));
-    note.insert("createdAt".into(), json!("<ts>"));
-    note.insert("updatedAt".into(), json!("<ts>"));
+    if note.contains_key("file") {
+        note.insert("id".into(), json!("<id>"));
+        note.insert("createdAt".into(), json!("<ts>"));
+        note.insert("updatedAt".into(), json!("<ts>"));
+    }
 }
 
 fn scrub_response(mut resp: Value) -> Value {
@@ -78,5 +80,98 @@ fn snapshot_create_and_list() -> anyhow::Result<()> {
         .map(scrub_response)
         .collect();
     assert_json_snapshot!("create_and_list", responses);
+    Ok(())
+}
+
+#[test]
+fn snapshot_update_and_delete() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 1,
+            "column": 0,
+            "text": "initial",
+            "tags": []
+        }
+    })
+    .to_string();
+    let req_update_tpl = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/update",
+        "params": {
+            "id": "<id>",
+            "text": "updated"
+        }
+    });
+    let req_delete_tpl = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "notes/delete",
+        "params": {
+            "id": "<id>"
+        }
+    });
+    // First create, then patch in the returned id for update/delete.
+    let create_input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
+    let assert = cargo_bin_cmd!("backend")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(create_input)
+        .assert()
+        .success();
+    let mut stdout = assert.get_output().stdout.clone();
+    let (body, used) = decode_framed(&stdout).expect("create response");
+    stdout.drain(..used);
+    let created: Value = serde_json::from_slice(&body)?;
+    let note_id = created
+        .get("result")
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .unwrap();
+    let mut req_update = req_update_tpl.clone();
+    let mut req_delete = req_delete_tpl.clone();
+    if let Some(obj) = req_update.get_mut("params") {
+        if let Some(id) = obj.get_mut("id") {
+            *id = Value::String(note_id.to_string());
+        }
+    }
+    if let Some(obj) = req_delete.get_mut("params") {
+        if let Some(id) = obj.get_mut("id") {
+            *id = Value::String(note_id.to_string());
+        }
+    }
+    let upd = serde_json::to_string(&req_update)?;
+    let del = serde_json::to_string(&req_delete)?;
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        upd.len(),
+        upd,
+        del.len(),
+        del
+    );
+    let assert = cargo_bin_cmd!("backend")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    let mut responses: Vec<Value> = bodies
+        .into_iter()
+        .map(|b| serde_json::from_slice(&b).unwrap())
+        .map(scrub_response)
+        .collect();
+    // Prepend the create response for context.
+    responses.insert(0, scrub_response(created));
+    assert_json_snapshot!("update_and_delete", responses);
     Ok(())
 }
