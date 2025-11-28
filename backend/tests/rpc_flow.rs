@@ -218,3 +218,130 @@ fn filters_stale_notes_by_commit() -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn filters_stale_notes_by_blob() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let repo = tempfile::tempdir()?;
+    let file = repo.path().join("main.rs");
+    fs::write(&file, "fn main() {}\n")?;
+    git(repo.path(), &["init"])?;
+    git(repo.path(), &["config", "user.email", "test@example.com"])?;
+    git(repo.path(), &["config", "user.name", "test"])?;
+    git(repo.path(), &["add", "main.rs"])?;
+    git(repo.path(), &["commit", "-m", "init"])?;
+    let old_commit = git(repo.path(), &["rev-parse", "HEAD"])?;
+    let old_blob = git(repo.path(), &["hash-object", "main.rs"])?;
+
+    let file_str = file.to_string_lossy().to_string();
+    let root_str = repo.path().to_string_lossy().to_string();
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str,
+            "line": 1,
+            "column": 0,
+            "text": "blob note",
+            "tags": []
+        }
+    })
+    .to_string();
+
+    // Use a mismatching blob to force stale without changing commit.
+    let new_blob = format!("{}-mismatch", old_blob);
+    let new_commit = old_commit.clone();
+
+    let req_stale_filtered = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/list-for-file",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str,
+            "commit": new_commit,
+            "blob": new_blob,
+            "includeStale": false
+        }
+    })
+    .to_string();
+    let req_stale_included = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "notes/list-for-file",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str,
+            "commit": new_commit,
+            "blob": format!("{}-mismatch", old_blob),
+            "includeStale": true
+        }
+    })
+    .to_string();
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        req_create.len(),
+        req_create,
+        req_stale_filtered.len(),
+        req_stale_filtered,
+        req_stale_included.len(),
+        req_stale_included
+    );
+    let assert = cargo_bin_cmd!("backend")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    assert_eq!(bodies.len(), 3);
+    let created: Response = serde_json::from_slice(&bodies[0])?;
+    let note_obj = created
+        .result
+        .as_ref()
+        .and_then(|v| v.as_object())
+        .cloned()
+        .expect("create result object");
+    let note_commit = note_obj
+        .get("commitSha")
+        .and_then(|v| v.as_str())
+        .expect("note should capture commitSha")
+        .to_string();
+    let note_blob = note_obj
+        .get("blobSha")
+        .and_then(|v| v.as_str())
+        .expect("note should capture blobSha")
+        .to_string();
+    assert_eq!(note_commit, old_commit);
+    assert_eq!(note_blob, old_blob);
+    let filtered: Response = serde_json::from_slice(&bodies[1])?;
+    let filtered_list = filtered
+        .result
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    assert!(
+        filtered_list.is_empty(),
+        "stale notes should be filtered out when blob/commit mismatch"
+    );
+    let included: Response = serde_json::from_slice(&bodies[2])?;
+    let included_list = included
+        .result
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    assert_eq!(included_list.len(), 1);
+    let stale_flag = included_list[0]
+        .get("stale")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    assert!(
+        stale_flag,
+        "stale note should be marked stale when included for blob mismatch"
+    );
+    Ok(())
+}
