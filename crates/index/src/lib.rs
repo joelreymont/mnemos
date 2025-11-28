@@ -25,6 +25,10 @@ pub struct SearchHit {
     pub column: usize,
     pub text: String,
     pub score: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -180,6 +184,8 @@ pub fn search(
                     column: pos,
                     text: line.to_string(),
                     score: 1.0,
+                    kind: Some("file".into()),
+                    note_id: None,
                 });
             }
         }

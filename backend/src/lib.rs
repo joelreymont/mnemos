@@ -199,6 +199,8 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                                     column: n.column as usize,
                                     text: n.summary.clone(),
                                     score: 0.5,
+                                    kind: Some("note".into()),
+                                    note_id: Some(n.id.clone()),
                                 });
                             }
                         }
