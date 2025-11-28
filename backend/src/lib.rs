@@ -235,6 +235,23 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                 Response::error(id, METHOD_NOT_FOUND, "missing path")
             }
         }
+        "hemis/status" => {
+            let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
+            match snapshot::create(db, proj) {
+                Ok(payload) => {
+                    let counts = payload.get("counts").cloned().unwrap_or_default();
+                    Response::result(
+                        id,
+                        json!({
+                            "ok": true,
+                            "projectRoot": proj,
+                            "counts": counts
+                        }),
+                    )
+                }
+                Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+            }
+        }
         "notes/list-for-file" => {
             let file = req.params.get("file").and_then(|v| v.as_str());
             let proj = req.params.get("projectRoot").and_then(|v| v.as_str());

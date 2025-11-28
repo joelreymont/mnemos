@@ -26,20 +26,7 @@ expression: responses
         "notes": 0
       },
       "ok": true,
-      "path": "/tmp/snapshot.json"
-    }
-  },
-  {
-    "id": 3,
-    "jsonrpc": "2.0",
-    "result": {
-      "counts": {
-        "edges": 0,
-        "embeddings": 1,
-        "files": 1,
-        "notes": 0
-      },
-      "ok": true
+      "projectRoot": "/tmp"
     }
   }
 ]

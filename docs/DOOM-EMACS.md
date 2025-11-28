@@ -20,7 +20,7 @@ This produces `target/debug/backend`. The backend stores data in SQLite; overrid
 mkdir -p ~/.config/doom/modules/tools
 ln -s /Users/joel/Work/hemis/emacs/doom/tools/hemis ~/.config/doom/modules/tools/hemis
 ```
-2) Enable in `~/.doom.d/init.el` under `:tools`:
+2) Enable in `~/config/doom/init.el` under `:tools`:
 ```lisp
 hemis
 ```

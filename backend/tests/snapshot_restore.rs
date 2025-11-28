@@ -10,11 +10,12 @@ fn restore_returns_counts() {
         "files": [],
         "notes": [],
         "embeddings": [],
+        "edges": []
     });
     let out = snapshot::restore(&conn, &snap).unwrap();
     assert_eq!(
         out.get("counts").unwrap(),
-        &json!({"files":0,"notes":0,"embeddings":0})
+        &json!({"files":0,"notes":0,"embeddings":0,"edges":0})
     );
     assert_eq!(out.get("ok").unwrap(), &json!(true));
 }
@@ -33,6 +34,9 @@ fn restore_inserts_notes_and_files() {
         ],
         "embeddings": [
             { "file": "/tmp/a.rs", "projectRoot": "/tmp", "vector": "[1.0]", "text": "fn a", "updatedAt": 1 }
+        ],
+        "edges": [
+            { "src": "n1", "dst": "n1", "kind": "self", "projectRoot": "/tmp", "updatedAt": 1 }
         ]
     });
     snapshot::restore(&conn, &snap).unwrap();
@@ -44,4 +48,5 @@ fn restore_inserts_notes_and_files() {
     assert_eq!(counts.get("files").unwrap(), 1);
     assert_eq!(counts.get("notes").unwrap(), 1);
     assert_eq!(counts.get("embeddings").unwrap(), 1);
+    assert_eq!(counts.get("edges").unwrap(), 1);
 }

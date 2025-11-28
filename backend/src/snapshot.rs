@@ -38,10 +38,21 @@ pub fn create(conn: &Connection, project_root: Option<&str>) -> Result<serde_jso
             "updatedAt": row.get::<_, i64>("updated_at")?,
         }))
     })?;
+    let edges = query_all(conn, "SELECT * FROM edges;", &[], |row| {
+        Ok(json!({
+            "id": row.get::<_, i64>("id")?,
+            "src": row.get::<_, String>("src")?,
+            "dst": row.get::<_, String>("dst")?,
+            "kind": row.get::<_, String>("kind")?,
+            "projectRoot": row.get::<_, String>("project_root")?,
+            "updatedAt": row.get::<_, i64>("updated_at")?,
+        }))
+    })?;
     let counts = json!({
         "files": files.len(),
         "notes": notes.len(),
-        "embeddings": embeddings.len()
+        "embeddings": embeddings.len(),
+        "edges": edges.len()
     });
     Ok(json!({
         "version": 1,
@@ -50,7 +61,8 @@ pub fn create(conn: &Connection, project_root: Option<&str>) -> Result<serde_jso
         "counts": counts,
         "notes": notes,
         "files": files,
-        "embeddings": embeddings
+        "embeddings": embeddings,
+        "edges": edges
     }))
 }
 
@@ -58,6 +70,7 @@ pub fn restore(conn: &Connection, snapshot: &serde_json::Value) -> Result<serde_
     exec(conn, "DELETE FROM notes;", &[])?;
     exec(conn, "DELETE FROM files;", &[])?;
     exec(conn, "DELETE FROM embeddings;", &[])?;
+    exec(conn, "DELETE FROM edges;", &[])?;
     if let Some(notes) = snapshot.get("notes").and_then(|v| v.as_array()) {
         for n in notes {
             let id = n.get("id").and_then(|v| v.as_str()).unwrap_or("");
@@ -118,10 +131,28 @@ pub fn restore(conn: &Connection, snapshot: &serde_json::Value) -> Result<serde_
                  &[&file, &proj, &vector, &text, &updated_at])?;
         }
     }
+    if let Some(edges) = snapshot.get("edges").and_then(|v| v.as_array()) {
+        for e in edges {
+            let src = e.get("src").and_then(|v| v.as_str()).unwrap_or("");
+            let dst = e.get("dst").and_then(|v| v.as_str()).unwrap_or("");
+            let kind = e.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            let proj = e.get("projectRoot").and_then(|v| v.as_str()).unwrap_or("");
+            let updated_at = e
+                .get("updatedAt")
+                .and_then(|v| v.as_i64())
+                .unwrap_or_else(now_unix);
+            exec(
+                conn,
+                "INSERT INTO edges (src, dst, kind, project_root, updated_at) VALUES (?,?,?,?,?);",
+                &[&src, &dst, &kind, &proj, &updated_at],
+            )?;
+        }
+    }
     let counts = json!({
         "files": snapshot.get("files").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0),
         "notes": snapshot.get("notes").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0),
         "embeddings": snapshot.get("embeddings").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0),
+        "edges": snapshot.get("edges").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0),
     });
     Ok(json!({"ok": true, "counts": counts}))
 }
