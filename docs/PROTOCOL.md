@@ -54,6 +54,9 @@ Notes attach to files, git versions, node paths, and tags. Backend returns JSON 
 - `index/search` searches indexed files for a substring and returns hits with file/line/column/text.
 
 ### Notes
+Notes are stored as Markdown and may include external links as well as references to other notes/files.
+Links to other notes use the format `[[DESCRIPTION][ID]]`; the ID stays stable even if the description changes.
+A double `[[` in the Emacs UI triggers a note search to help insert these links.
 
 #### `notes/create`
 

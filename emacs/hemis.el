@@ -339,8 +339,19 @@ NOTES is a list of note objects (alist/plist) from the backend."
                         (content . ,content))))
     (message "Hemis: indexed %s" file)))
 
+(defun hemis-index-project (&optional root)
+  "Index all files under ROOT (defaults to project root) and show progress."
+  (interactive)
+  (let ((root (or root (hemis--project-root) default-directory)))
+    (message "Hemis: indexing project %s..." root)
+    (let ((resp (hemis--request "hemis/index-project"
+                                `((projectRoot . ,root)))))
+      (message "Hemis: indexed %s files in %s"
+               (or (alist-get 'indexed resp) "?")
+               root))))
+
 (defun hemis-search-project (query)
-  "Search QUERY in indexed files for the current project and show results."
+  "Search QUERY in indexed files/notes for the current project and show results."
   (interactive "sSearch query: ")
   (let* ((root (or (hemis--project-root) default-directory))
          (results (hemis--request "hemis/search"
@@ -353,13 +364,20 @@ NOTES is a list of note objects (alist/plist) from the backend."
       (erase-buffer)
       (let ((inhibit-read-only t))
         (insert (format "Hemis search for \"%s\" in %s\n\n" query root))
+        (insert (format "%-6s %-6s %-40s %s\n" "Kind" "Score" "Location" "Text"))
+        (insert (make-string 80 ?-))
+        (insert "\n")
         (dolist (hit results)
           (let* ((file (alist-get 'file hit))
                  (line (alist-get 'line hit))
                  (col  (alist-get 'column hit))
                  (text (alist-get 'text hit))
-                 (score (alist-get 'score hit)))
-            (insert (format "%s:%s:%s [%s] %s\n" file line col score text))
+                 (score (alist-get 'score hit))
+                 (kind (or (alist-get 'kind hit) "file")))
+            (insert (format "%-6s %-6.2f %-40s %s\n"
+                            kind score
+                            (format "%s:%s:%s" file line col)
+                            text))
             (add-text-properties (line-beginning-position 0) (line-end-position)
                                  (list 'hemis-search-hit hit)))))
       (goto-char (point-min))
@@ -617,6 +635,7 @@ NOTES is a list of note objects (alist/plist) from the backend."
     (define-key map (kbd "C-c h r") #'hemis-refresh-notes)
     (define-key map (kbd "C-c h l") #'hemis-list-notes)
     (define-key map (kbd "C-c h i") #'hemis-index-file)
+    (define-key map (kbd "C-c h p") #'hemis-index-project)
     (define-key map (kbd "C-c h s") #'hemis-search-project)
     (define-key map (kbd "C-c h k") #'hemis-insert-note-link)
     map)
