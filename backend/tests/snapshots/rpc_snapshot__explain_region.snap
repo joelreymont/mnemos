@@ -1,0 +1,14 @@
+---
+source: backend/tests/rpc_snapshot.rs
+expression: responses
+---
+[
+  {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "explanation": "fn add(x: i32) -> i32 {\n    x + 1",
+      "references": []
+    }
+  }
+]

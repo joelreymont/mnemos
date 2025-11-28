@@ -442,3 +442,40 @@ fn snapshot_list_files() -> anyhow::Result<()> {
     assert_json_snapshot!("list_files", redacted);
     Ok(())
 }
+
+#[test]
+fn snapshot_explain_region() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let root = tempfile::tempdir()?;
+    let file_path = root.path().join("code.rs");
+    std::fs::write(&file_path, "fn add(x: i32) -> i32 {\n    x + 1\n}\n")?;
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/explain-region",
+        "params": {
+            "file": file_path.to_string_lossy(),
+            "start": {"line": 1, "column": 0},
+            "end": {"line": 2, "column": 0}
+        }
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let assert = cargo_bin_cmd!("backend")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    let responses: Vec<Value> = bodies
+        .into_iter()
+        .map(|b| serde_json::from_slice(&b).unwrap())
+        .collect();
+    assert_json_snapshot!("explain_region", responses);
+    Ok(())
+}

@@ -6,6 +6,7 @@ use rusqlite::Connection;
 use serde_json::json;
 use std::fs;
 use std::path::Path;
+use storage::now_unix;
 
 const IGNORE_DIRS: &[&str] = &[
     ".git",
@@ -82,6 +83,86 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                 Response::result(id, json!({"ok": true}))
             } else {
                 Response::error(id, METHOD_NOT_FOUND, "missing projectRoot")
+            }
+        }
+        "hemis/explain-region" => {
+            let file = req.params.get("file").and_then(|v| v.as_str());
+            let start_line = req
+                .params
+                .get("start")
+                .and_then(|s| s.get("line"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(1) as usize;
+            let end_line = req
+                .params
+                .get("end")
+                .and_then(|s| s.get("line"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(start_line as u64) as usize;
+            if let Some(file) = file {
+                match fs::read_to_string(file) {
+                    Ok(content) => {
+                        let snippet: String = content
+                            .lines()
+                            .enumerate()
+                            .filter(|(idx, _)| {
+                                let line_no = idx + 1;
+                                line_no >= start_line && line_no <= end_line
+                            })
+                            .map(|(_, l)| l)
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        let resp = if snippet.is_empty() {
+                            json!({"explanation": "No content in range", "references": []})
+                        } else {
+                            json!({"explanation": snippet, "references": []})
+                        };
+                        Response::result(id, resp)
+                    }
+                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                }
+            } else {
+                Response::error(id, METHOD_NOT_FOUND, "missing file")
+            }
+        }
+        "hemis/search" => {
+            let query = req
+                .params
+                .get("query")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
+            match idx::search(db, query, proj) {
+                Ok(results) => Response::result(id, serde_json::to_value(results).unwrap()),
+                Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+            }
+        }
+        "hemis/save-snapshot" => {
+            if let Some(path) = req.params.get("path").and_then(|v| v.as_str()) {
+                let payload = json!({
+                    "version": 1,
+                    "projectRoot": req.params.get("projectRoot").and_then(|v| v.as_str()),
+                    "createdAt": now_unix(),
+                });
+                match fs::write(path, serde_json::to_vec_pretty(&payload).unwrap()) {
+                    Ok(_) => Response::result(id, json!({"ok": true, "path": path})),
+                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                }
+            } else {
+                Response::error(id, METHOD_NOT_FOUND, "missing path")
+            }
+        }
+        "hemis/load-snapshot" => {
+            if let Some(path) = req.params.get("path").and_then(|v| v.as_str()) {
+                match fs::read_to_string(path) {
+                    Ok(contents) => match serde_json::from_str::<serde_json::Value>(&contents) {
+                        Ok(val) => Response::result(id, val),
+                        Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                    },
+                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                }
+            } else {
+                Response::error(id, METHOD_NOT_FOUND, "missing path")
             }
         }
         "notes/list-for-file" => {
