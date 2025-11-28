@@ -103,6 +103,39 @@ fn handles_multiple_framed_requests() -> anyhow::Result<()> {
 }
 
 #[test]
+fn handles_large_framed_body() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let big_content = "fn main() {}\n".repeat(2_000); // ~20k bytes to exceed the read buffer.
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 99,
+        "method": "index/add-file",
+        "params": {
+            "file": "/tmp/big.rs",
+            "projectRoot": "/tmp",
+            "content": big_content
+        }
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let assert = cargo_bin_cmd!("backend")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("framed response for large body");
+    let resp: Response = serde_json::from_slice(&body)?;
+    assert_eq!(resp.id, Some(serde_json::json!(99)));
+    assert!(
+        resp.error.is_none(),
+        "expected success, got {:?}",
+        resp.error
+    );
+    Ok(())
+}
+
+#[test]
 fn handles_line_delimited_shutdown() -> anyhow::Result<()> {
     let db = NamedTempFile::new()?;
     let req = r#"{"jsonrpc":"2.0","id":7,"method":"shutdown","params":{}}"#;

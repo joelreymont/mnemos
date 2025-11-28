@@ -75,6 +75,9 @@
 (defvar hemis--conn nil
   "JSON-RPC connection to the Hemis backend.")
 
+(defvar hemis--project-root-override nil
+  "Project root set via `hemis-open-project' (takes precedence over `project-current').")
+
 (defvar hemis--overlays nil
   "List of Hemis note overlays in the current buffer.")
 
@@ -244,9 +247,9 @@ When FORCE is non-nil, attempt installation even if `major-mode` is not Rust."
   "Return non-nil when Tree-sitter is available for the current mode."
   (when (and (featurep 'treesit)
              (fboundp 'treesit-node-at)
-             (fboundp 'treesit-ready-p))
-    (when (memq major-mode '(rust-mode rust-ts-mode))
-      (hemis--ensure-rust-grammar))
+             (fboundp 'treesit-ready-p)
+             (memq major-mode '(rust-mode rust-ts-mode)))
+    (hemis--ensure-rust-grammar)
     (treesit-ready-p major-mode)))
 
 (defun hemis--node-path-at-point (&optional max-depth)
@@ -309,10 +312,11 @@ NOTES is a list of note objects (alist/plist) from the backend."
 
 (defun hemis--project-root ()
   "Return the project root for the current buffer, or nil."
-  (when-let* ((proj (ignore-errors (project-current))))
-    (condition-case nil
-        (project-root proj)
-      (error nil))))
+  (or hemis--project-root-override
+      (when-let* ((proj (ignore-errors (project-current))))
+        (condition-case nil
+            (project-root proj)
+          (error nil)))))
 
 (defun hemis--buffer-params ()
   "Return an alist describing the current buffer for the backend."
@@ -441,9 +445,10 @@ NOTES is a list of note objects (alist/plist) from the backend."
 (defun hemis-open-project (root)
   "Open Hemis project at ROOT and remember it for subsequent RPCs."
   (interactive "DProject root: ")
-  (setq hemis--project-root (expand-file-name root))
-  (hemis--request "hemis/open-project" `((projectRoot . ,hemis--project-root)))
-  (message "Hemis: project set to %s" hemis--project-root))
+  (setq hemis--project-root-override (expand-file-name root))
+  (hemis--request "hemis/open-project"
+                  `((projectRoot . ,hemis--project-root-override)))
+  (message "Hemis: project set to %s" hemis--project-root-override))
 
 (defun hemis-list-files (&optional root)
   "List files under ROOT (defaults to current project)."
