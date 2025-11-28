@@ -29,6 +29,14 @@ fn handle(req: Request, db: &Connection) -> Response {
                 Response::error(id, METHOD_NOT_FOUND, "missing file/projectRoot")
             }
         }
+        "notes/search" => {
+            let query = req.params.get("query").and_then(|v| v.as_str()).unwrap_or("");
+            let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
+            match notes::search(db, query, proj) {
+                Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
+                Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+            }
+        }
         "notes/list-by-node" => {
             let file = req.params.get("file").and_then(|v| v.as_str());
             let proj = req.params.get("projectRoot").and_then(|v| v.as_str());

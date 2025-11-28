@@ -169,3 +169,19 @@ pub fn update(conn: &Connection, id: &str, text: Option<&str>, tags: Option<serd
     note.updated_at = now;
     Ok(note)
 }
+
+pub fn search(conn: &Connection, query: &str, project_root: Option<&str>) -> Result<Vec<Note>> {
+    let pattern = format!("%{}%", query);
+    let sql = if project_root.is_some() {
+        "SELECT * FROM notes WHERE project_root = ? AND (text LIKE ? OR summary LIKE ? OR file LIKE ?) ORDER BY updated_at DESC;"
+    } else {
+        "SELECT * FROM notes WHERE (text LIKE ? OR summary LIKE ? OR file LIKE ?) ORDER BY updated_at DESC;"
+    };
+    let pattern_b = pattern.clone();
+    let rows = if let Some(proj) = project_root {
+        query_all(conn, sql, &[&proj, &pattern, &pattern, &pattern_b], |row| map_note(row, false))?
+    } else {
+        query_all(conn, sql, &[&pattern, &pattern, &pattern_b], |row| map_note(row, false))?
+    };
+    Ok(rows)
+}
