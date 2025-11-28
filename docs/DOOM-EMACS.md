@@ -65,6 +65,7 @@ hemis
    - `C-c h r` to refresh overlays.
 7) Search for the linked note: `C-c h s` → query “Parser”. In `*Hemis Search*`, note hits show `kind` “note”; `RET` jumps to the location.
 8) View a note as Markdown: in `*Hemis Notes*`, press `v` on a note line to open it in `*Hemis Note*` with `markdown-mode` (falls back to `text-mode` if Markdown is unavailable).
+9) Auto-enable: Hemis now enables `hemis-notes-mode` automatically in programming buffers via `hemis-notes-global-mode`. Toggle globally with `M-x hemis-notes-global-mode` if you need to disable/re-enable.
 
 ## Troubleshooting
 - Backend path: ensure `hemis-backend` points to the built binary; check `*Hemis Log*` for process output.

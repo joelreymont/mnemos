@@ -351,6 +351,13 @@
           (should (= req-calls 1))
           (should (search-forward "][xyz]]" nil t)))))))
 
+(ert-deftest hemis-notes-global-mode-enables-keymap ()
+  (with-temp-buffer
+    (prog-mode)
+    (set-visited-file-name "/tmp/test.rs" t t)
+    (hemis-notes-global-mode 1)
+    (should (local-key-binding (kbd "C-c h a")))))
+
 (ert-deftest hemis-insert-note-link-no-results ()
   (hemis-test-with-mocked-backend
     (with-temp-buffer

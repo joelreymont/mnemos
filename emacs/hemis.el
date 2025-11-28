@@ -792,6 +792,19 @@ If NOTE is nil, use the note at point in *Hemis Notes*, or prompt for an id."
     (remove-hook 'post-self-insert-hook #'hemis--maybe-trigger-link t)
     (hemis--clear-note-overlays)))
 
+(defun hemis--maybe-enable-notes ()
+  "Enable `hemis-notes-mode' in eligible buffers."
+  (when (and buffer-file-name
+             (derived-mode-p 'prog-mode))
+    (hemis-notes-mode 1)))
+
+(define-globalized-minor-mode hemis-notes-global-mode
+  hemis-notes-mode hemis--maybe-enable-notes
+  :group 'hemis)
+
+;; Enable Hemis notes automatically in programming buffers by default.
+(hemis-notes-global-mode 1)
+
 (defvar hemis-notes-list-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "RET") #'hemis-notes-list-visit)
