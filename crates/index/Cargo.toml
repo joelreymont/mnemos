@@ -12,4 +12,3 @@ storage = { path = "../storage" }
 rusqlite = { workspace = true }
 tempfile = { workspace = true }
 reqwest = { workspace = true }
-serde = { workspace = true }

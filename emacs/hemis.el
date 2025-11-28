@@ -366,6 +366,60 @@ NOTES is a list of note objects (alist/plist) from the backend."
       (hemis-search-results-mode))
     (display-buffer buf)))
 
+(defvar hemis--link-search-buffer "*Hemis Link Search*"
+  "Buffer name for note link search results.")
+
+(defun hemis--render-link-search (results)
+  "Render note search RESULTS into the link search buffer."
+  (let ((buf (get-buffer-create hemis--link-search-buffer)))
+    (with-current-buffer buf
+      (setq buffer-read-only nil)
+      (erase-buffer)
+      (let ((inhibit-read-only t))
+        (insert "Hemis note link search results\n\n")
+        (dolist (note results)
+          (let ((id (alist-get 'id note))
+                (summary (alist-get 'summary note))
+                (file (alist-get 'file note)))
+            (insert (format "%s\t%s\t%s\n" id summary file)))))
+      (goto-char (point-min))
+      (special-mode))
+    (display-buffer buf)))
+
+(defun hemis-insert-note-link (&optional query)
+  "Search existing notes and insert a link of the form [[DESC][ID]]."
+  (interactive)
+  (let* ((query (or query (read-string "Link search query: ")))
+         (root (or (hemis--project-root) default-directory))
+         (results (hemis--request "notes/search"
+                                  `((query . ,query)
+                                    (projectRoot . ,root)))))
+    (hemis--render-link-search results)
+    (unless results
+      (user-error "No notes found"))
+    (let* ((choices (mapcar (lambda (note)
+                              (cons (format "%s (%s)" (alist-get 'summary note)
+                                            (alist-get 'id note))
+                                    note))
+                            results))
+           (chosen (cdr (assoc (completing-read "Select note: " choices nil t)
+                               choices)))
+           (default-desc (alist-get 'summary chosen))
+           (desc (read-string "Description: " default-desc))
+           (id (alist-get 'id chosen)))
+      (insert (format "[[%s][%s]]" desc id)))))
+
+(defun hemis--maybe-trigger-link ()
+  "Trigger note link search when user types [[ in notes mode."
+  (when (and (eq last-command-event ?\[)
+             (>= (point) 2)
+             (string= "[["
+                      (buffer-substring-no-properties
+                       (max (point-min) (- (point) 2))
+                       (point))))
+    (delete-char -2)
+    (hemis-insert-note-link)))
+
 (defun hemis-open-project (root)
   "Open Hemis project at ROOT and remember it for subsequent RPCs."
   (interactive "DProject root: ")
@@ -564,6 +618,7 @@ NOTES is a list of note objects (alist/plist) from the backend."
     (define-key map (kbd "C-c h l") #'hemis-list-notes)
     (define-key map (kbd "C-c h i") #'hemis-index-file)
     (define-key map (kbd "C-c h s") #'hemis-search-project)
+    (define-key map (kbd "C-c h k") #'hemis-insert-note-link)
     map)
   "Keymap for `hemis-notes-mode'.")
 
@@ -574,7 +629,9 @@ NOTES is a list of note objects (alist/plist) from the backend."
   (if hemis-notes-mode
       (progn
         (hemis--ensure-connection)
-        (hemis-refresh-notes))
+        (hemis-refresh-notes)
+        (add-hook 'post-self-insert-hook #'hemis--maybe-trigger-link nil t))
+    (remove-hook 'post-self-insert-hook #'hemis--maybe-trigger-link t)
     (hemis--clear-note-overlays)))
 
 (defvar hemis-notes-list-mode-map

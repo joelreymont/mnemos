@@ -189,6 +189,43 @@
       (hemis-view-file "/tmp/a")
       (with-current-buffer "*Hemis File*"
         (goto-char (point-min))
-        (should (search-forward "hello" nil t)))))) 
+        (should (search-forward "hello" nil t))))))
+
+(ert-deftest hemis-insert-note-link-inserts-format ()
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (let* ((results (list '((id . "abc") (summary . "First") (file . "/tmp/f"))
+                            '((id . "def") (summary . "Second") (file . "/tmp/g")))))
+        (cl-letf (((symbol-function 'hemis--request)
+                   (lambda (method &optional _params)
+                     (should (equal method "notes/search"))
+                     results))
+                  ((symbol-function 'completing-read)
+                   (lambda (&rest _) "First (abc)"))
+                  ((symbol-function 'read-string)
+                   (lambda (&rest _) "First")))
+          (hemis-insert-note-link "First")
+          (goto-char (point-min))
+          (should (search-forward "[[" nil t))
+          (should (search-forward "][abc]]" nil t)))
+        (should (get-buffer hemis--link-search-buffer))))))
+
+(ert-deftest hemis-double-bracket-triggers-link ()
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (hemis-notes-mode 1)
+      (let* ((results (list '((id . "abc") (summary . "Note") (file . "/tmp/f")))))
+        (cl-letf (((symbol-function 'hemis--request)
+                   (lambda (&rest _) results))
+                  ((symbol-function 'completing-read)
+                   (lambda (&rest _) "Note (abc)"))
+                  ((symbol-function 'read-string)
+                   (lambda (&rest _) "Note")))
+          (let ((last-command-event ?\[))
+            (self-insert-command 1)
+            (let ((last-command-event ?\[))
+              (self-insert-command 1)))
+          (goto-char (point-min))
+          (should (search-forward "][abc]]" nil t)))))))
 
 (provide 'hemis-test)
