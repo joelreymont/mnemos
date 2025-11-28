@@ -159,4 +159,36 @@
               (should (sequencep node-path))
               (should (stringp (elt node-path 0))))))))))
 
+(ert-deftest hemis-explain-region-calls-backend ()
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (insert "line1\nline2\n")
+      (set-visited-file-name "/tmp/foo.rs" t t)
+      (cl-letf (((symbol-function 'hemis--request)
+                 (lambda (method &optional _params)
+                   (setq hemis-test-last-method method)
+                   '((explanation . "stub")))))
+        (hemis-explain-region (point-min) (point-max))
+        (should (equal hemis-test-last-method "hemis/explain-region"))
+        (with-current-buffer "*Hemis Explain*"
+          (goto-char (point-min))
+          (should (search-forward "stub" nil t)))))))
+
+(ert-deftest hemis-list-files-and-view-file ()
+  (hemis-test-with-mocked-backend
+    (cl-letf* (((symbol-function 'hemis--request)
+                (lambda (method &rest _)
+                  (pcase method
+                    ("hemis/list-files" (list "/tmp/a" "/tmp/b"))
+                    ("hemis/get-file" '((content . "hello")))
+                    (_ (error "unexpected %s" method))))))
+      (hemis-list-files "/tmp")
+      (with-current-buffer "*Hemis Files*"
+        (goto-char (point-min))
+        (should (search-forward "/tmp/a" nil t)))
+      (hemis-view-file "/tmp/a")
+      (with-current-buffer "*Hemis File*"
+        (goto-char (point-min))
+        (should (search-forward "hello" nil t)))))) 
+
 (provide 'hemis-test)

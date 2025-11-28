@@ -343,7 +343,7 @@ NOTES is a list of note objects (alist/plist) from the backend."
   "Search QUERY in indexed files for the current project and show results."
   (interactive "sSearch query: ")
   (let* ((root (or (hemis--project-root) default-directory))
-         (results (hemis--request "index/search"
+         (results (hemis--request "hemis/search"
                                   `((query . ,query)
                                     (projectRoot . ,root))))
          (buf (get-buffer-create "*Hemis Search*")))
@@ -402,6 +402,51 @@ NOTES is a list of note objects (alist/plist) from the backend."
       (goto-char (point-min))
       (view-mode 1)
       (display-buffer (current-buffer)))))
+
+(defun hemis-explain-region (beg end)
+  "Request an explanation for the region from BEG to END."
+  (interactive "r")
+  (unless (and (buffer-file-name) beg end)
+    (user-error "No region or file to explain"))
+  (let* ((file (buffer-file-name))
+         (start-line (line-number-at-pos beg))
+         (end-line (line-number-at-pos end))
+         (resp (hemis--request "hemis/explain-region"
+                               `((file . ,file)
+                                 (start . ((line . ,start-line) (column . 0)))
+                                 (end . ((line . ,end-line) (column . 0))))))
+         (text (alist-get 'explanation resp)))
+    (with-current-buffer (get-buffer-create "*Hemis Explain*")
+      (setq buffer-read-only nil)
+      (erase-buffer)
+      (insert (format "Explanation for %s:%d-%d\n\n%s"
+                      file start-line end-line text))
+      (goto-char (point-min))
+      (view-mode 1)
+      (display-buffer (current-buffer)))))
+
+(defun hemis-save-snapshot (path)
+  "Save a Hemis snapshot to PATH."
+  (interactive "FSave snapshot to: ")
+  (let* ((root (or (hemis--project-root) default-directory))
+         (resp (hemis--request "hemis/save-snapshot"
+                               `((path . ,(expand-file-name path))
+                                 (projectRoot . ,root)))))
+    (message "Hemis: snapshot saved to %s" (alist-get 'path resp))))
+
+(defun hemis-load-snapshot (path)
+  "Load a Hemis snapshot from PATH and display summary."
+  (interactive "fLoad snapshot: ")
+  (let* ((resp (hemis--request "hemis/load-snapshot"
+                               `((path . ,(expand-file-name path)))))
+         (buf (get-buffer-create "*Hemis Snapshot*")))
+    (with-current-buffer buf
+      (setq buffer-read-only nil)
+      (erase-buffer)
+      (insert (pp-to-string resp))
+      (goto-char (point-min))
+      (view-mode 1)
+      (display-buffer buf))))
 
 (defun hemis-refresh-notes ()
   "Fetch and render all notes for the current buffer."
