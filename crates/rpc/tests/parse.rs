@@ -10,6 +10,6 @@ fn parse_simple_request() {
 #[test]
 fn decode_framed_request() {
     let msg = "Content-Length: 17\r\n\r\n{\"jsonrpc\":\"2.0\"}";
-    let body = decode_framed(msg.as_bytes()).unwrap();
+    let (body, _) = decode_framed(msg.as_bytes()).unwrap();
     assert_eq!(String::from_utf8(body).unwrap(), "{\"jsonrpc\":\"2.0\"}");
 }

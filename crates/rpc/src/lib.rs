@@ -69,7 +69,9 @@ pub fn encode_response(resp: &Response) -> Vec<u8> {
 }
 
 /// Simple Content-Length framing for stdin/stdout.
-pub fn decode_framed(buf: &[u8]) -> Option<Vec<u8>> {
+/// Decode a Content-Length framed message from BUF.
+/// Returns (body, total_consumed_bytes).
+pub fn decode_framed(buf: &[u8]) -> Option<(Vec<u8>, usize)> {
     let s = std::str::from_utf8(buf).ok()?;
     let mut parts = s.split("\r\n\r\n");
     let header = parts.next()?;
@@ -78,9 +80,10 @@ pub fn decode_framed(buf: &[u8]) -> Option<Vec<u8>> {
         .lines()
         .find_map(|l| l.strip_prefix("Content-Length:"))
         .and_then(|v| v.trim().parse::<usize>().ok())?;
+    let header_len = header.len() + 4; // include separating CRLFCRLF
     let body_bytes = body.as_bytes();
     if body_bytes.len() >= len {
-        Some(body_bytes[..len].to_vec())
+        Some((body_bytes[..len].to_vec(), header_len + len))
     } else {
         None
     }

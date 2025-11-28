@@ -150,8 +150,7 @@ fn main() -> Result<()> {
     let mut buffer: VecDeque<u8> = stdin.into();
     loop {
         // Try framed message first.
-        if let Some(body) = decode_framed(buffer.make_contiguous()) {
-            let consumed = body.len();
+        if let Some((body, consumed)) = decode_framed(buffer.make_contiguous()) {
             buffer.drain(..consumed);
             match rpc::parse_request(&body) {
                 Ok(req) => out.extend(encode_response(&handle(req, &conn))),
