@@ -808,6 +808,15 @@ If NOTE is nil, use the note at point in *Hemis Notes*, or prompt for an id."
 ;; Enable Hemis notes automatically in programming buffers by default.
 (hemis-notes-global-mode 1)
 
+(defun hemis--ensure-notes-list-keymap ()
+  "Ensure `hemis-notes-list-mode-map` is a valid keymap."
+  (unless (keymapp hemis-notes-list-mode-map)
+    (setq hemis-notes-list-mode-map
+          (let ((map (make-sparse-keymap)))
+            (define-key map (kbd "RET") #'hemis-notes-list-visit)
+            (define-key map (kbd "v")   #'hemis-view-note)
+            map))))
+
 (defvar hemis-notes-list-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "RET") #'hemis-notes-list-visit)
@@ -817,6 +826,7 @@ If NOTE is nil, use the note at point in *Hemis Notes*, or prompt for an id."
 
 (define-derived-mode hemis-notes-list-mode special-mode "Hemis-Notes"
   "Mode for listing Hemis notes."
+  (hemis--ensure-notes-list-keymap)
   (setq buffer-read-only t))
 
 (defvar hemis-search-results-mode-map
