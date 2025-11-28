@@ -8,4 +8,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
-
+git = { path = "../git" }
+storage = { path = "../storage" }
+git2 = { workspace = true }
+tempfile = { workspace = true }
+uuid = "1.10"

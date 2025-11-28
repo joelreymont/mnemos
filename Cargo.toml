@@ -3,7 +3,7 @@ members = [
   "backend",
   "crates/notes",
   "crates/index",
-  "crates/git_support",
+  "crates/git",
   "crates/storage",
   "crates/rpc"
 ]
