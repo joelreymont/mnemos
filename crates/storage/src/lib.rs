@@ -1,7 +1,7 @@
 //! storage: SQLite connection and migrations.
 
 use anyhow::Result;
-use rusqlite::{params, Connection};
+use rusqlite::Connection;
 
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS notes (
@@ -72,7 +72,7 @@ where
     F: Fn(&rusqlite::Row<'_>) -> Result<T>,
 {
     let mut stmt = conn.prepare(sql)?;
-    let rows = stmt.query_map(params, |row| map(row))?;
+    let rows = stmt.query_map(params, |row| map(row).map_err(|e| rusqlite::Error::UserFunctionError(Box::new(e))))?;
     let mut out = Vec::new();
     for r in rows { out.push(r?); }
     Ok(out)

@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use storage::{exec, now_unix, query_all};
 use rusqlite::Connection;
 use git::GitInfo;
+use uuid::Uuid;
+use rusqlite;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -44,12 +46,14 @@ fn summarize(text: &str) -> String {
 }
 
 pub fn create(conn: &Connection, file: &str, project_root: &str, line: i64, column: i64, node_path: Option<serde_json::Value>, tags: serde_json::Value, text: &str, git: Option<GitInfo>) -> Result<Note> {
-    let id = uuid::Uuid::new_v4().to_string();
+    let id = Uuid::new_v4().to_string();
     let ts = now_unix();
     let summary = summarize(text);
     let (commit, blob) = git.map(|g| (Some(g.commit), g.blob)).unwrap_or((None, None));
+    let tags_str = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
+    let node_path_str = node_path.as_ref().map(|v| serde_json::to_string(v).unwrap());
     exec(conn, "INSERT INTO notes (id,file,project_root,line,column,node_path,tags,text,summary,commit_sha,blob_sha,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-         &[&id, &file, &project_root, &line, &column, &node_path.map(|v| serde_json::to_string(&v).unwrap()), &tags, &text, &summary, &commit, &blob, &ts, &ts])?;
+         &[&id, &file, &project_root, &line, &column, &node_path_str, &tags_str, &text, &summary, &commit, &blob, &ts, &ts])?;
     Ok(Note {
         id,
         file: file.to_string(),

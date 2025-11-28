@@ -12,4 +12,5 @@ git = { path = "../git" }
 storage = { path = "../storage" }
 git2 = { workspace = true }
 tempfile = { workspace = true }
-uuid = "1.10"
+uuid = { version = "1.10", features = ["v4"] }
+rusqlite = { workspace = true }
