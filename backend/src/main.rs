@@ -7,8 +7,10 @@ use storage::connect;
 use notes::{self, NoteFilters};
 use index as idx;
 use git::info_for_file;
+use rusqlite::Connection;
+use rpc::{decode_framed, encode_response};
 
-fn handle(req: Request, db: &rusqlite::Connection) -> Response {
+fn handle(req: Request, db: &Connection) -> Response {
     let id = req.id.clone();
     match req.method.as_str() {
         "notes/list-for-file" => {
@@ -62,6 +64,28 @@ fn handle(req: Request, db: &rusqlite::Connection) -> Response {
                 Response::error(id, METHOD_NOT_FOUND, "missing file/projectRoot")
             }
         }
+        "notes/delete" => {
+            if let Some(note_id) = req.params.get("id").and_then(|v| v.as_str()) {
+                match notes::delete(db, note_id) {
+                    Ok(ok) => Response::result(id, json!({"ok": ok})),
+                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                }
+            } else {
+                Response::error(id, METHOD_NOT_FOUND, "missing id")
+            }
+        }
+        "notes/update" => {
+            if let Some(note_id) = req.params.get("id").and_then(|v| v.as_str()) {
+                let text = req.params.get("text").and_then(|v| v.as_str());
+                let tags = req.params.get("tags").cloned();
+                match notes::update(db, note_id, text, tags) {
+                    Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
+                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                }
+            } else {
+                Response::error(id, METHOD_NOT_FOUND, "missing id")
+            }
+        }
         "notes/get" => {
             if let Some(note_id) = req.params.get("id").and_then(|v| v.as_str()) {
                 match notes::get(db, note_id) {
@@ -103,19 +127,24 @@ fn main() -> Result<()> {
     let conn = connect(&db_path)?;
     let mut stdin = Vec::new();
     io::stdin().read_to_end(&mut stdin)?;
-    // Supports both framed and plain JSON per line for now.
     let mut out = Vec::new();
-    let input = String::from_utf8_lossy(&stdin);
-    for line in input.lines() {
-        let bytes = line.as_bytes();
-        let req: Request = match rpc::parse_request(bytes) {
-            Ok(r) => r,
-            Err(_) => { out.extend(rpc::encode_response(&Response::error(None, PARSE_ERROR, "parse error"))); continue; }
-        };
-        let resp = handle(req, &conn);
-        let json = rpc::encode_response(&resp);
-        out.extend(json);
-        out.push(b'\n');
+    if let Some(body) = decode_framed(&stdin) {
+        match rpc::parse_request(&body) {
+            Ok(req) => out.extend(encode_response(&handle(req, &conn))),
+            Err(_) => out.extend(encode_response(&Response::error(None, PARSE_ERROR, "parse error"))),
+        }
+    } else {
+        let input = String::from_utf8_lossy(&stdin);
+        for line in input.lines() {
+            let bytes = line.as_bytes();
+            let req: Request = match rpc::parse_request(bytes) {
+                Ok(r) => r,
+                Err(_) => { out.extend(encode_response(&Response::error(None, PARSE_ERROR, "parse error"))); continue; }
+            };
+            let resp = handle(req, &conn);
+            out.extend(encode_response(&resp));
+            out.push(b'\n');
+        }
     }
     io::stdout().write_all(&out)?;
     Ok(())

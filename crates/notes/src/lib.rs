@@ -149,3 +149,23 @@ pub fn get(conn: &Connection, id: &str) -> Result<Note> {
     let rows = query_all(conn, "SELECT * FROM notes WHERE id = ?;", &[&id], |row| map_note(row, false))?;
     rows.into_iter().next().ok_or_else(|| anyhow::anyhow!("note not found"))
 }
+
+pub fn delete(conn: &Connection, id: &str) -> Result<bool> {
+    let count = exec(conn, "DELETE FROM notes WHERE id = ?;", &[&id])?;
+    Ok(count > 0)
+}
+
+pub fn update(conn: &Connection, id: &str, text: Option<&str>, tags: Option<serde_json::Value>) -> Result<Note> {
+    let mut note = get(conn, id)?;
+    let new_text = text.unwrap_or(&note.text).to_string();
+    let new_tags = tags.unwrap_or(note.tags.clone());
+    let summary = summarize(&new_text);
+    let now = now_unix();
+    exec(conn, "UPDATE notes SET text = ?, summary = ?, tags = ?, updated_at = ? WHERE id = ?;",
+         &[&new_text, &summary, &serde_json::to_string(&new_tags)?, &now, &id])?;
+    note.text = new_text;
+    note.tags = new_tags;
+    note.summary = summary;
+    note.updated_at = now;
+    Ok(note)
+}
