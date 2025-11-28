@@ -2,7 +2,9 @@
 
 use anyhow::{anyhow, Result};
 use rusqlite::Connection;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
+use std::env;
 use storage::{exec, now_unix, query_all};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -45,9 +47,22 @@ fn embedding_input(content: &str) -> String {
 }
 
 fn call_embedder(text: &str) -> Result<Vec<f32>> {
-    // Stub: replace with real model call (e.g., llama.cpp/HTTP).
     if text.is_empty() {
         return Err(anyhow!("empty text"));
+    }
+    if let Ok(url) = env::var("HEMIS_EMBED_URL") {
+        #[derive(Deserialize)]
+        struct EmbedResp {
+            vector: Vec<f32>,
+        }
+        let resp: EmbedResp = reqwest::blocking::Client::new()
+            .post(url)
+            .json(&serde_json::json!({ "text": text }))
+            .send()
+            .map_err(|e| anyhow!("embed request failed: {e}"))?
+            .json()
+            .map_err(|e| anyhow!("embed decode failed: {e}"))?;
+        return Ok(resp.vector);
     }
     Ok(vec![text.len() as f32, 1.0])
 }

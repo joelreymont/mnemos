@@ -28,6 +28,7 @@ expression: responses
     "jsonrpc": "2.0",
     "result": {
       "counts": {
+        "embeddings": 1,
         "files": 1,
         "notes": 0
       },
