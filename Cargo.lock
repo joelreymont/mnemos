@@ -42,6 +42,7 @@ dependencies = [
  "anyhow",
  "git",
  "index",
+ "memchr",
  "notes",
  "rpc",
  "rusqlite",

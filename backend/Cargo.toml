@@ -14,3 +14,4 @@ index = { path = "../crates/index" }
 storage = { path = "../crates/storage" }
 git = { path = "../crates/git" }
 rusqlite = { workspace = true }
+memchr = "2"

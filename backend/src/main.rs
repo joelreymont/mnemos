@@ -146,14 +146,24 @@ fn main() -> Result<()> {
     let mut stdin = Vec::new();
     io::stdin().read_to_end(&mut stdin)?;
     let mut out = Vec::new();
-    if let Some(body) = decode_framed(&stdin) {
-        match rpc::parse_request(&body) {
-            Ok(req) => out.extend(encode_response(&handle(req, &conn))),
-            Err(_) => out.extend(encode_response(&Response::error(None, PARSE_ERROR, "parse error"))),
+    // Prefer Content-Length framing; fall back to line-delimited JSON per request.
+    let input_str = String::from_utf8_lossy(&stdin);
+    if input_str.contains("Content-Length:") {
+        let mut rem = input_str.as_bytes();
+        while let Some(body) = decode_framed(rem) {
+            match rpc::parse_request(&body) {
+                Ok(req) => out.extend(encode_response(&handle(req, &conn))),
+                Err(_) => out.extend(encode_response(&Response::error(None, PARSE_ERROR, "parse error"))),
+            }
+            // advance buffer past this message
+            if let Some(pos) = memchr::memmem::find(rem, body.as_slice()) {
+                rem = &rem[pos + body.len()..];
+            } else {
+                break;
+            }
         }
     } else {
-        let input = String::from_utf8_lossy(&stdin);
-        for line in input.lines() {
+        for line in input_str.lines() {
             let bytes = line.as_bytes();
             let req: Request = match rpc::parse_request(bytes) {
                 Ok(r) => r,
