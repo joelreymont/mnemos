@@ -42,4 +42,4 @@ to install the Rust Tree-sitter grammar automatically if missing.
 
 ### Rust backend (in progress)
 
-A new Rust backend lives in the Cargo workspace at repo root (`backend/` bin plus crates under `crates/`). Update `hemis-executable` to point to the built Rust binary (e.g., `target/debug/backend`) once available; protocol remains JSON-RPC over stdio with Content-Length framing.
+A new Rust backend lives in the Cargo workspace at repo root (`backend/` bin plus crates under `crates/`). Set `hemis-backend` to the built Rust binary (e.g., `target/debug/backend`); protocol remains JSON-RPC over stdio with Content-Length framing.
