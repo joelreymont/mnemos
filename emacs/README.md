@@ -45,3 +45,8 @@ to install the Rust Tree-sitter grammar automatically if missing.
 ## Semantic search
 
 Set `HEMIS_EMBED_URL` to point at an embedding HTTP endpoint (POST body `{ "text": "..." }`, response `{ "vector": [f32...] }`). `hemis/search` blends semantic hits when `vector` is provided; Emacs search displays scores alongside results.
+
+Progress/status
+---------------
+- `C-c h p` indexes the whole project and reports counts in the minibuffer.
+- Snapshot saves/loads report to the minibuffer; semantic search results show kind/score/location.

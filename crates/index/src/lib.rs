@@ -58,7 +58,15 @@ fn call_embedder(text: &str) -> Result<Vec<f32>> {
         struct EmbedResp {
             vector: Vec<f32>,
         }
-        let resp: EmbedResp = reqwest::blocking::Client::new()
+        let timeout = env::var("HEMIS_EMBED_TIMEOUT_MS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(5_000);
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_millis(timeout))
+            .build()
+            .map_err(|e| anyhow!("embed client build failed: {e}"))?;
+        let resp: EmbedResp = client
             .post(url)
             .json(&serde_json::json!({ "text": text }))
             .send()
