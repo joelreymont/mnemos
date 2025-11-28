@@ -8,6 +8,8 @@ use std::fs;
 use std::path::Path;
 use storage::now_unix;
 
+pub mod snapshot;
+
 const IGNORE_DIRS: &[&str] = &[
     ".git",
     "target",
@@ -263,7 +265,10 @@ pub fn handle(req: Request, db: &Connection) -> Response {
             if let Some(path) = req.params.get("path").and_then(|v| v.as_str()) {
                 match fs::read_to_string(path) {
                     Ok(contents) => match serde_json::from_str::<serde_json::Value>(&contents) {
-                        Ok(val) => Response::result(id, val),
+                        Ok(val) => match snapshot::restore(db, &val) {
+                            Ok(status) => Response::result(id, status),
+                            Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                        },
                         Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                     },
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),

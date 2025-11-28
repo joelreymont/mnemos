@@ -1,5 +1,6 @@
 ---
 source: backend/tests/rpc_snapshot.rs
+assertion_line: 572
 expression: responses
 ---
 [
@@ -32,9 +33,7 @@ expression: responses
         "files": 1,
         "notes": 0
       },
-      "createdAt": "<ts>",
-      "projectRoot": "/tmp",
-      "version": 1
+      "ok": true
     }
   }
 ]

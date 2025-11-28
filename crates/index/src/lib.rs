@@ -227,6 +227,8 @@ pub fn semantic_search(
             column: 0,
             text: emb.text.clone(),
             score,
+            kind: Some("semantic".into()),
+            note_id: None,
         });
     }
     hits.sort_by(|a, b| b.score.total_cmp(&a.score));

@@ -1,5 +1,6 @@
 ---
 source: backend/tests/rpc_snapshot.rs
+assertion_line: 645
 expression: responses
 ---
 [
@@ -19,6 +20,7 @@ expression: responses
       {
         "column": 3,
         "file": "/tmp/foo.rs",
+        "kind": "file",
         "line": 1,
         "score": 1.0,
         "text": "fn foo() {}"
