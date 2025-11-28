@@ -19,7 +19,13 @@ Indexing/search: `C-c h i` to index the current file; `C-c h s` to search indexe
 
 ## Testing
 
-Run ERT from the repo root:
+Run all automated tests (backend note-path persistence + Emacs UI) from the repo root:
+
+```bash
+./scripts/run-tests.sh
+```
+
+Run only the Emacs ERT suite:
 
 ```bash
 emacs -Q --batch \
