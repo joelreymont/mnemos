@@ -21,6 +21,8 @@ fn write_response<W: Write>(out: &mut W, resp: Response, framed: bool) -> io::Re
 fn main() -> Result<()> {
     let db_path = std::env::var("HEMIS_DB_PATH").unwrap_or_else(|_| "hemis-notes.db".into());
     let conn = connect(&db_path)?;
+    // Preload tables to warm cache and ensure schema is ready.
+    backend::preload::preload(&conn)?;
     let mut stdin = io::stdin().lock();
     let mut stdout = io::stdout().lock();
     let mut buffer: VecDeque<u8> = VecDeque::new();
