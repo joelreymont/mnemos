@@ -1,4 +1,4 @@
-use assert_cmd::Command;
+use assert_cmd::cargo::cargo_bin_cmd;
 use rpc::{decode_framed, Response};
 use serde_json;
 use tempfile::NamedTempFile;
@@ -39,8 +39,7 @@ fn handles_multiple_framed_requests() -> anyhow::Result<()> {
         req_list.len(),
         req_list
     );
-    #[allow(deprecated)]
-    let assert = Command::cargo_bin("backend")?
+    let assert = cargo_bin_cmd!("backend")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
@@ -86,8 +85,7 @@ fn handles_multiple_framed_requests() -> anyhow::Result<()> {
 fn handles_line_delimited_shutdown() -> anyhow::Result<()> {
     let db = NamedTempFile::new()?;
     let req = r#"{"jsonrpc":"2.0","id":7,"method":"shutdown","params":{}}"#;
-    #[allow(deprecated)]
-    let assert = Command::cargo_bin("backend")?
+    let assert = cargo_bin_cmd!("backend")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(format!("{req}\n"))
         .assert()

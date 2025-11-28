@@ -1,4 +1,4 @@
-use assert_cmd::Command;
+use assert_cmd::cargo::cargo_bin_cmd;
 use insta::assert_json_snapshot;
 use rpc::decode_framed;
 use serde_json::{self, json, Value};
@@ -61,7 +61,7 @@ fn snapshot_create_and_list() -> anyhow::Result<()> {
         req_list.len(),
         req_list
     );
-    let assert = Command::cargo_bin("backend")?
+    let assert = cargo_bin_cmd!("backend")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
