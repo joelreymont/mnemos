@@ -783,6 +783,18 @@ If NOTE is nil, use the note at point in *Hemis Notes*, or prompt for an id."
     map)
   "Keymap for `hemis-notes-mode'.")
 
+(defun hemis--ensure-notes-mode-keymap ()
+  "Ensure `hemis-notes-mode-map` is a valid keymap (handles reloads)."
+  (unless (keymapp hemis-notes-mode-map)
+    (setq hemis-notes-mode-map (make-sparse-keymap))
+    (define-key hemis-notes-mode-map (kbd "C-c h a") #'hemis-add-note)
+    (define-key hemis-notes-mode-map (kbd "C-c h r") #'hemis-refresh-notes)
+    (define-key hemis-notes-mode-map (kbd "C-c h l") #'hemis-list-notes)
+    (define-key hemis-notes-mode-map (kbd "C-c h i") #'hemis-index-file)
+    (define-key hemis-notes-mode-map (kbd "C-c h p") #'hemis-index-project)
+    (define-key hemis-notes-mode-map (kbd "C-c h s") #'hemis-search-project)
+    (define-key hemis-notes-mode-map (kbd "C-c h k") #'hemis-insert-note-link)))
+
 (define-minor-mode hemis-notes-mode
   "Minor mode for displaying and editing Hemis notes (stickies) in code buffers."
   :lighter " Hemis"
@@ -816,13 +828,16 @@ If NOTE is nil, use the note at point in *Hemis Notes*, or prompt for an id."
             (define-key map (kbd "RET") #'hemis-notes-list-visit)
             (define-key map (kbd "v")   #'hemis-view-note)
             map))))
-
 (defvar hemis-notes-list-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "RET") #'hemis-notes-list-visit)
     (define-key map (kbd "v")   #'hemis-view-note)
     map)
   "Keymap for `hemis-notes-list-mode'.")
+
+;; Fix up keymaps on reload (after defvars are in place).
+(hemis--ensure-notes-mode-keymap)
+(hemis--ensure-notes-list-keymap)
 
 (define-derived-mode hemis-notes-list-mode special-mode "Hemis-Notes"
   "Mode for listing Hemis notes."

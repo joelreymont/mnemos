@@ -383,6 +383,13 @@
     (hemis-notes-global-mode 1)
     (should (local-key-binding (kbd "C-c h a")))))
 
+(ert-deftest hemis-notes-list-keymap-reloads ()
+  (let ((hemis-notes-list-mode-map nil))
+    (hemis--ensure-notes-list-keymap)
+    (should (keymapp hemis-notes-list-mode-map))
+    (should (lookup-key hemis-notes-list-mode-map (kbd "RET")))
+    (should (lookup-key hemis-notes-list-mode-map (kbd "v")))))
+
 (ert-deftest hemis-insert-note-link-no-results ()
   (hemis-test-with-mocked-backend
     (with-temp-buffer
