@@ -235,6 +235,13 @@ framing was used."
       (db-exec "DELETE FROM notes WHERE id = ?;" id))
     (json-obj "ok" (and row t))))
 
+(defun handle-notes-get (params)
+  (let* ((id  (gethash "id" params))
+         (row (first (db-fetch-all "SELECT * FROM notes WHERE id = ?;" id))))
+    (unless row
+      (error "Note not found: ~A" id))
+    (row->note row)))
+
 (defun handle-notes-search (params)
   (let* ((query (gethash "query" params))
          (proj  (gethash "projectRoot" params))
@@ -310,6 +317,9 @@ framing was used."
           ((string= method "notes/delete")
            (json-obj "jsonrpc" "2.0" "id" id
                      "result" (handle-notes-delete params)))
+          ((string= method "notes/get")
+           (json-obj "jsonrpc" "2.0" "id" id
+                     "result" (handle-notes-get params)))
           ((string= method "notes/search")
            (json-obj "jsonrpc" "2.0" "id" id
                      "result" (handle-notes-search params)))

@@ -374,7 +374,12 @@ NOTES is a list of note objects (alist/plist) from the backend."
                            (nodePath . ,node-path-json))))
          (note   (hemis--request "notes/create" params)))
     (hemis--make-note-overlay note)
-    (message "Hemis: note created.")))
+    (message "Hemis: note created.")
+    note))
+
+(defun hemis-get-note (id)
+  "Fetch a single Hemis note by ID."
+  (hemis--request "notes/get" `((id . ,id))))
 
 (defun hemis-list-notes ()
   "List all Hemis notes for the current file in a separate buffer."

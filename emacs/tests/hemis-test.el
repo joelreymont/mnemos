@@ -34,11 +34,20 @@
   `(let* ((hemis-backend-env (list (concat "HEMIS_DB_PATH=" (make-temp-file "hemis-test-db"))))
           (hemis-executable "sbcl")
           (hemis-executable-args nil))
-     (unwind-protect
-         (progn
-           (hemis-shutdown)
-           ,@body)
-       (hemis-shutdown))))
+    (unwind-protect
+        (progn
+          (hemis-shutdown)
+          ,@body)
+      (hemis-shutdown))))
+
+(defun hemis-test--note-id (note)
+  "Extract note id from NOTE (alist/plist/hash-table)."
+  (cond
+   ((hash-table-p note) (gethash "id" note))
+   ((and (listp note) (symbolp (car note))) (plist-get note :id))
+   ((listp note) (or (alist-get 'id note)
+                     (alist-get "id" note nil nil #'equal)))
+   (t nil)))
 
 (ert-deftest hemis-refresh-notes-creates-overlay ()
   (hemis-test-with-mocked-backend
@@ -115,7 +124,17 @@
           (let ((local-path (hemis--node-path-at-point)))
             (should (sequencep local-path))
             (should (stringp (elt local-path 0))))
-          (hemis-add-note "integration note")
+          (let* ((created (hemis-add-note "integration note"))
+                 (cid (hemis-test--note-id created))
+                 (fetched (hemis-get-note cid)))
+            (should (stringp cid))
+            (should (string= cid (hemis-test--note-id fetched)))
+            (should (equal (or (alist-get 'nodePath created)
+                               (alist-get "nodePath" created nil nil #'equal)
+                               (and (hash-table-p created) (gethash "nodePath" created)))
+                           (or (alist-get 'nodePath fetched)
+                               (alist-get "nodePath" fetched nil nil #'equal)
+                               (and (hash-table-p fetched) (gethash "nodePath" fetched))))))
           (hemis-refresh-notes)
           (should (consp hemis--overlays))
           (let* ((results (hemis--request "index/search"
