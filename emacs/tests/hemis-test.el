@@ -32,13 +32,14 @@
   "Run BODY with a real backend using a temp SQLite DB."
   (declare (indent 0))
   `(let* ((hemis-backend-env (list (concat "HEMIS_DB_PATH=" (make-temp-file "hemis-test-db"))))
+          (hemis-backend (or (getenv "HEMIS_BACKEND") hemis-backend))
           (hemis-executable "sbcl")
           (hemis-executable-args nil))
-    (unwind-protect
-        (progn
-          (hemis-shutdown)
-          ,@body)
-      (hemis-shutdown))))
+     (unwind-protect
+         (progn
+           (hemis-shutdown)
+           ,@body)
+       (hemis-shutdown))))
 
 (defun hemis-test--note-id (note)
   "Extract note id from NOTE (alist/plist/hash-table)."
