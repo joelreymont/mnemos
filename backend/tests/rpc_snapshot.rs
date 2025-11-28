@@ -572,3 +572,76 @@ fn snapshot_save_and_load() -> anyhow::Result<()> {
     assert_json_snapshot!("snapshot_save_load", responses);
     Ok(())
 }
+
+#[test]
+fn snapshot_index_project() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let root = tempfile::tempdir()?;
+    let file_path = root.path().join("foo.rs");
+    std::fs::write(&file_path, "fn foo() {}\n")?;
+    let req_index = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/index-project",
+        "params": { "projectRoot": root.path().to_string_lossy() }
+    })
+    .to_string();
+    let req_search = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "hemis/search",
+        "params": {
+            "query": "foo",
+            "projectRoot": root.path().to_string_lossy()
+        }
+    })
+    .to_string();
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        req_index.len(),
+        req_index,
+        req_search.len(),
+        req_search
+    );
+    let assert = cargo_bin_cmd!("backend")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    let root_prefix = root.path().to_string_lossy().to_string();
+    let responses: Vec<Value> = bodies
+        .into_iter()
+        .map(|b| serde_json::from_slice(&b).unwrap())
+        .map(|mut v: Value| {
+            if let Some(result) = v.get_mut("result") {
+                match result {
+                    Value::Array(arr) => {
+                        for val in arr.iter_mut() {
+                            if let Some(file) = val.get_mut("file") {
+                                if let Some(s) = file.as_str() {
+                                    *file = Value::String(s.replace(root_prefix.as_str(), "/tmp"));
+                                }
+                            }
+                        }
+                    }
+                    Value::Object(map) => {
+                        if let Some(val) = map.get("projectRoot").and_then(|v| v.as_str()) {
+                            let replaced = Value::String(val.replace(root_prefix.as_str(), "/tmp"));
+                            map.insert("projectRoot".to_string(), replaced);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            v
+        })
+        .collect();
+    assert_json_snapshot!("index_project", responses);
+    Ok(())
+}

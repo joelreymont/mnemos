@@ -1,0 +1,27 @@
+---
+source: backend/tests/rpc_snapshot.rs
+expression: responses
+---
+[
+  {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "indexed": 1,
+      "ok": true,
+      "projectRoot": "/tmp"
+    }
+  },
+  {
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": [
+      {
+        "column": 3,
+        "file": "/tmp/foo.rs",
+        "line": 1,
+        "text": "fn foo() {}"
+      }
+    ]
+  }
+]

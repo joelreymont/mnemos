@@ -161,6 +161,31 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                 Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
             }
         }
+        "hemis/index-project" => {
+            if let Some(root) = req.params.get("projectRoot").and_then(|v| v.as_str()) {
+                let mut indexed = 0;
+                match list_files(Path::new(root)) {
+                    Ok(files) => {
+                        for f in files {
+                            if let Ok(content) = fs::read_to_string(&f) {
+                                if let Err(e) = idx::add_file(db, &f, root, &content) {
+                                    eprintln!("index failed for {}: {}", f, e);
+                                } else {
+                                    indexed += 1;
+                                }
+                            }
+                        }
+                        Response::result(
+                            id,
+                            json!({"ok": true, "indexed": indexed, "projectRoot": root}),
+                        )
+                    }
+                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                }
+            } else {
+                Response::error(id, METHOD_NOT_FOUND, "missing projectRoot")
+            }
+        }
         "hemis/save-snapshot" => {
             if let Some(path) = req.params.get("path").and_then(|v| v.as_str()) {
                 let project_root = req.params.get("projectRoot").and_then(|v| v.as_str());

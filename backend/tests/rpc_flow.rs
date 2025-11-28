@@ -347,6 +347,67 @@ fn filters_stale_notes_by_blob() -> anyhow::Result<()> {
 }
 
 #[test]
+fn indexes_project_and_searches() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let root = tempfile::tempdir()?;
+    let file_a = root.path().join("a.rs");
+    let file_b = root.path().join("b.rs");
+    fs::write(&file_a, "fn alpha() {}")?;
+    fs::write(&file_b, "fn beta() {}")?;
+
+    let req_index = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/index-project",
+        "params": { "projectRoot": root.path().to_string_lossy() }
+    })
+    .to_string();
+    let req_search = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "hemis/search",
+        "params": {
+            "query": "alpha",
+            "projectRoot": root.path().to_string_lossy()
+        }
+    })
+    .to_string();
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        req_index.len(),
+        req_index,
+        req_search.len(),
+        req_search
+    );
+    let assert = cargo_bin_cmd!("backend")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    assert_eq!(bodies.len(), 2);
+    let search_resp: Response = serde_json::from_slice(&bodies[1])?;
+    let hits = search_resp
+        .result
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(hits.len(), 1);
+    assert!(hits[0]
+        .get("file")
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .ends_with("a.rs"));
+    Ok(())
+}
+
+#[test]
 fn lists_and_reads_files() -> anyhow::Result<()> {
     let db = NamedTempFile::new()?;
     let root = tempfile::tempdir()?;
