@@ -252,6 +252,15 @@ framing was used."
     (mapcar #'row->note
             (db-fetch-all sql proj proj pattern pattern pattern))))
 
+(defun handle-notes-list-by-node (params)
+  (let* ((file   (gethash "file" params))
+         (proj   (gethash "projectRoot" params))
+         (node   (maybe-to-json (gethash "nodePath" params))))
+    (mapcar #'row->note
+            (db-fetch-all
+             "SELECT * FROM notes WHERE file = ? AND project_root = ? AND node_path = ? ORDER BY updated_at DESC;"
+             file proj node))))
+
 ;;; File indexing and search
 
 (defun handle-index-add-file (params)
@@ -323,6 +332,9 @@ framing was used."
           ((string= method "notes/search")
            (json-obj "jsonrpc" "2.0" "id" id
                      "result" (handle-notes-search params)))
+          ((string= method "notes/list-by-node")
+           (json-obj "jsonrpc" "2.0" "id" id
+                     "result" (handle-notes-list-by-node params)))
           ((string= method "index/add-file")
            (json-obj "jsonrpc" "2.0" "id" id
                      "result" (handle-index-add-file params)))

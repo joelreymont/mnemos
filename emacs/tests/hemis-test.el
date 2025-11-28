@@ -125,6 +125,7 @@
             (should (sequencep local-path))
             (should (stringp (elt local-path 0))))
           (let* ((created (hemis-add-note "integration note"))
+                 (created2 (hemis-add-note "integration note 2"))
                  (cid (hemis-test--note-id created))
                  (fetched (hemis-get-note cid)))
             (should (stringp cid))
@@ -136,12 +137,15 @@
                                (alist-get "nodePath" fetched nil nil #'equal)
                                (and (hash-table-p fetched) (gethash "nodePath" fetched))))))
           (hemis-refresh-notes)
-          (should (consp hemis--overlays))
+          (should (>= (length hemis--overlays) 2))
           (let* ((results (hemis--request "index/search"
                                           `((query . "fn")
                                             (projectRoot . ,proj)))))
             (should (sequencep results))
             (should (> (length results) 0))
+            (let* ((by-node (hemis-notes-for-node (hemis--node-path-at-point))))
+              (should (sequencep by-node))
+              (should (>= (length by-node) 2)))
             ;; Ensure backend returns stored nodePath for created note.
             (let* ((notes (hemis--request "notes/list-for-file"
                                           `((file . ,file)

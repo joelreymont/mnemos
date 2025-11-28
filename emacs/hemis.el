@@ -381,6 +381,13 @@ NOTES is a list of note objects (alist/plist) from the backend."
   "Fetch a single Hemis note by ID."
   (hemis--request "notes/get" `((id . ,id))))
 
+(defun hemis-notes-for-node (node-path)
+  "Return notes for NODE-PATH in the current file/project."
+  (hemis--request "notes/list-by-node"
+                  `((file . ,(buffer-file-name))
+                    (projectRoot . ,(hemis--project-root))
+                    (nodePath . ,(and node-path (vconcat node-path))))))
+
 (defun hemis-list-notes ()
   "List all Hemis notes for the current file in a separate buffer."
   (interactive)
