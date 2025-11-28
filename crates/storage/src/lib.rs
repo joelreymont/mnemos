@@ -72,7 +72,7 @@ where
     F: Fn(&rusqlite::Row<'_>) -> Result<T>,
 {
     let mut stmt = conn.prepare(sql)?;
-    let rows = stmt.query_map(params, |row| map(row).map_err(|e| rusqlite::Error::UserFunctionError(Box::new(e))))?;
+    let rows = stmt.query_map(params, |row| map(row).map_err(|_e| rusqlite::Error::ExecuteReturnedResults))?;
     let mut out = Vec::new();
     for r in rows { out.push(r?); }
     Ok(out)

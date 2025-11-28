@@ -10,3 +10,4 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 storage = { path = "../storage" }
 rusqlite = { workspace = true }
+tempfile = { workspace = true }

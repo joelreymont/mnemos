@@ -40,6 +40,18 @@ pub struct NoteFilters<'a> {
     pub blob: Option<&'a str>,
     pub include_stale: bool,
 }
+impl<'a> Clone for NoteFilters<'a> {
+    fn clone(&self) -> Self {
+        Self {
+            file: self.file,
+            project_root: self.project_root,
+            node_path: self.node_path.clone(),
+            commit: self.commit,
+            blob: self.blob,
+            include_stale: self.include_stale,
+        }
+    }
+}
 
 fn summarize(text: &str) -> String {
     if text.len() <= 60 { text.to_string() } else { format!("{}...", &text[..57]) }

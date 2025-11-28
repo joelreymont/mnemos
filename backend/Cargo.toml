@@ -11,3 +11,6 @@ anyhow = { workspace = true }
 rpc = { path = "../crates/rpc" }
 notes = { path = "../crates/notes" }
 index = { path = "../crates/index" }
+storage = { path = "../crates/storage" }
+git = { path = "../crates/git" }
+rusqlite = { workspace = true }
