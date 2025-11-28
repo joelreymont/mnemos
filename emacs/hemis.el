@@ -650,8 +650,8 @@ NOTES is a list of note objects (alist/plist) from the backend."
 (defun hemis-add-note (text &optional tags)
   "Create a new Hemis note at point with TEXT and optional TAGS list."
   (interactive
-   (let ((t (hemis--read-note-text)))
-     (list (or t (user-error "Note entry canceled")))))
+   (let ((note-text (hemis--read-note-text)))
+     (list (or note-text (user-error "Note entry canceled")))))
   (let* ((anchor (hemis--note-anchor))
          (node-path (hemis--node-path-at-point))
          (node-path-json (when (and node-path (> (length node-path) 0))

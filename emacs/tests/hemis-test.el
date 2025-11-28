@@ -122,6 +122,17 @@
       (should (equal (cdr (assoc 'text hemis-test-last-params))
                      "line1\nline2")))))
 
+(ert-deftest hemis-add-note-interactive-multiline ()
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (insert "fn main() {}\n")
+      (set-visited-file-name "/tmp/main.rs" t t)
+      (cl-letf (((symbol-function 'hemis--read-note-text)
+                 (lambda () "line1\nline2\nline3")))
+        (hemis-add-note (hemis--read-note-text))
+        (should (equal (cdr (assoc 'text hemis-test-last-params))
+                       "line1\nline2\nline3"))))))
+
 (ert-deftest hemis-add-note-anchors-to-node-start ()
   (skip-unless (and (fboundp 'rust-ts-mode)
                     (fboundp 'treesit-node-at)))
