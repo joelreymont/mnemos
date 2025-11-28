@@ -364,6 +364,45 @@ NOTES is a list of note objects (alist/plist) from the backend."
       (hemis-search-results-mode))
     (display-buffer buf)))
 
+(defun hemis-open-project (root)
+  "Open Hemis project at ROOT and remember it for subsequent RPCs."
+  (interactive "DProject root: ")
+  (setq hemis--project-root (expand-file-name root))
+  (hemis--request "hemis/open-project" `((projectRoot . ,hemis--project-root)))
+  (message "Hemis: project set to %s" hemis--project-root))
+
+(defun hemis-list-files (&optional root)
+  "List files under ROOT (defaults to current project)."
+  (interactive)
+  (let* ((root (or root (hemis--project-root) default-directory))
+         (files (hemis--request "hemis/list-files"
+                                `((projectRoot . ,root))))
+         (buf (get-buffer-create "*Hemis Files*")))
+    (with-current-buffer buf
+      (setq buffer-read-only nil)
+      (erase-buffer)
+      (let ((inhibit-read-only t))
+        (insert (format "Hemis files in %s\n\n" root))
+        (dolist (f files)
+          (insert f "\n")))
+      (goto-char (point-min))
+      (special-mode))
+    (display-buffer buf)))
+
+(defun hemis-view-file (file)
+  "Fetch FILE content via backend and display in a temp buffer."
+  (interactive "FFile: ")
+  (let* ((resp (hemis--request "hemis/get-file"
+                               `((file . ,(expand-file-name file)))))
+         (content (alist-get 'content resp)))
+    (with-current-buffer (get-buffer-create "*Hemis File*")
+      (setq buffer-read-only nil)
+      (erase-buffer)
+      (insert content)
+      (goto-char (point-min))
+      (view-mode 1)
+      (display-buffer (current-buffer)))))
+
 (defun hemis-refresh-notes ()
   "Fetch and render all notes for the current buffer."
   (interactive)
