@@ -106,6 +106,73 @@
         (should (sequencep node-path))
         (should (stringp (elt node-path 0)))))))
 
+(ert-deftest hemis-add-note-anchors-to-node-start ()
+  (skip-unless (and (fboundp 'rust-ts-mode)
+                    (fboundp 'treesit-node-at)))
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (insert "fn main() {\n    let SCHEMA = 1;\n}\n")
+      (set-visited-file-name "/tmp/schema.rs" t t)
+      (unless (hemis--ensure-rust-grammar t)
+        (ert-skip "Rust Tree-sitter grammar unavailable"))
+      (rust-ts-mode)
+      (unless (hemis--treesit-available-p)
+        (ert-skip "Rust Tree-sitter not ready"))
+      ;; Place point inside the symbol to ensure we anchor to its start.
+      (goto-char (point-min))
+      (search-forward "SCH")
+      (backward-char 1)
+      (let* ((node (treesit-node-at (point)))
+             (start (treesit-node-start node)))
+        (hemis-add-note "anchor test")
+        (let ((line (cdr (assoc 'line hemis-test-last-params)))
+              (col  (cdr (assoc 'column hemis-test-last-params))))
+          (save-excursion
+            (goto-char start)
+            (should (= line (line-number-at-pos)))
+            (should (= col (current-column)))))))))
+
+(ert-deftest hemis-apply-notes-reanchors-marker ()
+  (skip-unless (and (fboundp 'rust-ts-mode)
+                    (fboundp 'treesit-node-at)))
+  (with-temp-buffer
+    (insert "fn main() {\n    let SCHEMA = 1;\n}\n")
+    (set-visited-file-name "/tmp/schema.rs" t t)
+    (unless (hemis--ensure-rust-grammar t)
+      (ert-skip "Rust Tree-sitter grammar unavailable"))
+    (rust-ts-mode)
+    (unless (hemis--treesit-available-p)
+      (ert-skip "Rust Tree-sitter not ready"))
+    ;; Simulate backend returning a note placed mid-identifier.
+    (hemis--apply-notes
+     (list '((id . "1") (file . "/tmp/schema.rs") (line . 2) (column . 11) (summary . "mid"))))
+    (should hemis--overlays)
+    (let* ((marker (seq-find (lambda (ov) (overlay-get ov 'hemis-note-marker))
+                             hemis--overlays)))
+      (should marker)
+      (goto-char (overlay-start marker))
+      ;; Identifier starts at column 8 for \"    let SCHEMA = 1;\".
+      (should (= (line-number-at-pos) 2))
+      (should (= (current-column) 8)))))
+
+(ert-deftest hemis-apply-notes-reanchors-without-treesit ()
+  "Even without Tree-sitter, stickies move to the token start."
+  (let ((hemis-auto-install-treesit-grammars nil))
+    (cl-letf (((symbol-function 'hemis--treesit-available-p) (lambda () nil)))
+      (with-temp-buffer
+        (insert "fn main() {\n    let SCHEMA = 1;\n}\n")
+        (set-visited-file-name "/tmp/schema.rs" t t)
+        ;; Simulate backend returning a note placed mid-identifier.
+        (hemis--apply-notes
+         (list '((id . "1") (file . "/tmp/schema.rs") (line . 2) (column . 11) (summary . "mid"))))
+        (should hemis--overlays)
+        (let* ((marker (seq-find (lambda (ov) (overlay-get ov 'hemis-note-marker))
+                                 hemis--overlays)))
+          (should marker)
+          (goto-char (overlay-start marker))
+          (should (= (line-number-at-pos) 2))
+          (should (= (current-column) 8)))))))
+
 (ert-deftest hemis-index-rust-integration ()
   (skip-unless (and (fboundp 'rust-ts-mode)
                     (file-readable-p "../bebop/util/src/lib.rs")))

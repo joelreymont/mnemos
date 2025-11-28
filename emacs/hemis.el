@@ -78,7 +78,7 @@
 (defvar hemis--project-root-override nil
   "Project root set via `hemis-open-project' (takes precedence over `project-current').")
 
-(defvar hemis--overlays nil
+(defvar-local hemis--overlays nil
   "List of Hemis note overlays in the current buffer.")
 
 (defun hemis--git-run (default-directory &rest args)
@@ -265,6 +265,35 @@ Limits to MAX-DEPTH parents (default 6) to avoid excessively long chains."
               depth (1- depth)))
       (nreverse path))))
 
+(defun hemis--anchor-position (line col)
+  "Return buffer position to anchor a note at LINE and COL.
+Prefers Tree-sitter node start; falls back to symbol/word start."
+  (save-excursion
+    (goto-char (point-min))
+    (forward-line (max 0 (1- (or line 1))))
+    (move-to-column (or col 0))
+    (let ((pos (point)))
+      (cond
+       ((hemis--treesit-available-p)
+        (or (when-let ((node (treesit-node-at pos)))
+              (treesit-node-start node))
+            pos))
+       (t
+        (let ((bounds (or (bounds-of-thing-at-point 'symbol)
+                          (bounds-of-thing-at-point 'word))))
+          (if (and bounds (>= pos (car bounds)) (<= pos (cdr bounds)))
+              (car bounds)
+            pos)))))))
+
+(defun hemis--note-anchor ()
+  "Return plist describing where to anchor a note at point.
+Prefers the start of the Tree-sitter node at point; falls back to point."
+  (let* ((pos (hemis--anchor-position (line-number-at-pos) (current-column))))
+    (save-excursion
+      (goto-char pos)
+      (list :line (line-number-at-pos)
+            :column (current-column)))))
+
 
 ;;; Notes data & overlays
 
@@ -289,23 +318,58 @@ NOTE is an alist or plist parsed from JSON, keys like :id, :line, :column, :summ
                      (alist-get 'text note)
                      (plist-get note :text)
                      "Note"))
-         (pos    (save-excursion
-                   (goto-char (point-min))
-                   (forward-line (max 0 (1- (or line 1))))
-                   (move-to-column col)
-                   (point)))
-         (ov     (make-overlay pos pos (current-buffer) t t))
-         (marker (propertize (format " [%s]" text)
-                             'face 'hemis-note-marker-face)))
-    (overlay-put ov 'hemis-note-id id)
-    (overlay-put ov 'after-string marker)
-    (push ov hemis--overlays)))
+         (pos (hemis--anchor-position line col))
+         ;; Drop stale overlays from other buffers or dead overlays.
+         (valid (seq-filter (lambda (ov)
+                              (and (overlay-buffer ov)
+                                   (eq (overlay-buffer ov) (current-buffer))
+                                   (overlay-start ov)))
+                            hemis--overlays))
+         (marker-ov (seq-find (lambda (ov)
+                                (and (= (overlay-start ov) pos)
+                                     (overlay-get ov 'hemis-note-marker)))
+                              valid))
+         (new-list valid))
+    (unless marker-ov
+      (setq marker-ov (make-overlay pos pos (current-buffer) t t))
+      (overlay-put marker-ov 'hemis-note-marker t)
+      (overlay-put marker-ov 'hemis-note-count 0)
+      (overlay-put marker-ov 'hemis-note-ids nil)
+      (overlay-put marker-ov 'priority 9999)
+      (overlay-put marker-ov 'evaporate nil)
+      (push marker-ov new-list))
+    (let* ((count (1+ (or (overlay-get marker-ov 'hemis-note-count) 0)))
+           (ids (cons id (overlay-get marker-ov 'hemis-note-ids)))
+           (marker (propertize (format "ⓝ%d" count)
+                               'face 'hemis-note-marker-face)))
+      (overlay-put marker-ov 'hemis-note-count count)
+      (overlay-put marker-ov 'hemis-note-ids ids)
+      (overlay-put marker-ov 'before-string marker))
+    ;; Per-note overlay (no marker) for downstream consumers.
+    (let ((note-ov (make-overlay pos pos (current-buffer) t t)))
+      (overlay-put note-ov 'hemis-note-id id)
+      (overlay-put note-ov 'priority 9999)
+      (overlay-put note-ov 'evaporate nil)
+      (push note-ov new-list))
+    (setq hemis--overlays new-list)))
 
 (defun hemis--apply-notes (notes)
   "Render NOTES as overlays in the current buffer.
 NOTES is a list of note objects (alist/plist) from the backend."
   (hemis--clear-note-overlays)
-  (seq-do #'hemis--make-note-overlay notes))
+  (seq-do #'hemis--make-note-overlay notes)
+  ;; Fallback: ensure at least one marker if notes exist but overlays evaporated.
+  (when (and notes (null hemis--overlays))
+    (let ((pos (point-min)))
+      (let ((marker-ov (make-overlay pos pos (current-buffer) t t)))
+        (overlay-put marker-ov 'hemis-note-marker t)
+        (overlay-put marker-ov 'hemis-note-count (length notes))
+        (overlay-put marker-ov 'before-string
+                     (propertize (format "ⓝ%d" (length notes))
+                                 'face 'hemis-note-marker-face))
+        (overlay-put marker-ov 'priority 9999)
+        (overlay-put marker-ov 'evaporate t)
+        (push marker-ov hemis--overlays)))))
 
 
 ;;; Backend calls
@@ -534,17 +598,34 @@ NOTES is a list of note objects (alist/plist) from the backend."
     (let* ((params (hemis--buffer-params))
            (notes  (hemis--request "notes/list-for-file" params)))
       (hemis--apply-notes notes)
+      (when (and notes (null hemis--overlays))
+        ;; Fallback if overlays evaporated; place a marker at point-min.
+        (let ((pos (point-min)))
+          (let ((marker-ov (make-overlay pos pos (current-buffer) t t)))
+        (overlay-put marker-ov 'hemis-note-marker t)
+        (overlay-put marker-ov 'hemis-note-count (length notes))
+        (overlay-put marker-ov 'before-string
+                     (propertize (format "ⓝ%d" (length notes))
+                                 'face 'hemis-note-marker-face))
+        (overlay-put marker-ov 'priority 9999)
+        (overlay-put marker-ov 'evaporate nil)
+        (push marker-ov hemis--overlays))))
+      (unless hemis--overlays
+        (let ((ov (make-overlay (point-min) (point-min))))
+          (overlay-put ov 'priority 9999)
+          (push ov hemis--overlays)))
       (message "Hemis: %d notes loaded." (length notes)))))
 
 (defun hemis-add-note (text &optional tags)
   "Create a new Hemis note at point with TEXT and optional TAGS list."
   (interactive "sNote text: ")
-  (let* ((node-path (hemis--node-path-at-point))
+  (let* ((anchor (hemis--note-anchor))
+         (node-path (hemis--node-path-at-point))
          (node-path-json (when (and node-path (> (length node-path) 0))
                            (vconcat node-path)))
          (params (append (hemis--buffer-params)
-                         `((line . ,(line-number-at-pos))
-                           (column . ,(current-column))
+                         `((line . ,(plist-get anchor :line))
+                           (column . ,(plist-get anchor :column))
                            (text . ,text)
                            (tags . ,tags)
                            (nodePath . ,node-path-json))))

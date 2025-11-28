@@ -24,19 +24,21 @@ ln -s /Users/joel/Work/hemis/emacs/doom/tools/hemis ~/.config/doom/modules/tools
 ```lisp
 hemis
 ```
-3) Point Doom to the local frontend in `~/.doom.d/packages.el`:
+3) Point Doom to the local frontend in `~/.config/doom/packages.el`:
 ```lisp
 (package! hemis
   :recipe (:local-repo "/Users/joel/Work/hemis/emacs"
            :files ("hemis.el")))
 ```
-4) Configure backend path and DB in `~/.doom.d/config.el`:
+4) Configure backend path and DB in `~/.config/doom/config.el`:
 ```lisp
 (setq hemis-backend "/Users/joel/Work/hemis/target/debug/backend"
       hemis-backend-env '("HEMIS_DB_PATH=/Users/joel/Work/hemis/hemis-notes.db")
       hemis-auto-install-treesit-grammars t) ;; installs Rust grammar if missing
 ```
 5) `doom sync` and restart Emacs.
+
+> If `doom sync` shows “Skipping hemis because it is out-of-tree”, add the `package! hemis` stanza in your personal `~/.doom.d/packages.el` as shown above and rerun `doom sync -u`—this tells Doom where to fetch Hemis from.
 
 ## Key bindings (notes mode)
 - `C-c h a` add note at point
