@@ -257,6 +257,64 @@ describe("hemis", function()
     end)
   end)
 
+  describe("backlinks", function()
+    before_each(function()
+      ensure_backend()
+      clear_notes()
+    end)
+
+    it("should return notes that link to target", function()
+      if not backend_path then
+        pending("Backend not found")
+        return
+      end
+
+      local test_file = vim.fn.tempname() .. ".rs"
+      vim.fn.writefile({ "fn main() {}" }, test_file)
+      vim.cmd("edit " .. test_file)
+
+      -- Create target note A
+      local note_a = nil
+      local create_a_done = false
+      hemis.notes.create("Note A - target", {}, function(err, result)
+        assert.is_nil(err)
+        note_a = result
+        create_a_done = true
+      end)
+      vim.wait(2000, function() return create_a_done end)
+      assert.is_not_nil(note_a)
+
+      -- Create note B that links to A
+      local note_b = nil
+      local create_b_done = false
+      hemis.notes.create(string.format("Note B links to [[target][%s]]", note_a.id), {}, function(err, result)
+        assert.is_nil(err)
+        note_b = result
+        create_b_done = true
+      end)
+      vim.wait(2000, function() return create_b_done end)
+      assert.is_not_nil(note_b)
+
+      -- Query backlinks for A
+      local backlinks = nil
+      local backlinks_done = false
+      hemis.notes.backlinks(note_a.id, function(err, result)
+        assert.is_nil(err)
+        backlinks = result
+        backlinks_done = true
+      end)
+      vim.wait(2000, function() return backlinks_done end)
+
+      assert.is_true(backlinks_done, "Backlinks should complete")
+      assert.is_not_nil(backlinks)
+      assert.equals(1, #backlinks, "Should have one backlink")
+      assert.equals(note_b.id, backlinks[1].id, "Backlink should be note B")
+
+      vim.cmd("bdelete!")
+      os.remove(test_file)
+    end)
+  end)
+
   describe("display", function()
     it("should format comment prefix", function()
       -- Create a Rust buffer

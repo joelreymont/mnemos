@@ -568,6 +568,7 @@ Lisp modes use ;; since single semicolons are for end-of-line comments."
     (set-keymap-parent map special-mode-map)
     (define-key map (kbd "RET") #'hemis-notes-list-visit)
     (define-key map (kbd "v")   #'hemis-view-note)
+    (define-key map (kbd "b")   #'hemis-show-backlinks)
     (define-key map (kbd "n")   #'hemis-notes-list-next)
     (define-key map (kbd "p")   #'hemis-notes-list-prev)
     (define-key map (kbd "q")   #'quit-window)
@@ -590,6 +591,7 @@ Lisp modes use ;; since single semicolons are for end-of-line comments."
     (kbd "p") #'hemis-notes-list-prev
     (kbd "RET") #'hemis-notes-list-visit
     (kbd "v") #'hemis-view-note
+    (kbd "b") #'hemis-show-backlinks
     (kbd "q") #'quit-window
     (kbd "j") #'hemis-notes-list-next
     (kbd "k") #'hemis-notes-list-prev))
@@ -1097,6 +1099,66 @@ Opens in another window if available, keeping the notes list visible."
     (message "Hemis: jumped to note %s"
              (hemis--note-get note 'id))))
 
+(defun hemis-show-backlinks (&optional note-or-id)
+  "Show all notes that link TO the given NOTE-OR-ID.
+If called interactively in *Hemis Notes*, use the note at point.
+Otherwise, prompt for a note ID."
+  (interactive)
+  (let* ((note (cond
+                ((and (null note-or-id)
+                      (get-text-property (line-beginning-position) 'hemis-note))
+                 (get-text-property (line-beginning-position) 'hemis-note))
+                ((stringp note-or-id) nil)
+                (t note-or-id)))
+         (id (cond
+              ((stringp note-or-id) note-or-id)
+              (note (hemis--note-get note 'id))
+              (t (read-string "Note id: "))))
+         (backlinks (let ((result (hemis--request "notes/backlinks" `((id . ,id)))))
+                      (if (vectorp result) (append result nil) result)))
+         (buf (get-buffer-create "*Hemis Backlinks*")))
+    (with-current-buffer buf
+      (setq buffer-read-only nil)
+      (erase-buffer)
+      (hemis-notes-list-mode)
+      (let ((inhibit-read-only t))
+        (insert (format "Backlinks to note %s\n" id))
+        (insert (format "(%d notes link to this note)\n\n"
+                        (length backlinks)))
+        (if (null backlinks)
+            (insert "No backlinks found.\n")
+          (cl-loop for note in backlinks
+                   for idx from 0 do
+                   (let* ((nid   (hemis--note-get note 'id))
+                          (file (hemis--note-get note 'file))
+                          (line (or (hemis--note-get note 'line) 0))
+                          (col  (or (hemis--note-get note 'column) 0))
+                          (txt  (or (hemis--note-text note) ""))
+                          (start (point))
+                          (short-id (if (> (length nid) 8)
+                                        (substring nid 0 8)
+                                      nid))
+                          (short-file (file-name-nondirectory (or file ""))))
+                     (insert (propertize (format "%3d " idx)
+                                         'face 'hemis-note-list-index-face))
+                     (insert (propertize (format "[%s] " short-id)
+                                         'face 'hemis-note-list-id-face))
+                     (insert (propertize short-file
+                                         'face 'hemis-note-list-file-face))
+                     (insert (propertize (format " L%d,C%d" line col)
+                                         'face 'hemis-note-list-location-face))
+                     (insert "\n")
+                     (dolist (text-line (split-string txt "\n"))
+                       (insert (propertize (format "    %s\n" text-line)
+                                           'face 'hemis-note-list-text-face)))
+                     (insert "\n")
+                     (add-text-properties start (point)
+                                          (list 'hemis-note note))))))
+      (goto-char (point-min))
+      (when backlinks
+        (hemis-notes-list-next)))
+    (pop-to-buffer buf)))
+
 
 ;;; Minor modes
 
@@ -1163,6 +1225,7 @@ Opens in another window if available, keeping the notes list visible."
             (set-keymap-parent map special-mode-map)
             (define-key map (kbd "RET") #'hemis-notes-list-visit)
             (define-key map (kbd "v")   #'hemis-view-note)
+            (define-key map (kbd "b")   #'hemis-show-backlinks)
             (define-key map (kbd "n")   #'hemis-notes-list-next)
             (define-key map (kbd "p")   #'hemis-notes-list-prev)
             (define-key map (kbd "q")   #'quit-window)

@@ -14,3 +14,4 @@ git2 = { workspace = true }
 tempfile = { workspace = true }
 uuid = { version = "1.10", features = ["v4"] }
 rusqlite = { workspace = true }
+regex = "1"

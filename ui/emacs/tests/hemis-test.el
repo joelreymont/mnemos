@@ -654,4 +654,78 @@
         (should-error (hemis-insert-note-link "missing")
                       :type 'user-error)))))
 
+(ert-deftest hemis-show-backlinks-displays-linking-notes ()
+  "Test that hemis-show-backlinks shows notes that link to the target."
+  (hemis-test-with-mocked-backend
+    ;; Mock notes/backlinks to return one linking note
+    (cl-letf (((symbol-function 'hemis--request)
+               (lambda (method &optional params)
+                 (pcase method
+                   ("notes/backlinks"
+                    (should (equal (cdr (assoc 'id params)) "target-note"))
+                    (list '((id . "linking-note-id")
+                            (file . "/tmp/linker.rs")
+                            (line . 5)
+                            (column . 0)
+                            (text . "This links to [[target][target-note]]"))))
+                   (_ nil)))))
+      ;; Call show-backlinks with a note id
+      (hemis-show-backlinks "target-note")
+      ;; Check that the backlinks buffer was created with the linking note
+      (with-current-buffer "*Hemis Backlinks*"
+        (goto-char (point-min))
+        (should (search-forward "Backlinks to note target-note" nil t))
+        (should (search-forward "(1 notes link" nil t))
+        ;; ID is truncated to 8 chars in display
+        (should (search-forward "linking-" nil t))
+        (should (search-forward "This links to" nil t))))))
+
+(ert-deftest hemis-show-backlinks-empty ()
+  "Test that hemis-show-backlinks shows message when no backlinks."
+  (hemis-test-with-mocked-backend
+    (cl-letf (((symbol-function 'hemis--request)
+               (lambda (method &optional _params)
+                 (pcase method
+                   ("notes/backlinks" nil)
+                   (_ nil)))))
+      (hemis-show-backlinks "orphan-note")
+      (with-current-buffer "*Hemis Backlinks*"
+        (goto-char (point-min))
+        (should (search-forward "(0 notes link" nil t))
+        (should (search-forward "No backlinks found" nil t))))))
+
+(ert-deftest hemis-show-backlinks-from-notes-list ()
+  "Test backlinks command from notes list buffer uses note at point."
+  (hemis-test-with-mocked-backend
+    ;; First create a notes buffer with a note at point
+    (let ((note '((id . "from-list") (file . "/tmp/test.rs") (line . 1) (column . 0)
+                  (text . "Note text")))
+          (backlinks-called nil)
+          (backlinks-id nil))
+      (cl-letf (((symbol-function 'hemis--request)
+                 (lambda (method &optional params)
+                   (pcase method
+                     ("notes/backlinks"
+                      (setq backlinks-called t)
+                      (setq backlinks-id (cdr (assoc 'id params)))
+                      nil)
+                     (_ nil)))))
+        ;; Set up a buffer with hemis-note property
+        (with-current-buffer (get-buffer-create "*Hemis Notes*")
+          (setq buffer-read-only nil)
+          (erase-buffer)
+          (insert "Note entry\n")
+          (add-text-properties (point-min) (point-max)
+                               (list 'hemis-note note))
+          (goto-char (point-min))
+          (hemis-show-backlinks)
+          (should backlinks-called)
+          (should (equal backlinks-id "from-list")))))))
+
+(ert-deftest hemis-notes-list-keymap-has-backlinks ()
+  "Test that notes list keymap includes backlinks binding."
+  (hemis--ensure-notes-list-keymap)
+  (should (eq (lookup-key hemis-notes-list-mode-map (kbd "b"))
+              'hemis-show-backlinks)))
+
 (provide 'hemis-test)

@@ -389,6 +389,16 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                 Response::error(id, METHOD_NOT_FOUND, "missing id")
             }
         }
+        "notes/backlinks" => {
+            if let Some(note_id) = req.params.get("id").and_then(|v| v.as_str()) {
+                match notes::backlinks(db, note_id) {
+                    Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
+                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                }
+            } else {
+                Response::error(id, METHOD_NOT_FOUND, "missing id")
+            }
+        }
         "index/add-file" => {
             let file = req.params.get("file").and_then(|v| v.as_str());
             let proj = req.params.get("projectRoot").and_then(|v| v.as_str());

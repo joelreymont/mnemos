@@ -374,4 +374,45 @@ suite('Integration Test Suite', () => {
     const version2 = await client.request<{ protocolVersion: number }>('hemis/version');
     assert.ok(version2.protocolVersion, 'Should get version after reconnect');
   });
+
+  test('RPC client can query backlinks', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    await client.start();
+
+    // Create note A (the target)
+    const noteA = await client.request<{ id: string; text: string }>('notes/create', {
+      file: '/tmp/backlinks-test.rs',
+      projectRoot: '/tmp',
+      line: 1,
+      column: 0,
+      text: 'Note A - the target',
+    });
+    assert.ok(noteA.id, 'Note A should have id');
+
+    // Create note B that links to A using [[desc][id]] format
+    const noteB = await client.request<{ id: string; text: string }>('notes/create', {
+      file: '/tmp/backlinks-test.rs',
+      projectRoot: '/tmp',
+      line: 10,
+      column: 0,
+      text: `Note B links to [[target][${noteA.id}]]`,
+    });
+    assert.ok(noteB.id, 'Note B should have id');
+
+    // Query backlinks for note A
+    const backlinks = await client.request<Array<{ id: string; text: string }>>('notes/backlinks', {
+      id: noteA.id,
+    });
+
+    assert.ok(Array.isArray(backlinks), 'Backlinks should be an array');
+    assert.strictEqual(backlinks.length, 1, 'Note A should have exactly one backlink');
+    assert.strictEqual(backlinks[0].id, noteB.id, 'Backlink should be note B');
+    assert.ok(backlinks[0].text.includes('Note B links to'), 'Backlink text should match note B');
+  });
 });

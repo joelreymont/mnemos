@@ -522,3 +522,122 @@ fn lists_and_reads_files() -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn backlinks_returns_linking_notes() -> anyhow::Result<()> {
+    // Test: create note A, then create note B that links to A, then query backlinks for A.
+    let db = NamedTempFile::new()?;
+
+    // Create note A
+    let req_create_a = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 1,
+            "column": 0,
+            "text": "Note A - the target",
+            "tags": []
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create_a.len(), req_create_a);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("create A response");
+    let resp_a: Response = serde_json::from_slice(&body)?;
+    let note_a_id = resp_a
+        .result
+        .as_ref()
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .expect("note A id")
+        .to_string();
+
+    // Create note B that links to A using [[desc][id]] format
+    let link_text = format!("Note B links to [[target][{}]]", note_a_id);
+    let req_create_b = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 10,
+            "column": 0,
+            "text": link_text,
+            "tags": []
+        }
+    })
+    .to_string();
+
+    // Query backlinks for note A
+    let req_backlinks = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "notes/backlinks",
+        "params": { "id": note_a_id }
+    })
+    .to_string();
+
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        req_create_b.len(),
+        req_create_b,
+        req_backlinks.len(),
+        req_backlinks
+    );
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    assert_eq!(bodies.len(), 2, "expected create B and backlinks responses");
+
+    let resp_b: Response = serde_json::from_slice(&bodies[0])?;
+    let note_b_id = resp_b
+        .result
+        .as_ref()
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .expect("note B id");
+
+    let backlinks_resp: Response = serde_json::from_slice(&bodies[1])?;
+    let backlinks = backlinks_resp
+        .result
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    assert_eq!(backlinks.len(), 1, "note A should have exactly one backlink");
+    let linking_note = &backlinks[0];
+    assert_eq!(
+        linking_note.get("id").and_then(|v| v.as_str()).unwrap(),
+        note_b_id,
+        "backlink should be note B"
+    );
+    assert!(
+        linking_note
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap()
+            .contains("Note B links to"),
+        "backlink text should match note B"
+    );
+
+    Ok(())
+}

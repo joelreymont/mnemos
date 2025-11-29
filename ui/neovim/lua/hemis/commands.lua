@@ -347,6 +347,62 @@ function M.status()
   end)
 end
 
+-- Show backlinks for note at cursor
+function M.show_backlinks()
+  local note = display.get_note_at_cursor(M.buffer_notes)
+  if not note then
+    vim.notify("No note at cursor", vim.log.levels.WARN)
+    return
+  end
+
+  notes.backlinks(note.id, function(err, result)
+    if err then
+      vim.notify("Failed to fetch backlinks: " .. (err.message or "unknown"), vim.log.levels.ERROR)
+      return
+    end
+
+    if not result or #result == 0 then
+      vim.notify("No backlinks for this note", vim.log.levels.INFO)
+      return
+    end
+
+    -- Create backlinks buffer
+    local buf = vim.api.nvim_create_buf(false, true)
+    local short_id = (note.id or ""):sub(1, 8)
+
+    local lines = { string.format("Backlinks to note %s", short_id), string.format("(%d notes link to this note)", #result), "" }
+
+    for i, n in ipairs(result) do
+      local n_short_id = (n.id or ""):sub(1, 8)
+      table.insert(lines, string.format("  %d [%s] L%d,C%d", i - 1, n_short_id, n.line or 0, n.column or 0))
+
+      local text = n.text or n.summary or ""
+      for line in text:gmatch("[^\n]+") do
+        table.insert(lines, "    " .. line)
+      end
+      table.insert(lines, "")
+    end
+
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].buftype = "nofile"
+    vim.bo[buf].modifiable = false
+    vim.api.nvim_buf_set_name(buf, "Hemis Backlinks")
+
+    -- Open in split
+    vim.cmd("split")
+    vim.api.nvim_win_set_buf(0, buf)
+
+    -- Store notes for navigation
+    vim.b[buf].hemis_notes = result
+
+    -- Keymaps
+    vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf })
+    vim.keymap.set("n", "<CR>", function()
+      M.visit_note_from_list(buf)
+    end, { buffer = buf })
+  end)
+end
+
 -- Show help
 function M.help()
   local prefix = config.get("keymap_prefix") or "<leader>h"
@@ -363,6 +419,7 @@ function M.help()
     prefix .. "i  - Index current file",
     prefix .. "p  - Index project",
     prefix .. "k  - Insert note link",
+    prefix .. "b  - Show backlinks",
     prefix .. "?  - Show this help",
     "",
     ":HemisStatus   - Show backend status",
@@ -390,6 +447,7 @@ function M.setup_commands()
   vim.api.nvim_create_user_command("HemisIndexFile", M.index_file, {})
   vim.api.nvim_create_user_command("HemisIndexProject", M.index_project, {})
   vim.api.nvim_create_user_command("HemisInsertLink", M.insert_link, {})
+  vim.api.nvim_create_user_command("HemisBacklinks", M.show_backlinks, {})
   vim.api.nvim_create_user_command("HemisStatus", M.status, {})
   vim.api.nvim_create_user_command("HemisHelp", M.help, {})
   vim.api.nvim_create_user_command("HemisShutdown", M.shutdown, {})
@@ -414,6 +472,7 @@ function M.setup_keymaps()
     { "i", M.index_file, "Index file" },
     { "p", M.index_project, "Index project" },
     { "k", M.insert_link, "Insert link" },
+    { "b", M.show_backlinks, "Show backlinks" },
     { "?", M.help, "Help" },
   }
 

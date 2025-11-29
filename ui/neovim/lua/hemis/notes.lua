@@ -187,4 +187,9 @@ function M.status(callback)
   rpc.request("hemis/status", {}, callback)
 end
 
+-- Get backlinks (notes that link to this note)
+function M.backlinks(id, callback)
+  rpc.request("notes/backlinks", { id = id }, callback)
+end
+
 return M

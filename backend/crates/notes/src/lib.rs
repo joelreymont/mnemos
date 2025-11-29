@@ -61,6 +61,31 @@ fn summarize(text: &str) -> String {
     }
 }
 
+/// Extract note IDs from links in the format [[desc][id]].
+fn extract_links(text: &str) -> Vec<String> {
+    let re = regex::Regex::new(r"\[\[[^\]]*\]\[([a-f0-9-]{36})\]\]").unwrap();
+    re.captures_iter(text)
+        .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+        .collect()
+}
+
+/// Update edges table: remove old edges from src, insert new edges.
+fn update_edges(conn: &Connection, src: &str, project_root: &str, text: &str) -> Result<()> {
+    // Remove existing edges from this note
+    exec(conn, "DELETE FROM edges WHERE src = ?;", &[&src])?;
+    // Insert new edges
+    let links = extract_links(text);
+    let ts = now_unix();
+    for dst in links {
+        exec(
+            conn,
+            "INSERT INTO edges (src, dst, kind, project_root, updated_at) VALUES (?, ?, ?, ?, ?);",
+            &[&src, &dst, &"link", &project_root, &ts],
+        )?;
+    }
+    Ok(())
+}
+
 pub fn create(
     conn: &Connection,
     file: &str,
@@ -84,6 +109,8 @@ pub fn create(
         .map(|v| serde_json::to_string(v).unwrap());
     exec(conn, "INSERT INTO notes (id,file,project_root,line,column,node_path,tags,text,summary,commit_sha,blob_sha,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
          &[&id, &file, &project_root, &line, &column, &node_path_str, &tags_str, &text, &summary, &commit, &blob, &ts, &ts])?;
+    // Parse and store links to other notes
+    update_edges(conn, &id, project_root, text)?;
     Ok(Note {
         id,
         file: file.to_string(),
@@ -215,6 +242,8 @@ pub fn update(
             &id,
         ],
     )?;
+    // Parse and store links to other notes
+    update_edges(conn, id, &note.project_root, &new_text)?;
     note.text = new_text;
     note.tags = new_tags;
     note.summary = summary;
@@ -240,4 +269,16 @@ pub fn search(conn: &Connection, query: &str, project_root: Option<&str>) -> Res
         })?
     };
     Ok(rows)
+}
+
+/// Find all notes that link TO the given note (backlinks).
+pub fn backlinks(conn: &Connection, note_id: &str) -> Result<Vec<Note>> {
+    // Find notes where src links to note_id (dst)
+    let sql = r#"
+        SELECT n.* FROM notes n
+        INNER JOIN edges e ON e.src = n.id
+        WHERE e.dst = ?
+        ORDER BY n.updated_at DESC;
+    "#;
+    query_all(conn, sql, &[&note_id], |row| map_note(row, false))
 }
