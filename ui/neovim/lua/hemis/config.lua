@@ -5,6 +5,10 @@ M.defaults = {
   -- Path to hemis backend binary (auto-detected if nil)
   backend = nil,
 
+  -- Hemis directory for socket/lock files (defaults to ~/.hemis)
+  -- Set this for testing to use an isolated directory
+  hemis_dir = nil,
+
   -- Environment variables for backend process
   backend_env = {},
 

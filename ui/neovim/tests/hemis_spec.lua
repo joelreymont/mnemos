@@ -1,31 +1,80 @@
 -- Hemis integration tests
 -- Run with: nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedDirectory tests/"
+--
+-- Tests reuse a single backend server for efficiency.
+-- Uses an isolated hemis_dir to avoid conflicting with user's Hemis.
 
 local hemis = require("hemis")
 
-describe("hemis", function()
-  local test_db = vim.fn.tempname() .. ".db"
-  local backend_path = vim.g.hemis_test_backend
+-- Shared test state
+local test_dir = vim.fn.tempname() .. "_hemis_test"
+local test_db = test_dir .. "/hemis.db"
+local backend_path = vim.g.hemis_test_backend
+local backend_started = false
+local setup_done = false
 
-  before_each(function()
-    -- Setup with test database
+-- Start backend once for all tests (lazy initialization)
+local function ensure_backend()
+  if backend_started then
+    return true
+  end
+
+  if not backend_path then
+    return false
+  end
+
+  if not setup_done then
+    -- Create isolated test directory
+    vim.fn.mkdir(test_dir, "p")
+
     hemis.setup({
       backend = backend_path,
-      backend_env = { "HEMIS_DB_PATH=" .. test_db },
+      hemis_dir = test_dir,
+      backend_env = { HEMIS_DB_PATH = test_db },
       auto_refresh = false,
       keymaps = false,
     })
+    setup_done = true
+  end
+
+  -- Start connects to socket (starting server if needed)
+  local done = false
+  local ok = false
+  hemis.rpc.start(function(success)
+    ok = success
+    done = true
   end)
 
-  after_each(function()
-    -- Shutdown backend
-    hemis.rpc.stop()
-    -- Wait for shutdown
-    vim.wait(100)
-    -- Clean up test database
-    os.remove(test_db)
+  vim.wait(5000, function()
+    return done
   end)
 
+  if ok then
+    backend_started = true
+  end
+  return ok
+end
+
+-- Clean up notes between tests (without restarting backend)
+local function clear_notes()
+  if not backend_started then
+    return
+  end
+
+  -- List all notes and delete them
+  local done = false
+  hemis.rpc.request("notes/list", { file = "", includeStale = true }, function(err, notes)
+    if not err and notes then
+      for _, note in ipairs(notes) do
+        hemis.rpc.request("notes/delete", { id = note.id }, function() end)
+      end
+    end
+    done = true
+  end)
+  vim.wait(1000, function() return done end)
+end
+
+describe("hemis", function()
   describe("config", function()
     it("should have defaults", function()
       assert.is_not_nil(hemis.config.defaults)
@@ -33,6 +82,8 @@ describe("hemis", function()
     end)
 
     it("should merge options", function()
+      -- Ensure setup is done
+      ensure_backend()
       hemis.config.setup({ log_level = "debug" })
       assert.equals("debug", hemis.config.get("log_level"))
     end)
@@ -45,8 +96,8 @@ describe("hemis", function()
         return
       end
 
-      local started = hemis.rpc.start()
-      assert.is_true(started)
+      local ok = ensure_backend()
+      assert.is_true(ok, "Backend should start")
       assert.is_true(hemis.rpc.is_running())
     end)
 
@@ -56,7 +107,7 @@ describe("hemis", function()
         return
       end
 
-      hemis.rpc.start()
+      ensure_backend()
 
       local done = false
       local result = nil
@@ -81,13 +132,17 @@ describe("hemis", function()
   end)
 
   describe("notes", function()
+    before_each(function()
+      -- Ensure backend is running and clear notes for isolation
+      ensure_backend()
+      clear_notes()
+    end)
+
     it("should create and retrieve note", function()
       if not backend_path then
         pending("Backend not found")
         return
       end
-
-      hemis.rpc.start()
 
       -- Create a temp file
       local test_file = vim.fn.tempname() .. ".rs"
@@ -142,8 +197,6 @@ describe("hemis", function()
         pending("Backend not found")
         return
       end
-
-      hemis.rpc.start()
 
       local test_file = vim.fn.tempname() .. ".rs"
       vim.fn.writefile({ "fn test() {}" }, test_file)
@@ -241,6 +294,32 @@ describe("hemis", function()
       assert.equals(0, #marks, "Should have no extmarks after clear")
 
       vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+  end)
+
+  -- Final cleanup (runs after the last test due to test order)
+  describe("cleanup", function()
+    it("should shutdown backend", function()
+      if backend_started then
+        -- Send shutdown to server
+        local done = false
+        hemis.rpc.request("shutdown", {}, function()
+          done = true
+        end)
+        vim.wait(1000, function()
+          return done
+        end)
+
+        -- Disconnect
+        hemis.rpc.stop()
+        vim.wait(200)
+      end
+
+      -- Clean up test directory
+      vim.fn.delete(test_dir, "rf")
+
+      -- Always pass - this is just cleanup
+      assert.is_true(true)
     end)
   end)
 end)

@@ -1,14 +1,35 @@
--- JSON-RPC client for Hemis backend
+-- JSON-RPC client for Hemis backend (Unix socket mode)
 local config = require("hemis.config")
 
 local M = {}
 
+-- Expected protocol version (bump when backend protocol changes)
+local EXPECTED_PROTOCOL_VERSION = 1
+
 -- State
-M.job_id = nil
-M.job_generation = 0 -- Incremented on each start to detect stale exit events
+M.socket = nil -- vim.uv TCP handle (works for Unix sockets too)
 M.request_id = 0
 M.pending = {} -- id -> callback
 M.buffer = ""
+M.connected = false
+M.connecting = false
+
+-- Paths
+local function get_hemis_dir()
+  local custom = config.get("hemis_dir")
+  if custom then
+    return vim.fn.expand(custom)
+  end
+  return vim.fn.expand("~/.hemis")
+end
+
+local function get_socket_path()
+  return get_hemis_dir() .. "/hemis.sock"
+end
+
+local function get_lock_path()
+  return get_hemis_dir() .. "/hemis.lock"
+end
 
 -- Logging
 local function log(level, msg)
@@ -63,15 +84,13 @@ local function parse_response(buf)
   return decoded, remaining
 end
 
--- Handle incoming data from backend
-local function on_stdout(_, data, _)
+-- Handle incoming data from socket
+local function on_data(data)
   if not data then
     return
   end
 
-  -- Neovim splits stdout on newlines; rejoin them to reconstruct original data
-  -- data is a list of strings split by \n, e.g. "foo\nbar\n" -> {"foo", "", "bar", ""}
-  M.buffer = M.buffer .. table.concat(data, "\n")
+  M.buffer = M.buffer .. data
 
   -- Parse all complete responses
   while true do
@@ -95,65 +114,61 @@ local function on_stdout(_, data, _)
   end
 end
 
-local function on_stderr(_, data, _)
-  if data then
-    for _, line in ipairs(data) do
-      if line and line ~= "" then
-        log("debug", "backend stderr: " .. line)
-      end
-    end
+-- Handle socket close
+local function on_close()
+  log("info", "Socket closed")
+  M.connected = false
+  M.socket = nil
+  M.buffer = ""
+
+  -- Fail any pending requests
+  for id, callback in pairs(M.pending) do
+    callback({ code = -1, message = "Socket closed" }, nil)
+    M.pending[id] = nil
   end
 end
 
-local function make_on_exit(expected_generation)
-  return function(_, code, _)
-    log("info", "Backend exited with code " .. tostring(code))
-
-    -- Ignore exit events from old jobs (after stop() was called or new start())
-    if M.job_generation ~= expected_generation then
-      return
-    end
-
-    M.job_id = nil
-
-    -- Process any remaining buffered responses before failing
-    while true do
-      local response, remaining = parse_response(M.buffer)
-      if not response then
-        break
-      end
-      M.buffer = remaining
-
-      local id = response.id
-      if id and M.pending[id] then
-        local callback = M.pending[id]
-        M.pending[id] = nil
-        if response.error then
-          callback(response.error, nil)
-        else
-          callback(nil, response.result)
-        end
-      end
-    end
-
-    M.buffer = ""
-    -- Fail any still-pending requests
-    for id, callback in pairs(M.pending) do
-      callback({ code = -1, message = "Backend process exited" }, nil)
-      M.pending[id] = nil
-    end
-  end
+-- Check if a process with given PID is alive
+local function process_alive(pid)
+  local ok = os.execute("kill -0 " .. pid .. " 2>/dev/null")
+  return ok == 0 or ok == true
 end
 
--- Start the backend process
-function M.start()
-  if M.job_id then
-    return true
+-- Read PID from lock file
+local function read_lock_pid()
+  local lock_path = get_lock_path()
+  local file = io.open(lock_path, "r")
+  if not file then
+    return nil
   end
+  local content = file:read("*l")
+  file:close()
+  if content then
+    return tonumber(content)
+  end
+  return nil
+end
 
+-- Try to acquire lock file (returns true if acquired)
+local function try_acquire_lock()
+  local lock_path = get_lock_path()
+  -- Use O_CREAT | O_EXCL via shell
+  local cmd = string.format('set -C; echo %d > "%s" 2>/dev/null', vim.fn.getpid(), lock_path)
+  local ok = os.execute(cmd)
+  return ok == 0 or ok == true
+end
+
+-- Remove lock file
+local function remove_lock()
+  local lock_path = get_lock_path()
+  os.remove(lock_path)
+end
+
+-- Start the backend server process
+local function start_server()
   local backend = config.get("backend")
   if not backend then
-    log("error", "No backend configured. Set hemis.backend or build the Rust backend.")
+    log("error", "No backend configured")
     return false
   end
 
@@ -162,95 +177,272 @@ function M.start()
     return false
   end
 
-  local env_config = config.get("backend_env") or {}
-  local env_dict = {}
+  -- Ensure hemis directory exists
+  vim.fn.mkdir(get_hemis_dir(), "p")
 
-  -- Convert to dictionary format for jobstart
+  -- Build environment
+  local env_parts = {}
+  local env_config = config.get("backend_env") or {}
   for k, v in pairs(env_config) do
     if type(k) == "number" then
-      -- Array format: {"KEY=VALUE", ...}
-      local key, val = v:match("([^=]+)=(.*)")
-      if key then
-        env_dict[key] = val
-      end
+      table.insert(env_parts, v)
     else
-      -- Map format: {KEY = "VALUE", ...}
-      env_dict[k] = v
+      table.insert(env_parts, k .. "=" .. v)
     end
   end
+  local env_str = table.concat(env_parts, " ")
 
-  -- Merge with current environment
-  local full_env = vim.tbl_extend("force", vim.fn.environ(), env_dict)
+  -- Start server in background (detached)
+  local cmd = string.format(
+    "%s %s --serve >> %s/hemis.log 2>&1 &",
+    env_str,
+    vim.fn.shellescape(backend),
+    get_hemis_dir()
+  )
+  os.execute(cmd)
 
-  -- Increment generation to invalidate any pending exit callbacks from old jobs
-  M.job_generation = M.job_generation + 1
-  local current_generation = M.job_generation
-
-  M.job_id = vim.fn.jobstart({ backend }, {
-    on_stdout = on_stdout,
-    on_stderr = on_stderr,
-    on_exit = make_on_exit(current_generation),
-    env = full_env,
-    stdin = "pipe",
-    stdout_buffered = false,
-  })
-
-  if M.job_id <= 0 then
-    log("error", "Failed to start backend process")
-    M.job_id = nil
-    return false
-  end
-
-  log("info", "Backend started (pid " .. M.job_id .. ")")
+  log("info", "Started backend server")
   return true
 end
 
--- Stop the backend process
-function M.stop()
-  if not M.job_id then
+-- Wait for socket to appear
+local function wait_for_socket(timeout_ms, callback)
+  local socket_path = get_socket_path()
+  local start = vim.loop.now()
+  local check_interval = 100
+
+  local function check()
+    if vim.fn.filereadable(socket_path) == 1 then
+      callback(true)
+      return
+    end
+
+    if (vim.loop.now() - start) >= timeout_ms then
+      callback(false)
+      return
+    end
+
+    vim.defer_fn(check, check_interval)
+  end
+
+  check()
+end
+
+-- Connect to the socket
+local function connect_socket(callback)
+  local socket_path = get_socket_path()
+
+  M.socket = vim.uv.new_pipe(false)
+  M.socket:connect(socket_path, function(err)
+    if err then
+      M.socket:close()
+      M.socket = nil
+      callback(err)
+      return
+    end
+
+    M.connected = true
+    M.buffer = ""
+
+    -- Start reading
+    M.socket:read_start(function(read_err, data)
+      if read_err then
+        log("error", "Socket read error: " .. read_err)
+        on_close()
+        return
+      end
+      if data then
+        on_data(data)
+      else
+        -- EOF
+        on_close()
+      end
+    end)
+
+    callback(nil)
+  end)
+end
+
+-- Ensure we're connected to the backend
+function M.ensure_connected(callback)
+  if M.connected and M.socket then
+    callback(nil)
     return
   end
 
-  local job = M.job_id
+  if M.connecting then
+    -- Already trying to connect, queue this callback
+    vim.defer_fn(function()
+      M.ensure_connected(callback)
+    end, 100)
+    return
+  end
 
-  -- Increment generation to ignore any exit callbacks from this job
-  M.job_generation = M.job_generation + 1
+  M.connecting = true
 
-  -- Clear state immediately to prevent new requests
-  M.job_id = nil
+  local socket_path = get_socket_path()
+
+  -- Check if socket exists
+  if vim.fn.filereadable(socket_path) == 1 then
+    -- Try to connect
+    connect_socket(function(err)
+      if not err then
+        M.connecting = false
+        callback(nil)
+        return
+      end
+
+      -- Connection failed, socket might be stale
+      log("debug", "Socket exists but connection failed, checking if stale")
+      local pid = read_lock_pid()
+      if pid and not process_alive(pid) then
+        -- Stale, clean up
+        log("info", "Removing stale socket and lock")
+        os.remove(socket_path)
+        remove_lock()
+      end
+
+      -- Need to start server
+      M.ensure_connected_start_server(callback)
+    end)
+    return
+  end
+
+  -- Socket doesn't exist, need to start server
+  M.ensure_connected_start_server(callback)
+end
+
+-- Helper: start server and connect
+function M.ensure_connected_start_server(callback)
+  -- Try to acquire lock
+  if try_acquire_lock() then
+    -- We acquired the lock, start the server
+    if not start_server() then
+      remove_lock()
+      M.connecting = false
+      callback("Failed to start server")
+      return
+    end
+
+    -- Wait for socket to appear
+    wait_for_socket(5000, function(appeared)
+      if not appeared then
+        remove_lock()
+        M.connecting = false
+        callback("Server failed to create socket")
+        return
+      end
+
+      -- Give it a moment
+      vim.defer_fn(function()
+        connect_socket(function(err)
+          M.connecting = false
+          callback(err)
+        end)
+      end, 100)
+    end)
+  else
+    -- Lock exists, someone else is starting the server
+    log("debug", "Lock exists, waiting for server")
+    wait_for_socket(5000, function(appeared)
+      if not appeared then
+        M.connecting = false
+        callback("Timeout waiting for server")
+        return
+      end
+
+      vim.defer_fn(function()
+        connect_socket(function(err)
+          M.connecting = false
+          callback(err)
+        end)
+      end, 100)
+    end)
+  end
+end
+
+-- Start/connect to the backend
+function M.start(callback)
+  M.ensure_connected(function(err)
+    if err then
+      log("error", "Failed to connect: " .. tostring(err))
+      if callback then
+        callback(false)
+      end
+      return
+    end
+
+    -- Check version
+    M.request("hemis/version", {}, function(ver_err, result)
+      if ver_err then
+        log("warn", "Version check failed: " .. vim.inspect(ver_err))
+        if callback then
+          callback(true) -- Connected, but version unknown
+        end
+        return
+      end
+
+      if result and result.protocolVersion then
+        if result.protocolVersion > EXPECTED_PROTOCOL_VERSION then
+          log("warn", "Backend is newer than expected. Consider updating the plugin.")
+        elseif result.protocolVersion < EXPECTED_PROTOCOL_VERSION then
+          vim.notify(
+            "[hemis] Backend is outdated. Please restart to update.\n"
+              .. "Run: pkill -f 'hemis --serve' && hemis --serve",
+            vim.log.levels.WARN
+          )
+        end
+        log("info", string.format("Connected to backend v%d (%s)", result.protocolVersion, result.gitHash or "?"))
+      end
+
+      if callback then
+        callback(true)
+      end
+    end)
+  end)
+end
+
+-- Disconnect from the backend (does NOT shutdown server)
+function M.stop()
+  if M.socket then
+    M.socket:close()
+    M.socket = nil
+  end
+  M.connected = false
   M.buffer = ""
   M.pending = {}
-
-  -- Try graceful shutdown
-  local encoded = encode_request("shutdown", {}, 0)
-  pcall(vim.fn.chansend, job, encoded)
-
-  -- Force stop after brief delay
-  vim.defer_fn(function()
-    pcall(vim.fn.jobstop, job)
-  end, 50)
 end
 
 -- Send an async request
 function M.request(method, params, callback)
-  if not M.start() then
-    if callback then
-      callback({ code = -1, message = "Backend not running" }, nil)
+  M.ensure_connected(function(err)
+    if err then
+      if callback then
+        callback({ code = -1, message = "Not connected: " .. tostring(err) }, nil)
+      end
+      return
     end
-    return
-  end
 
-  M.request_id = M.request_id + 1
-  local id = M.request_id
+    M.request_id = M.request_id + 1
+    local id = M.request_id
 
-  if callback then
-    M.pending[id] = callback
-  end
+    if callback then
+      M.pending[id] = callback
+    end
 
-  local msg = encode_request(method, params, id)
-  vim.fn.chansend(M.job_id, msg)
+    local msg = encode_request(method, params, id)
+    M.socket:write(msg, function(write_err)
+      if write_err then
+        log("error", "Socket write error: " .. write_err)
+        if M.pending[id] then
+          M.pending[id]({ code = -1, message = "Write failed" }, nil)
+          M.pending[id] = nil
+        end
+      end
+    end)
 
-  log("debug", "Sent request " .. id .. ": " .. method)
+    log("debug", "Sent request " .. id .. ": " .. method)
+  end)
 end
 
 -- Send a synchronous request (blocks, use sparingly)
@@ -281,9 +473,12 @@ function M.request_sync(method, params, timeout_ms)
   return err, result
 end
 
--- Check if backend is running
+-- Check if connected to backend
 function M.is_running()
-  return M.job_id ~= nil
+  return M.connected and M.socket ~= nil
 end
+
+-- For backward compatibility with tests that use stdio mode
+M.job_id = nil -- Deprecated, kept for compatibility
 
 return M
