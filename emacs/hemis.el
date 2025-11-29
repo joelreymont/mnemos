@@ -65,8 +65,9 @@
   :group 'hemis)
 
 (defface hemis-note-marker-face
-  '((t :inherit default :background "#2b2b2b" :foreground "#d7d7d7"
-        :underline nil :box nil :extend t))
+  '((t :inherit default
+        :underline nil :overline nil :strike-through nil :box nil
+        :background nil :foreground nil :extend nil))
   "Face for Hemis sticky note markers."
   :group 'hemis)
 
