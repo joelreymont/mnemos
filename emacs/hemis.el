@@ -944,6 +944,7 @@ Opens in another window if available, keeping the notes list visible."
     (define-key map (kbd "C-c h p") #'hemis-index-project)
     (define-key map (kbd "C-c h s") #'hemis-search-project)
     (define-key map (kbd "C-c h k") #'hemis-insert-note-link)
+    (define-key map (kbd "C-c h ?") #'hemis-help)
     map)
   "Keymap for `hemis-notes-mode'.")
 
@@ -957,6 +958,7 @@ Opens in another window if available, keeping the notes list visible."
     (define-key hemis-notes-mode-map (kbd "C-c h i") #'hemis-index-file)
     (define-key hemis-notes-mode-map (kbd "C-c h p") #'hemis-index-project)
     (define-key hemis-notes-mode-map (kbd "C-c h s") #'hemis-search-project)
+    (define-key hemis-notes-mode-map (kbd "C-c h ?") #'hemis-help)
     (define-key hemis-notes-mode-map (kbd "C-c h k") #'hemis-insert-note-link)))
 
 ;; Ensure keymap is valid before defining the minor mode.
@@ -1035,6 +1037,69 @@ Opens in another window if available, keeping the notes list visible."
 (define-derived-mode hemis-search-results-mode special-mode "Hemis-Search"
   "Mode for Hemis search results."
   (setq buffer-read-only t))
+
+(defun hemis-help ()
+  "Display Hemis keybindings and help."
+  (interactive)
+  (let ((buf (get-buffer-create "*Hemis Help*")))
+    (with-current-buffer buf
+      (setq buffer-read-only nil)
+      (erase-buffer)
+      (insert (propertize "Hemis - A Second Brain for Your Code\n"
+                          'face '(:weight bold :height 1.2)))
+      (insert (make-string 40 ?-) "\n\n")
+      (insert (propertize "Code Buffer (hemis-notes-mode)\n"
+                          'face '(:weight bold :underline t)))
+      (insert "
+  C-c h a    Add a note at point
+  C-c h r    Refresh notes (reload from backend)
+  C-c h l    List notes for current file
+  C-c h i    Index current file
+  C-c h p    Index entire project
+  C-c h s    Search project (files and notes)
+  C-c h k    Insert a link to another note
+  C-c h ?    Show this help
+
+")
+      (insert (propertize "Notes List Buffer (*Hemis Notes*)\n"
+                          'face '(:weight bold :underline t)))
+      (insert "
+  n, j       Next note
+  p, k       Previous note
+  RET        Visit note in file (other window if split)
+  v          View note text in separate buffer
+  q          Close notes list
+
+")
+      (insert (propertize "Search Results Buffer (*Hemis Search*)\n"
+                          'face '(:weight bold :underline t)))
+      (insert "
+  RET        Visit search hit
+  q          Close search results
+
+")
+      (insert (propertize "Note Entry\n"
+                          'face '(:weight bold :underline t)))
+      (insert "
+  RET        Insert newline (notes can be multi-line)
+  C-c C-c    Save note
+  C-c C-k    Cancel note entry
+  [[         Start inserting a link to another note
+
+")
+      (insert (propertize "Commands\n"
+                          'face '(:weight bold :underline t)))
+      (insert "
+  M-x hemis-open-project      Set project root
+  M-x hemis-save-snapshot     Save project snapshot
+  M-x hemis-load-snapshot     Load project snapshot
+  M-x hemis-explain-region    Explain selected code (requires LLM)
+  M-x hemis-shutdown          Stop Hemis backend
+  M-x hemis-reload            Reload Hemis (after code changes)
+")
+      (goto-char (point-min))
+      (special-mode))
+    (pop-to-buffer buf)))
 
 (provide 'hemis)
 
