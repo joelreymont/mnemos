@@ -178,9 +178,9 @@
                              hemis--overlays)))
       (should marker)
       (goto-char (overlay-start marker))
-      ;; Identifier starts at column 8 for \"    let SCHEMA = 1;\".
+      ;; Now placed at line start (comment block inserted above node line).
       (should (= (line-number-at-pos) 2))
-      (should (= (current-column) 8)))))
+      (should (= (current-column) 0)))))
 
 (ert-deftest hemis-apply-notes-reanchors-without-treesit ()
   "Even without Tree-sitter, stickies move to the token start."
@@ -198,7 +198,7 @@
           (should marker)
           (goto-char (overlay-start marker))
           (should (= (line-number-at-pos) 2))
-          (should (= (current-column) 8)))))))
+          (should (= (current-column) 0)))))))
 
 (ert-deftest hemis-view-note-uses-markdown-mode-when-available ()
   (hemis-test-with-mocked-backend

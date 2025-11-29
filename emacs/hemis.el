@@ -335,7 +335,7 @@ Prefers the start of the Tree-sitter node at point; falls back to point."
                 (concat "\n" indent)))
          ;; Re-indent after the block so code resumes at the same column.
          (suffix indent))
-    (concat "\n" body "\n" suffix)))
+    (concat body "\n" suffix)))
 
 
 ;;; Notes data & overlays
@@ -393,6 +393,7 @@ NOTE is an alist or plist parsed from JSON, keys like :id, :line, :column, :summ
                      (plist-get note :text)
                      "Note"))
          (pos (hemis--anchor-position line col))
+         (line-bol (save-excursion (goto-char pos) (line-beginning-position)))
          ;; Drop stale overlays from other buffers or dead overlays.
          (valid (seq-filter (lambda (ov)
                               (and (overlay-buffer ov)
@@ -405,7 +406,7 @@ NOTE is an alist or plist parsed from JSON, keys like :id, :line, :column, :summ
                               valid))
          (new-list valid))
     (unless marker-ov
-      (setq marker-ov (make-overlay pos pos (current-buffer) t t))
+      (setq marker-ov (make-overlay line-bol line-bol (current-buffer) t t))
       (overlay-put marker-ov 'hemis-note-marker t)
       (overlay-put marker-ov 'hemis-note-count 0)
       (overlay-put marker-ov 'hemis-note-ids nil)
@@ -417,14 +418,14 @@ NOTE is an alist or plist parsed from JSON, keys like :id, :line, :column, :summ
            (ids (cons id (overlay-get marker-ov 'hemis-note-ids)))
            (texts (append (overlay-get marker-ov 'hemis-note-texts)
                           (list text)))
-           (display (hemis--format-note-texts texts pos)))
+           (display (hemis--format-note-texts texts line-bol)))
       (overlay-put marker-ov 'hemis-note-count count)
       (overlay-put marker-ov 'hemis-note-ids ids)
       (overlay-put marker-ov 'hemis-note-texts texts)
       (overlay-put marker-ov 'before-string
                    (propertize display 'face 'hemis-note-marker-face)))
     ;; Per-note overlay (no marker) for downstream consumers.
-    (let ((note-ov (make-overlay pos pos (current-buffer) t t)))
+    (let ((note-ov (make-overlay line-bol line-bol (current-buffer) t t)))
       (overlay-put note-ov 'hemis-note-id id)
       (overlay-put note-ov 'priority 9999)
       (overlay-put note-ov 'evaporate nil)
