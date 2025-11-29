@@ -8,7 +8,9 @@ use std::fs;
 use std::path::Path;
 
 pub mod preload;
+pub mod server;
 pub mod snapshot;
+pub mod version;
 
 const IGNORE_DIRS: &[&str] = &[
     ".git",
