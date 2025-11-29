@@ -2,5 +2,5 @@
 
 ;; Hemis frontend from local repo
 (package! hemis
-  :recipe (:local-repo "/Users/joel/Work/hemis/emacs"
+  :recipe (:local-repo "/Users/joel/Work/hemis/ui/emacs"
            :files ("hemis.el")))
