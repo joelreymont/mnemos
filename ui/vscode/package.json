@@ -1,0 +1,177 @@
+{
+  "name": "hemis",
+  "displayName": "Hemis",
+  "description": "A second brain for your code - attach persistent notes to AST nodes",
+  "version": "0.1.0",
+  "publisher": "hemis",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:rust",
+    "onLanguage:typescript",
+    "onLanguage:javascript",
+    "onLanguage:python",
+    "onLanguage:go",
+    "onLanguage:java",
+    "onCommand:hemis.addNote"
+  ],
+  "main": "./out/src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "hemis.addNote",
+        "title": "Hemis: Add Note"
+      },
+      {
+        "command": "hemis.deleteNote",
+        "title": "Hemis: Delete Note"
+      },
+      {
+        "command": "hemis.editNote",
+        "title": "Hemis: Edit Note"
+      },
+      {
+        "command": "hemis.refreshNotes",
+        "title": "Hemis: Refresh Notes"
+      },
+      {
+        "command": "hemis.listNotes",
+        "title": "Hemis: List Notes"
+      },
+      {
+        "command": "hemis.indexFile",
+        "title": "Hemis: Index Current File"
+      },
+      {
+        "command": "hemis.indexProject",
+        "title": "Hemis: Index Project"
+      },
+      {
+        "command": "hemis.search",
+        "title": "Hemis: Search"
+      },
+      {
+        "command": "hemis.insertLink",
+        "title": "Hemis: Insert Note Link"
+      },
+      {
+        "command": "hemis.status",
+        "title": "Hemis: Show Status"
+      }
+    ],
+    "configuration": {
+      "title": "Hemis",
+      "properties": {
+        "hemis.backend": {
+          "type": "string",
+          "default": "",
+          "description": "Path to hemis backend binary. If empty, searches PATH."
+        },
+        "hemis.databasePath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to SQLite database. Defaults to ~/.hemis/hemis-notes.db"
+        },
+        "hemis.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically refresh notes when opening files"
+        },
+        "hemis.displayStyle": {
+          "type": "string",
+          "enum": [
+            "full",
+            "minimal"
+          ],
+          "default": "full",
+          "description": "Note display style: full (comment block) or minimal (inline marker)"
+        }
+      }
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "hemisNotes",
+          "name": "Hemis Notes"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "hemis.addNote",
+        "key": "ctrl+shift+h a",
+        "mac": "cmd+shift+h a",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "hemis.listNotes",
+        "key": "ctrl+shift+h l",
+        "mac": "cmd+shift+h l"
+      },
+      {
+        "command": "hemis.refreshNotes",
+        "key": "ctrl+shift+h r",
+        "mac": "cmd+shift+h r",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "hemis.deleteNote",
+        "key": "ctrl+shift+h d",
+        "mac": "cmd+shift+h d",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "hemis.editNote",
+        "key": "ctrl+shift+h e",
+        "mac": "cmd+shift+h e",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "hemis.search",
+        "key": "ctrl+shift+h s",
+        "mac": "cmd+shift+h s"
+      },
+      {
+        "command": "hemis.indexFile",
+        "key": "ctrl+shift+h i",
+        "mac": "cmd+shift+h i",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "hemis.indexProject",
+        "key": "ctrl+shift+h p",
+        "mac": "cmd+shift+h p"
+      },
+      {
+        "command": "hemis.insertLink",
+        "key": "ctrl+shift+h k",
+        "mac": "cmd+shift+h k",
+        "when": "editorTextFocus"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.80.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/test-electron": "^2.3.8",
+    "eslint": "^8.54.0",
+    "glob": "^10.3.10",
+    "mocha": "^10.2.0",
+    "typescript": "^5.3.2"
+  }
+}

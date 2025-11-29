@@ -15,12 +15,17 @@ Hemis attaches persistent notes to code locations, anchored to Tree-sitter nodes
 ```
 ┌─────────────┐     stdio/JSON-RPC     ┌─────────────┐
 │   Emacs     │◄──────────────────────►│             │
-│   hemis.el  │                        │   Backend   │
-└─────────────┘                        │   (Rust)    │
+│   hemis.el  │                        │             │
+└─────────────┘                        │             │
+                                       │   Backend   │
+┌─────────────┐     stdio/JSON-RPC     │   (Rust)    │
+│   Neovim    │◄──────────────────────►│             │
+│   hemis.lua │                        │             │
+└─────────────┘                        │             │
                                        │             │
 ┌─────────────┐     stdio/JSON-RPC     │             │
-│   Neovim    │◄──────────────────────►│             │
-│   hemis.lua │                        └──────┬──────┘
+│   VS Code   │◄──────────────────────►│             │
+│   extension │                        └──────┬──────┘
 └─────────────┘                               │
                                               ▼
                                        ┌─────────────┐
@@ -61,22 +66,23 @@ See the setup guide for your editor:
 
 - **Doom Emacs**: [docs/DOOM-EMACS.md](docs/DOOM-EMACS.md)
 - **Neovim (LazyVim)**: [docs/NEOVIM.md](docs/NEOVIM.md)
+- **VS Code**: [ui/vscode/README.md](ui/vscode/README.md)
 - **Vanilla Emacs**: [ui/emacs/README.md](ui/emacs/README.md)
 
 ## Key Bindings
 
-Both editors use a consistent `<prefix> h` pattern:
+All editors use a consistent `<prefix> h` pattern:
 
-| Action | Emacs | Neovim |
-|--------|-------|--------|
-| Add note | `C-c h a` | `<leader>ha` |
-| List notes | `C-c h l` | `<leader>hl` |
-| Refresh | `C-c h r` | `<leader>hr` |
-| Search | `C-c h s` | `<leader>hs` |
-| Index file | `C-c h i` | `<leader>hi` |
-| Index project | `C-c h p` | `<leader>hp` |
-| Insert link | `C-c h k` | `<leader>hk` |
-| Help | `C-c h ?` | `<leader>h?` |
+| Action | Emacs | Neovim | VS Code |
+|--------|-------|--------|---------|
+| Add note | `C-c h a` | `<leader>ha` | `Ctrl+Shift+H A` |
+| List notes | `C-c h l` | `<leader>hl` | `Ctrl+Shift+H L` |
+| Refresh | `C-c h r` | `<leader>hr` | `Ctrl+Shift+H R` |
+| Search | `C-c h s` | `<leader>hs` | `Ctrl+Shift+H S` |
+| Index file | `C-c h i` | `<leader>hi` | `Ctrl+Shift+H I` |
+| Index project | `C-c h p` | `<leader>hp` | `Ctrl+Shift+H P` |
+| Insert link | `C-c h k` | `<leader>hk` | `Ctrl+Shift+H K` |
+| Help | `C-c h ?` | `<leader>h?` | - |
 
 ## Testing
 
@@ -102,6 +108,7 @@ hemis/
   ui/
     emacs/              # Emacs client (hemis.el)
     neovim/             # Neovim client (hemis.lua)
+    vscode/             # VS Code extension
   docs/
     PROTOCOL.md         # JSON-RPC protocol spec
     ARCHITECTURE.md     # System design
