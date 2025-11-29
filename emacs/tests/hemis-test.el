@@ -220,6 +220,20 @@
         (when (fboundp 'markdown-mode)
           (should (eq major-mode 'markdown-mode)))))))
 
+(ert-deftest hemis-overlay-begins-on-newline ()
+  (with-temp-buffer
+    (insert "fn main() {}\n    let X = 1;\n")
+    (set-visited-file-name "/tmp/newline.rs" t t)
+    (let* ((note '((id . "1") (file . "/tmp/newline.rs") (line . 2) (column . 11) (summary . "line"))))
+      (hemis--apply-notes (list note))
+      (let* ((ov (seq-find (lambda (o) (overlay-get o 'hemis-note-marker))
+                           hemis--overlays))
+             (before (and ov (overlay-get ov 'before-string))))
+        (should ov)
+        (should (stringp before))
+        (should (string-match-p "^\\s-*\\(\n\\|//\\|;\\|--\\|#\\)" before))
+        (should (string-match-p "line" before))))))
+
 (ert-deftest hemis-index-rust-integration ()
   (skip-unless (and (fboundp 'rust-ts-mode)
                     (file-readable-p "../bebop/util/src/lib.rs")))

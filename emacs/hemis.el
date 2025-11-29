@@ -328,14 +328,14 @@ Prefers the start of the Tree-sitter node at point; falls back to point."
          (body (mapconcat
                 (lambda (t)
                   (mapconcat (lambda (line)
-                               (concat prefix line))
+                             (concat prefix line))
                              (split-string (or t "") "\n")
                              "\n"))
                 texts
                 (concat "\n" indent)))
          ;; Re-indent after the block so code resumes at the same column.
          (suffix indent))
-    (concat body "\n" suffix)))
+    (concat "\n" body "\n" suffix)))
 
 
 ;;; Notes data & overlays
