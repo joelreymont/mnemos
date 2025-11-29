@@ -71,6 +71,11 @@
           "default": "",
           "description": "Path to hemis backend binary. If empty, searches PATH."
         },
+        "hemis.hemisDir": {
+          "type": "string",
+          "default": "",
+          "description": "Directory for Hemis socket, lock, and log files. Defaults to ~/.hemis"
+        },
         "hemis.databasePath": {
           "type": "string",
           "default": "",

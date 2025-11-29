@@ -5,6 +5,7 @@ import * as os from 'os';
 
 export interface HemisConfig {
   backend: string;
+  hemisDir: string;
   databasePath: string;
   autoRefresh: boolean;
   displayStyle: 'full' | 'minimal';
@@ -44,11 +45,22 @@ function findBackend(): string {
   return '';
 }
 
+function getHemisDir(): string {
+  const config = vscode.workspace.getConfiguration('hemis');
+  const configured = config.get<string>('hemisDir');
+  if (configured) {
+    return configured;
+  }
+  // Default to ~/.hemis
+  return path.join(os.homedir(), '.hemis');
+}
+
 export function getConfig(): HemisConfig {
   const config = vscode.workspace.getConfiguration('hemis');
 
   return {
     backend: findBackend(),
+    hemisDir: getHemisDir(),
     databasePath: config.get<string>('databasePath') || '',
     autoRefresh: config.get<boolean>('autoRefresh') ?? true,
     displayStyle: config.get<'full' | 'minimal'>('displayStyle') || 'full',
