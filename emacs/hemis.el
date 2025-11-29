@@ -828,6 +828,9 @@ If NOTE is nil, use the note at point in *Hemis Notes*, or prompt for an id."
     (define-key hemis-notes-mode-map (kbd "C-c h s") #'hemis-search-project)
     (define-key hemis-notes-mode-map (kbd "C-c h k") #'hemis-insert-note-link)))
 
+;; Ensure keymap is valid before defining the minor mode.
+(hemis--ensure-notes-mode-keymap)
+
 (define-minor-mode hemis-notes-mode
   "Minor mode for displaying and editing Hemis notes (stickies) in code buffers."
   :lighter " Hemis"
@@ -868,14 +871,21 @@ If NOTE is nil, use the note at point in *Hemis Notes*, or prompt for an id."
     map)
   "Keymap for `hemis-notes-list-mode'.")
 
-;; Fix up keymaps on reload (after defvars are in place).
-(hemis--ensure-notes-mode-keymap)
-(hemis--ensure-notes-list-keymap)
-
 (define-derived-mode hemis-notes-list-mode special-mode "Hemis-Notes"
   "Mode for listing Hemis notes."
   (hemis--ensure-notes-list-keymap)
   (setq buffer-read-only t))
+
+(defun hemis-reset-keymaps-and-enable ()
+  "Repair Hemis keymaps after reloads and ensure global mode is enabled."
+  (interactive)
+  (hemis--ensure-notes-mode-keymap)
+  (hemis--ensure-notes-list-keymap)
+  (unless hemis-notes-global-mode
+    (hemis-notes-global-mode 1)))
+
+;; Fix up keymaps on reload (after defvars are in place) and ensure global mode.
+(hemis-reset-keymaps-and-enable)
 
 (defvar hemis-search-results-mode-map
   (let ((map (make-sparse-keymap)))

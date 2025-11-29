@@ -390,6 +390,18 @@
     (should (lookup-key hemis-notes-list-mode-map (kbd "RET")))
     (should (lookup-key hemis-notes-list-mode-map (kbd "v")))))
 
+(ert-deftest hemis-reset-keymaps-and-enable-restores-bindings ()
+  (with-temp-buffer
+    (prog-mode)
+    (set-visited-file-name "/tmp/test.rs" t t)
+    (setq hemis-notes-mode-map nil
+          hemis-notes-list-mode-map nil)
+    (hemis-notes-global-mode -1)
+    (hemis-reset-keymaps-and-enable)
+    (should hemis-notes-global-mode)
+    (should (local-key-binding (kbd "C-c h a")))
+    (should (keymapp hemis-notes-list-mode-map))))
+
 (ert-deftest hemis-insert-note-link-no-results ()
   (hemis-test-with-mocked-backend
     (with-temp-buffer
