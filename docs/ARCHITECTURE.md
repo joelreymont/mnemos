@@ -1,9 +1,43 @@
 # Hemis Architecture
 
 ## Overview
-- Rust backend (Cargo workspace) provides a JSON-RPC 2.0 server over stdio (`backend` bin).
-- SQLite storage for notes/files/embeddings/snapshots (default `hemis-notes.db`).
-- Emacs frontend (`ui/emacs/hemis.el`) speaks JSON-RPC over stdio, renders notes as comment-style overlays, and auto-installs the Rust Tree-sitter grammar when needed.
+
+```
+┌─────────────┐     Unix Socket     ┌─────────────────────────────┐
+│   Emacs     │◄───────────────────►│                             │
+│   hemis.el  │                     │                             │
+└─────────────┘                     │                             │
+                ~/.hemis/hemis.sock │   Backend Server            │
+┌─────────────┐     Unix Socket     │   (Single Process)          │
+│   Neovim    │◄───────────────────►│                             │
+│   hemis.lua │                     │   - Reference counting      │
+└─────────────┘                     │   - Grace period shutdown   │
+                                    │   - Version checking        │
+┌─────────────┐     Unix Socket     │                             │
+│   VS Code   │◄───────────────────►│                             │
+│   extension │                     └──────────────┬──────────────┘
+└─────────────┘                                    │
+                                                   ▼
+                                            ┌─────────────┐
+                                            │   SQLite    │
+                                            │  ~/.hemis/  │
+                                            │  hemis.db   │
+                                            └─────────────┘
+
+Files:
+  ~/.hemis/
+    hemis.db        # Database
+    hemis.sock      # Unix domain socket
+    hemis.lock      # PID file for startup coordination
+    hemis.log       # Server logs (optional)
+```
+
+- Rust backend (Cargo workspace) provides a JSON-RPC 2.0 server.
+- All editors connect to a single backend process via Unix domain socket.
+- SQLite storage for notes/files/embeddings/snapshots (default `~/.hemis/hemis.db`).
+- First editor to need the backend starts it; subsequent editors connect.
+- Backend shuts down after 30s with no connections (reference counting).
+- Version checking ensures UI and backend compatibility.
 
 ## Workspace layout
 - `backend` (bin): JSON-RPC server, framing, routing, snapshot/status, project/file/index/search endpoints, integrates crates below.

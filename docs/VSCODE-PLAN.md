@@ -55,7 +55,7 @@ ui/vscode/
   },
   "hemis.databasePath": {
     "type": "string",
-    "description": "Path to SQLite database (defaults to ~/.hemis/hemis-notes.db)"
+    "description": "Path to SQLite database (defaults to ~/.hemis/hemis.db)"
   },
   "hemis.autoRefresh": {
     "type": "boolean",
@@ -69,7 +69,7 @@ ui/vscode/
 }
 ```
 
-**Note**: The database defaults to `~/.hemis/hemis-notes.db`, enabling sharing notes with Emacs and Neovim.
+**Note**: The database defaults to `~/.hemis/hemis.db`, enabling sharing notes with Emacs and Neovim.
 
 ### Phase 2: Basic Notes CRUD
 

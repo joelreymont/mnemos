@@ -225,7 +225,7 @@ return {
     opts = {
       backend = "~/Work/hemis/target/debug/hemis",
       backend_env = {
-        "HEMIS_DB_PATH=~/Work/hemis/hemis-notes.db",
+        "HEMIS_DB_PATH=~/Work/hemis/hemis.db",
       },
       auto_refresh = true,
       keymaps = {

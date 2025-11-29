@@ -30,7 +30,7 @@ A second brain for your code - attach persistent notes to AST nodes.
    }
    ```
 
-   The database defaults to `~/.hemis/hemis-notes.db`. Override with:
+   The database defaults to `~/.hemis/hemis.db`. Override with:
    ```json
    {
      "hemis.databasePath": "/path/to/custom.db"

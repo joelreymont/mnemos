@@ -28,7 +28,7 @@ return {
     dependencies = {},
     opts = {
       backend = "/path/to/hemis/target/release/hemis",
-      -- Database defaults to ~/.hemis/hemis-notes.db
+      -- Database defaults to ~/.hemis/hemis.db
       -- Uncomment to use a different location:
       -- backend_env = { HEMIS_DB_PATH = "/path/to/custom.db" },
       auto_refresh = true,
@@ -136,7 +136,7 @@ Hemis notes for main.rs
 
 ## Multi-Editor Support
 
-Hemis works with Emacs, Neovim, and VS Code. Each editor runs its own backend process, but they all share the same SQLite database at `~/.hemis/hemis-notes.db` by default. Notes created in one editor appear in the others after refresh.
+Hemis works with Emacs, Neovim, and VS Code. Each editor runs its own backend process, but they all share the same SQLite database at `~/.hemis/hemis.db` by default. Notes created in one editor appear in the others after refresh.
 
 To use a project-specific database, set the environment variable:
 - Neovim: `backend_env = { HEMIS_DB_PATH = "/path/to/project.db" }`

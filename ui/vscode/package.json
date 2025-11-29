@@ -74,7 +74,7 @@
         "hemis.databasePath": {
           "type": "string",
           "default": "",
-          "description": "Path to SQLite database. Defaults to ~/.hemis/hemis-notes.db"
+          "description": "Path to SQLite database. Defaults to ~/.hemis/hemis.db"
         },
         "hemis.autoRefresh": {
           "type": "boolean",

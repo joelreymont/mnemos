@@ -34,7 +34,7 @@ hemis
 ```lisp
 (setq hemis-backend "/Users/joel/Work/hemis/target/debug/hemis"
       hemis-auto-install-treesit-grammars t) ;; installs Rust grammar if missing
-;; Database defaults to ~/.hemis/hemis-notes.db
+;; Database defaults to ~/.hemis/hemis.db
 ;; Uncomment to use a different location:
 ;; (setq hemis-backend-env '("HEMIS_DB_PATH=/path/to/custom.db"))
 ```

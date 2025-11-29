@@ -34,11 +34,11 @@ Hemis attaches persistent notes to code locations, anchored to Tree-sitter nodes
                                        └─────────────┘
 ```
 
-Each editor runs its own backend process, but they share the same database file at `~/.hemis/hemis-notes.db`. Notes created in one editor appear in the other after refresh.
+Each editor runs its own backend process, but they share the same database file at `~/.hemis/hemis.db`. Notes created in one editor appear in the other after refresh.
 
 ## Database Location
 
-By default, Hemis stores notes in `~/.hemis/hemis-notes.db`. This enables sharing notes across Emacs, Neovim, and VS Code simultaneously.
+By default, Hemis stores notes in `~/.hemis/hemis.db`. This enables sharing notes across Emacs, Neovim, and VS Code simultaneously.
 
 To use a different location (e.g., for project-specific databases):
 
