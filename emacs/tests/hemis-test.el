@@ -376,11 +376,22 @@
           (should (= req-calls 1))
           (should (search-forward "][xyz]]" nil t)))))))
 
+(ert-deftest hemis-kill-backend-processes-removes-duplicates ()
+  (let* ((p1 (start-process "hemis-backend" nil "cat"))
+         (p2 (start-process "hemis-backend" nil "cat")))
+    (should (process-live-p p1))
+    (should (process-live-p p2))
+    (hemis--kill-backend-processes)
+    (sleep-for 0.05)
+    (should-not (process-live-p p1))
+    (should-not (process-live-p p2))))
+
 (ert-deftest hemis-notes-global-mode-enables-keymap ()
   (with-temp-buffer
     (prog-mode)
     (set-visited-file-name "/tmp/test.rs" t t)
-    (hemis-notes-global-mode 1)
+    (hemis-reset-keymaps-and-enable)
+    (hemis-notes-mode 1)
     (should (local-key-binding (kbd "C-c h a")))))
 
 (ert-deftest hemis-notes-list-keymap-reloads ()
@@ -396,9 +407,8 @@
     (set-visited-file-name "/tmp/test.rs" t t)
     (setq hemis-notes-mode-map nil
           hemis-notes-list-mode-map nil)
-    (hemis-notes-global-mode -1)
     (hemis-reset-keymaps-and-enable)
-    (should hemis-notes-global-mode)
+    (hemis-notes-mode 1)
     (should (local-key-binding (kbd "C-c h a")))
     (should (keymapp hemis-notes-list-mode-map))))
 

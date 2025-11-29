@@ -81,6 +81,17 @@
 (defvar-local hemis--overlays nil
   "List of Hemis note overlays in the current buffer.")
 
+(defun hemis--kill-backend-processes ()
+  "Kill any running Hemis backend processes and clear state."
+  (dolist (proc (process-list))
+    (when (and (process-live-p proc)
+               (string-match-p "^hemis-backend" (process-name proc)))
+      (ignore-errors
+        (kill-process proc)
+        (accept-process-output proc 0.05))))
+  (setq hemis--process nil
+        hemis--conn nil))
+
 (defun hemis--git-run (default-directory &rest args)
   "Run git ARGS in DEFAULT-DIRECTORY, returning trimmed output or nil."
   (when (and default-directory (executable-find "git"))
@@ -105,6 +116,7 @@
 (defun hemis--start-process ()
   "Start the Hemis backend process if it is not already running."
   (unless (and hemis--process (process-live-p hemis--process))
+    (hemis--kill-backend-processes)
     (let* ((buf (get-buffer-create hemis-log-buffer))
            (exe (or hemis-backend (error "Set `hemis-backend` to the Rust backend binary")))
            (args nil)
@@ -143,6 +155,9 @@
   (setq hemis--process nil
         hemis--conn nil)
   (message "Hemis backend stopped."))
+
+;; Ensure backends are terminated when Emacs exits.
+(add-hook 'kill-emacs-hook #'hemis--kill-backend-processes)
 
 (defun hemis--request (method &optional params)
   "Synchronously send JSON-RPC METHOD with PARAMS and return result."
