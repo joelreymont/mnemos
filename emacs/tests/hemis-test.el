@@ -287,6 +287,33 @@
               (should (sequencep node-path))
               (should (stringp (elt node-path 0))))))))))
 
+(ert-deftest hemis-list-notes-integration ()
+  "Test hemis-list-notes with real backend returns notes in buffer."
+  (skip-unless (and (fboundp 'rust-ts-mode)
+                    (file-readable-p "../bebop/util/src/lib.rs")))
+  (hemis-test-with-backend
+    (let* ((file (expand-file-name "../bebop/util/src/lib.rs" default-directory)))
+      (with-temp-buffer
+        (insert-file-contents file)
+        (set-visited-file-name file t t)
+        (rust-ts-mode)
+        (goto-char (point-min))
+        ;; Create a note so list-notes has something to show
+        (hemis-add-note "integration list test")
+        ;; Now list notes
+        (hemis-list-notes)
+        (with-current-buffer "*Hemis Notes*"
+          (goto-char (point-min))
+          ;; Should find our note text in the buffer
+          (should (search-forward "integration list test" nil t))
+          ;; Should have hemis-note property on that line
+          (goto-char (point-min))
+          (let ((found nil))
+            (while (and (not found) (not (eobp)))
+              (setq found (get-text-property (line-beginning-position) 'hemis-note))
+              (forward-line 1))
+            (should found)))))))
+
 (ert-deftest hemis-explain-region-calls-backend ()
   (hemis-test-with-mocked-backend
     (with-temp-buffer
@@ -332,6 +359,170 @@
               (setq found (get-text-property (line-beginning-position) 'hemis-note))
               (forward-line 1))
             (should found)))))))
+
+(defun hemis-test--note-id-at-point ()
+  "Get note id at point, handling both alist and plist formats."
+  (let ((note (get-text-property (point) 'hemis-note)))
+    (or (alist-get 'id note)
+        (plist-get note :id)
+        (hemis--note-get note 'id))))
+
+(ert-deftest hemis-notes-list-navigation ()
+  "Test next/prev navigation in notes list buffer."
+  (hemis-test-with-mocked-backend
+    ;; Mock to return multiple notes
+    (cl-letf (((symbol-function 'hemis--request)
+               (lambda (method &optional _params)
+                 (pcase method
+                   ("notes/list-for-file"
+                    (list '((id . "1") (file . "/tmp/a.rs") (line . 1) (column . 0) (text . "Note one"))
+                          '((id . "2") (file . "/tmp/a.rs") (line . 5) (column . 0) (text . "Note two"))
+                          '((id . "3") (file . "/tmp/a.rs") (line . 10) (column . 0) (text . "Note three"))))
+                   (_ nil)))))
+      (with-temp-buffer
+        (set-visited-file-name "/tmp/a.rs" t t)
+        (hemis-list-notes)
+        (with-current-buffer "*Hemis Notes*"
+          ;; Start at beginning, find first note
+          (goto-char (point-min))
+          (hemis-notes-list-next)
+          (should (get-text-property (point) 'hemis-note))
+          (should (equal (hemis-test--note-id-at-point) "1"))
+          ;; Move to next note
+          (hemis-notes-list-next)
+          (should (equal (hemis-test--note-id-at-point) "2"))
+          ;; Move to third note
+          (hemis-notes-list-next)
+          (should (equal (hemis-test--note-id-at-point) "3"))
+          ;; No more notes - should error
+          (should-error (hemis-notes-list-next) :type 'user-error)
+          ;; Go back with prev
+          (hemis-notes-list-prev)
+          (should (equal (hemis-test--note-id-at-point) "2"))
+          ;; Back to first
+          (hemis-notes-list-prev)
+          (should (equal (hemis-test--note-id-at-point) "1"))
+          ;; No previous - should error
+          (should-error (hemis-notes-list-prev) :type 'user-error))))))
+
+(ert-deftest hemis-notes-list-visit-opens-file ()
+  "Test that RET on a note opens the file at the correct location."
+  (hemis-test-with-mocked-backend
+    (let ((test-file (make-temp-file "hemis-visit-test-" nil ".rs"))
+          opened-file opened-line opened-col)
+      (unwind-protect
+          (progn
+            ;; Create a test file with some content
+            (with-temp-file test-file
+              (insert "fn main() {\n")
+              (insert "    let x = 1;\n")
+              (insert "    let y = 2;\n")
+              (insert "}\n"))
+            ;; Mock to return a note pointing to line 3
+            (let ((mock-find-file
+                   (lambda (file)
+                     (setq opened-file file)
+                     (with-current-buffer (get-buffer-create "*test-visit*")
+                       (erase-buffer)
+                       (insert "fn main() {\n")
+                       (insert "    let x = 1;\n")
+                       (insert "    let y = 2;\n")
+                       (insert "}\n")
+                       (set-buffer (current-buffer))))))
+              (cl-letf (((symbol-function 'hemis--request)
+                         (lambda (method &optional _params)
+                           (pcase method
+                             ("notes/list-for-file"
+                              (list `((id . "test-id")
+                                      (file . ,test-file)
+                                      (line . 3)
+                                      (column . 4)
+                                      (text . "Note on y"))))
+                             (_ nil))))
+                        ;; Mock both find-file variants
+                        ((symbol-function 'find-file) mock-find-file)
+                        ((symbol-function 'find-file-other-window) mock-find-file)
+                        ;; Capture position after forward-line/move-to-column
+                        ((symbol-function 'recenter)
+                         (lambda (&optional _arg)
+                           (setq opened-line (line-number-at-pos))
+                           (setq opened-col (current-column)))))
+                (with-temp-buffer
+                  (set-visited-file-name test-file t t)
+                  (hemis-list-notes)
+                  (with-current-buffer "*Hemis Notes*"
+                    (goto-char (point-min))
+                    (hemis-notes-list-next)
+                    (hemis-notes-list-visit)))
+                ;; Check that visit attempted to open the right file and position
+                (should (equal opened-file test-file))
+                (should (= opened-line 3))
+                (should (= opened-col 4)))))
+        (ignore-errors (kill-buffer "*test-visit*"))
+        (delete-file test-file)))))
+
+(ert-deftest hemis-notes-list-visit-integration ()
+  "Integration test: visit note from list opens correct location."
+  (skip-unless (and (fboundp 'rust-ts-mode)
+                    (file-readable-p "../bebop/util/src/lib.rs")))
+  (hemis-test-with-backend
+    (let* ((file (expand-file-name "../bebop/util/src/lib.rs" default-directory)))
+      (with-temp-buffer
+        (insert-file-contents file)
+        (set-visited-file-name file t t)
+        (rust-ts-mode)
+        ;; Go to a specific line and create a note
+        (goto-char (point-min))
+        (forward-line 2)
+        (let ((target-line (line-number-at-pos)))
+          (hemis-add-note "visit integration test")
+          ;; List notes and visit
+          (hemis-list-notes)
+          (with-current-buffer "*Hemis Notes*"
+            (goto-char (point-min))
+            (hemis-notes-list-next)
+            (hemis-notes-list-visit))
+          ;; Should be in the file buffer at the note's line
+          (with-current-buffer (find-buffer-visiting file)
+            (should (= (line-number-at-pos) target-line))))))))
+
+(ert-deftest hemis-notes-list-visit-other-window ()
+  "Integration test: visit opens in other window when multiple windows exist."
+  (skip-unless (and (fboundp 'rust-ts-mode)
+                    (file-readable-p "../bebop/util/src/lib.rs")))
+  (hemis-test-with-backend
+    (let* ((file (expand-file-name "../bebop/util/src/lib.rs" default-directory)))
+      ;; Set up a split window layout
+      (delete-other-windows)
+      (split-window-horizontally)
+      (should (= (count-windows) 2))
+      (let ((left-window (selected-window))
+            (right-window (next-window)))
+        (unwind-protect
+            (with-temp-buffer
+              (insert-file-contents file)
+              (set-visited-file-name file t t)
+              (rust-ts-mode)
+              (goto-char (point-min))
+              (hemis-add-note "window test note")
+              ;; Open notes list - it will appear in one window
+              (hemis-list-notes)
+              (let ((list-window (get-buffer-window "*Hemis Notes*")))
+                (should list-window)
+                ;; Select the list window and visit
+                (select-window list-window)
+                (with-current-buffer "*Hemis Notes*"
+                  (goto-char (point-min))
+                  (hemis-notes-list-next)
+                  (hemis-notes-list-visit))
+                ;; Notes list should still be visible
+                (should (get-buffer-window "*Hemis Notes*"))
+                ;; File should be open in a different window
+                (let ((file-window (get-buffer-window (find-buffer-visiting file))))
+                  (should file-window)
+                  (should-not (eq file-window list-window)))))
+          ;; Cleanup
+          (delete-other-windows))))))
 
 (ert-deftest hemis-insert-note-link-inserts-format ()
   (hemis-test-with-mocked-backend

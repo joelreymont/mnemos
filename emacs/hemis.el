@@ -65,10 +65,35 @@
   :group 'hemis)
 
 (defface hemis-note-marker-face
-  '((t :inherit default
-        :underline nil :overline nil :strike-through nil :box nil
-        :background nil :foreground nil :extend nil))
+  '((t :foreground "SteelBlue"
+       :underline nil :overline nil :strike-through nil :box nil
+       :extend nil))
   "Face for Hemis sticky note markers."
+  :group 'hemis)
+
+(defface hemis-note-list-index-face
+  '((t :foreground "gray50" :weight normal))
+  "Face for note index number in the notes list."
+  :group 'hemis)
+
+(defface hemis-note-list-id-face
+  '((t :foreground "DarkOrange" :weight bold))
+  "Face for note ID in the notes list."
+  :group 'hemis)
+
+(defface hemis-note-list-file-face
+  '((t :foreground "CadetBlue" :weight normal))
+  "Face for file path in the notes list."
+  :group 'hemis)
+
+(defface hemis-note-list-location-face
+  '((t :foreground "gray60"))
+  "Face for line/column location in the notes list."
+  :group 'hemis)
+
+(defface hemis-note-list-text-face
+  '((t :foreground "gray80"))
+  "Face for note text in the notes list."
   :group 'hemis)
 
 (defvar hemis--process nil
@@ -319,9 +344,12 @@ Prefers the start of the Tree-sitter node at point; falls back to point."
                       (progn (back-to-indentation) (point)))))
 
 (defun hemis--comment-prefix ()
-  "Return a comment prefix suitable for the current buffer."
-  (or (and (boundp 'comment-start) comment-start)
-      "// "))
+  "Return a comment prefix suitable for the current buffer.
+Lisp modes use ;; since single semicolons are for end-of-line comments."
+  (let ((base (or (and (boundp 'comment-start) comment-start) "//")))
+    (if (string= (string-trim-right base) ";")
+        ";; "
+      (concat (string-trim-right base) " "))))
 
 (defun hemis--format-note-texts (texts pos)
   "Format TEXTS (list of strings) as comment lines above POS."
@@ -340,6 +368,79 @@ Prefers the start of the Tree-sitter node at point; falls back to point."
     (concat body "\n" suffix)))
 
 
+;;; Notes list mode (defined early so hemis-list-notes can use it)
+
+(defun hemis-notes-list-next ()
+  "Move to the next note in the notes list buffer."
+  (interactive)
+  (let ((start (point))
+        (current-note (get-text-property (point) 'hemis-note)))
+    ;; Skip past current note's region
+    (while (and (not (eobp))
+                (eq (get-text-property (point) 'hemis-note) current-note))
+      (forward-line 1))
+    ;; Find next note
+    (while (and (not (eobp))
+                (not (get-text-property (point) 'hemis-note)))
+      (forward-line 1))
+    (if (get-text-property (point) 'hemis-note)
+        (beginning-of-line)
+      (goto-char start)
+      (user-error "No more notes"))))
+
+(defun hemis-notes-list-prev ()
+  "Move to the previous note in the notes list buffer."
+  (interactive)
+  (let ((start (point))
+        (current-note (get-text-property (point) 'hemis-note)))
+    ;; Move up one line first
+    (forward-line -1)
+    ;; Skip past current note's region going backwards
+    (while (and (not (bobp))
+                (eq (get-text-property (point) 'hemis-note) current-note))
+      (forward-line -1))
+    ;; Now we might be in a previous note or in a gap - find the note start
+    (let ((note (get-text-property (point) 'hemis-note)))
+      (if note
+          ;; Go to the start of this note block
+          (while (and (not (bobp))
+                      (eq (get-text-property (1- (line-beginning-position)) 'hemis-note) note))
+            (forward-line -1))
+        ;; No note here, go back to start
+        (goto-char start)
+        (user-error "No previous notes")))))
+
+(defvar hemis-notes-list-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map special-mode-map)
+    (define-key map (kbd "RET") #'hemis-notes-list-visit)
+    (define-key map (kbd "v")   #'hemis-view-note)
+    (define-key map (kbd "n")   #'hemis-notes-list-next)
+    (define-key map (kbd "p")   #'hemis-notes-list-prev)
+    (define-key map (kbd "q")   #'quit-window)
+    map)
+  "Keymap for `hemis-notes-list-mode'.")
+
+(define-derived-mode hemis-notes-list-mode special-mode "Hemis-Notes"
+  "Mode for listing Hemis notes.
+\\{hemis-notes-list-mode-map}"
+  :keymap hemis-notes-list-mode-map
+  (setq buffer-read-only t)
+  ;; Set up evil-mode bindings if available
+  (when (bound-and-true-p evil-mode)
+    (evil-set-initial-state 'hemis-notes-list-mode 'emacs)))
+
+;; Evil-mode integration: define keys in normal and motion states
+(with-eval-after-load 'evil
+  (evil-define-key* '(normal motion emacs) hemis-notes-list-mode-map
+    (kbd "n") #'hemis-notes-list-next
+    (kbd "p") #'hemis-notes-list-prev
+    (kbd "RET") #'hemis-notes-list-visit
+    (kbd "v") #'hemis-view-note
+    (kbd "q") #'quit-window
+    (kbd "j") #'hemis-notes-list-next
+    (kbd "k") #'hemis-notes-list-prev))
+
 ;;; Notes data & overlays
 
 (defvar hemis--note-input-map
@@ -364,14 +465,16 @@ RET inserts a newline; use C-c C-c to finish or C-c C-k to cancel."
        nil hemis--note-input-map nil 'hemis--note-history)
     (quit nil)))
 
+(defun hemis--note-get (note key)
+  "Get KEY from NOTE, handling symbol, keyword, and string keys."
+  (or (plist-get note (intern (concat ":" (symbol-name key))))
+      (alist-get key note)
+      (alist-get (symbol-name key) note nil nil #'equal)))
+
 (defun hemis--note-text (note)
   "Extract note text or summary from NOTE."
-  (or (alist-get 'text note)
-      (plist-get note :text)
-      (alist-get "text" note nil nil #'equal)
-      (alist-get 'summary note)
-      (plist-get note :summary)
-      (alist-get "summary" note nil nil #'equal)))
+  (or (hemis--note-get note 'text)
+      (hemis--note-get note 'summary)))
 
 (defun hemis--clear-note-overlays ()
   "Remove all Hemis note overlays from the current buffer."
@@ -382,18 +485,10 @@ RET inserts a newline; use C-c C-c to finish or C-c C-k to cancel."
 (defun hemis--make-note-overlay (note)
   "Create an overlay in the current buffer from NOTE.
 NOTE is an alist or plist parsed from JSON, keys like :id, :line, :column, :summary."
-  (let* ((id     (or (alist-get 'id note)
-                     (plist-get note :id)))
-         (line   (or (alist-get 'line note)
-                     (plist-get note :line)))
-         (col    (or (alist-get 'column note)
-                     (plist-get note :column)
-                     0))
-         (text   (or (alist-get 'summary note)
-                     (plist-get note :summary)
-                     (alist-get 'text note)
-                     (plist-get note :text)
-                     "Note"))
+  (let* ((id     (hemis--note-get note 'id))
+         (line   (hemis--note-get note 'line))
+         (col    (or (hemis--note-get note 'column) 0))
+         (text   (or (hemis--note-text note) "Note"))
          (pos (hemis--anchor-position line col))
          (line-bol (save-excursion (goto-char pos) (line-beginning-position)))
          ;; Drop stale overlays from other buffers or dead overlays.
@@ -425,7 +520,10 @@ NOTE is an alist or plist parsed from JSON, keys like :id, :line, :column, :summ
       (overlay-put marker-ov 'hemis-note-ids ids)
       (overlay-put marker-ov 'hemis-note-texts texts)
       (overlay-put marker-ov 'before-string
-                   (propertize display 'face 'hemis-note-marker-face)))
+                   (propertize display
+                               'face '(:foreground "SteelBlue"
+                                       :underline nil :overline nil
+                                       :strike-through nil :box nil))))
     ;; Per-note overlay (no marker) for downstream consumers.
     (let ((note-ov (make-overlay line-bol line-bol (current-buffer) t t)))
       (overlay-put note-ov 'hemis-note-id id)
@@ -448,7 +546,9 @@ NOTES is a list of note objects (alist/plist) from the backend."
         (overlay-put marker-ov 'hemis-note-texts (mapcar #'hemis--note-text notes))
         (overlay-put marker-ov 'before-string
                      (propertize (hemis--format-note-texts (mapcar #'hemis--note-text notes) pos)
-                                 'face 'hemis-note-marker-face))
+                                 'face '(:foreground "SteelBlue"
+                                         :underline nil :overline nil
+                                         :strike-through nil :box nil)))
         (overlay-put marker-ov 'priority 9999)
         (overlay-put marker-ov 'evaporate t)
         (push marker-ov hemis--overlays)))))
@@ -687,8 +787,10 @@ NOTES is a list of note objects (alist/plist) from the backend."
             (overlay-put marker-ov 'hemis-note-marker t)
             (overlay-put marker-ov 'hemis-note-count (length notes))
             (overlay-put marker-ov 'before-string
-                         (propertize (format "ⓝ%d" (length notes))
-                                     'face 'hemis-note-marker-face))
+                         (propertize (format "n%d" (length notes))
+                                     'face '(:foreground "SteelBlue"
+                                             :underline nil :overline nil
+                                             :strike-through nil :box nil)))
             (overlay-put marker-ov 'priority 9999)
             (overlay-put marker-ov 'evaporate nil)
             (push marker-ov hemis--overlays))))
@@ -741,8 +843,9 @@ NOTES is a list of note objects (alist/plist) from the backend."
   "List all Hemis notes for the current file in a separate buffer."
   (interactive)
   (let* ((params (hemis--buffer-params))
-         (notes  (hemis--request "notes/list-for-file"
-                                 (append params '((includeStale . t)))))
+         (notes  (let ((result (hemis--request "notes/list-for-file"
+                                               (append params '((includeStale . t))))))
+                   (if (vectorp result) (append result nil) result)))
          (buf    (get-buffer-create "*Hemis Notes*")))
     (with-current-buffer buf
       (setq buffer-read-only nil)
@@ -753,30 +856,39 @@ NOTES is a list of note objects (alist/plist) from the backend."
                         (cdr (assoc 'file params))))
         (cl-loop for note in notes
                  for idx from 0 do
-                 (let* ((id   (or (alist-get 'id note)
-                                  (plist-get note :id)))
-                        (file (or (alist-get 'file note)
-                                  (plist-get note :file)))
-                        (line (or (alist-get 'line note)
-                                  (plist-get note :line)))
-                        (col  (or (alist-get 'column note)
-                                  (plist-get note :column)
-                                  0))
-                        (line (or (alist-get 'line note)
-                                  (plist-get note :line)
-                                  0))
-                        (txt  (or (alist-get 'text note)
-                                  (plist-get note :text)
-                                  (alist-get 'summary note)
-                                  (plist-get note :summary)
-                                  "")))
-                   (insert (format "%3d [%s] %s L%d,C%d  %s\n"
-                                   idx id (or file "") line col txt))
-                   (add-text-properties
-                    (line-beginning-position 0) (line-end-position)
-                    (list 'hemis-note note)))))
-      (goto-char (point-min)))
-    (display-buffer buf)))
+                 (let* ((id   (hemis--note-get note 'id))
+                        (file (hemis--note-get note 'file))
+                        (line (or (hemis--note-get note 'line) 0))
+                        (col  (or (hemis--note-get note 'column) 0))
+                        (txt  (or (hemis--note-text note) ""))
+                        (start (point))
+                        (short-id (if (> (length id) 8)
+                                      (substring id 0 8)
+                                    id))
+                        (short-file (file-name-nondirectory (or file ""))))
+                   ;; Header line with faces
+                   (insert (propertize (format "%3d " idx)
+                                       'face 'hemis-note-list-index-face))
+                   (insert (propertize (format "[%s] " short-id)
+                                       'face 'hemis-note-list-id-face))
+                   (insert (propertize short-file
+                                       'face 'hemis-note-list-file-face))
+                   (insert (propertize (format " L%d,C%d" line col)
+                                       'face 'hemis-note-list-location-face))
+                   (insert "\n")
+                   ;; Note text indented with face
+                   (dolist (text-line (split-string txt "\n"))
+                     (insert (propertize (format "    %s\n" text-line)
+                                         'face 'hemis-note-list-text-face)))
+                   (insert "\n")
+                   ;; Mark the whole note block with the property
+                   (add-text-properties start (point)
+                                        (list 'hemis-note note)))))
+      (goto-char (point-min))
+      ;; Move to first note if any
+      (when notes
+        (hemis-notes-list-next)))
+    (pop-to-buffer buf)))
 
 (defun hemis-view-note (&optional note)
   "View NOTE text in a Markdown buffer.
@@ -799,27 +911,26 @@ If NOTE is nil, use the note at point in *Hemis Notes*, or prompt for an id."
       (display-buffer (current-buffer)))))
 
 (defun hemis-notes-list-visit ()
-  "Visit the note on the current line in its file."
+  "Visit the note on the current line in its file.
+Opens in another window if available, keeping the notes list visible."
   (interactive)
   (let* ((note (get-text-property (line-beginning-position)
                                   'hemis-note))
-         (file (or (alist-get 'file note)
-                   (plist-get note :file)))
-         (line (or (alist-get 'line note)
-                   (plist-get note :line)))
-         (col  (or (alist-get 'column note)
-                   (plist-get note :column)
-                   0)))
+         (file (hemis--note-get note 'file))
+         (line (or (hemis--note-get note 'line) 1))
+         (col  (or (hemis--note-get note 'column) 0)))
     (unless file
       (user-error "No note on this line."))
-    (find-file file)
+    ;; Open in other window if multiple windows exist
+    (if (> (count-windows) 1)
+        (find-file-other-window file)
+      (find-file file))
     (goto-char (point-min))
-    (forward-line (max 0 (1- (or line 1))))
+    (forward-line (max 0 (1- line)))
     (move-to-column col)
     (recenter)
     (message "Hemis: jumped to note %s"
-             (or (alist-get 'id note)
-                 (plist-get note :id)))))
+             (hemis--note-get note 'id))))
 
 
 ;;; Minor modes
@@ -881,20 +992,13 @@ If NOTE is nil, use the note at point in *Hemis Notes*, or prompt for an id."
   (unless (keymapp hemis-notes-list-mode-map)
     (setq hemis-notes-list-mode-map
           (let ((map (make-sparse-keymap)))
+            (set-keymap-parent map special-mode-map)
             (define-key map (kbd "RET") #'hemis-notes-list-visit)
             (define-key map (kbd "v")   #'hemis-view-note)
+            (define-key map (kbd "n")   #'hemis-notes-list-next)
+            (define-key map (kbd "p")   #'hemis-notes-list-prev)
+            (define-key map (kbd "q")   #'quit-window)
             map))))
-(defvar hemis-notes-list-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "RET") #'hemis-notes-list-visit)
-    (define-key map (kbd "v")   #'hemis-view-note)
-    map)
-  "Keymap for `hemis-notes-list-mode'.")
-
-(define-derived-mode hemis-notes-list-mode special-mode "Hemis-Notes"
-  "Mode for listing Hemis notes."
-  (hemis--ensure-notes-list-keymap)
-  (setq buffer-read-only t))
 
 (defun hemis-reset-keymaps-and-enable ()
   "Repair Hemis keymaps after reloads and ensure global mode is enabled."
