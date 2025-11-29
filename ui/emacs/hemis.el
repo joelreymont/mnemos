@@ -40,8 +40,13 @@
                 #'hemis--advice-treesit-language-available)))
 
 (defcustom hemis-backend hemis--default-backend
-  "Path to the Hemis backend binary (Rust JSON-RPC over stdio)."
+  "Path to the Hemis backend binary."
   :type 'string
+  :group 'hemis)
+
+(defcustom hemis-dir (expand-file-name "~/.hemis")
+  "Directory for Hemis socket, lock, and log files."
+  :type 'directory
   :group 'hemis)
 
 (defcustom hemis-log-buffer "*Hemis Log*"
@@ -53,6 +58,10 @@
   "List of environment variables (\"KEY=VAL\") passed to the Hemis backend process."
   :type '(repeat string)
   :group 'hemis)
+
+;; Expected protocol version (bump when backend protocol changes)
+(defconst hemis--expected-protocol-version 1
+  "Expected protocol version. Backend should match this.")
 
 (defcustom hemis-auto-install-treesit-grammars t
   "When non-nil, attempt to install required Tree-sitter grammars (e.g., Rust) automatically."
@@ -138,33 +147,168 @@
         (blob . ,blob)))))
 
 
-;;; Process & JSON-RPC management
+;;; Process & JSON-RPC management (Unix socket mode)
+
+(defun hemis--socket-path ()
+  "Return the path to the Hemis socket."
+  (expand-file-name "hemis.sock" hemis-dir))
+
+(defun hemis--lock-path ()
+  "Return the path to the Hemis lock file."
+  (expand-file-name "hemis.lock" hemis-dir))
+
+(defun hemis--log-path ()
+  "Return the path to the Hemis log file."
+  (expand-file-name "hemis.log" hemis-dir))
+
+(defun hemis--socket-exists-p ()
+  "Return non-nil if the socket file exists."
+  (file-exists-p (hemis--socket-path)))
+
+(defun hemis--read-lock-pid ()
+  "Read and return the PID from the lock file, or nil."
+  (let ((lock (hemis--lock-path)))
+    (when (file-exists-p lock)
+      (with-temp-buffer
+        (insert-file-contents lock)
+        (string-to-number (buffer-substring-no-properties
+                           (point-min)
+                           (line-end-position)))))))
+
+(defun hemis--process-alive-p (pid)
+  "Return non-nil if process with PID is alive."
+  (when pid
+    (= 0 (call-process "kill" nil nil nil "-0" (number-to-string pid)))))
+
+(defun hemis--try-acquire-lock ()
+  "Try to acquire the lock file. Return non-nil if successful."
+  (let ((lock (hemis--lock-path)))
+    (condition-case nil
+        (progn
+          ;; Ensure hemis-dir exists
+          (make-directory hemis-dir t)
+          ;; Try to create lock file exclusively
+          (with-temp-file lock
+            (insert (format "%d\n" (emacs-pid))))
+          t)
+      (error nil))))
+
+(defun hemis--start-server ()
+  "Start the Hemis server process in the background."
+  (let* ((exe (or hemis-backend (error "Set `hemis-backend' to the Rust backend binary")))
+         (log (hemis--log-path))
+         ;; Build environment variables as shell exports
+         (env-exports (mapconcat
+                       (lambda (e)
+                         (format "export %s;" (shell-quote-argument e)))
+                       hemis-backend-env
+                       " "))
+         (cmd (format "%s %s --serve >> %s 2>&1 &"
+                      env-exports
+                      (shell-quote-argument exe)
+                      (shell-quote-argument log))))
+    (make-directory hemis-dir t)
+    (call-process-shell-command cmd nil 0)
+    (message "Hemis: started backend server")))
+
+(defun hemis--wait-for-socket (timeout-secs)
+  "Wait up to TIMEOUT-SECS for the socket to appear. Return non-nil if found."
+  (let ((deadline (+ (float-time) timeout-secs)))
+    (while (and (not (hemis--socket-exists-p))
+                (< (float-time) deadline))
+      (sleep-for 0.1))
+    (hemis--socket-exists-p)))
+
+(defun hemis--connect-socket ()
+  "Connect to the Hemis socket. Return the process or nil on failure."
+  (condition-case err
+      (let* ((buf (get-buffer-create hemis-log-buffer))
+             (proc (make-network-process
+                    :name "hemis-backend"
+                    :buffer buf
+                    :family 'local
+                    :service (hemis--socket-path)
+                    :coding 'no-conversion
+                    :noquery t)))
+        proc)
+    (error
+     (message "Hemis: failed to connect to socket: %s" (error-message-string err))
+     nil)))
 
 (defun hemis--start-process ()
-  "Start the Hemis backend process if it is not already running."
+  "Connect to the Hemis backend server, starting it if necessary."
   (unless (and hemis--process (process-live-p hemis--process))
+    ;; Clean up any existing connection
     (hemis--kill-backend-processes)
-    (let* ((buf (get-buffer-create hemis-log-buffer))
-           (exe (or hemis-backend (error "Set `hemis-backend` to the Rust backend binary")))
-           (args nil)
-           (process-environment (append hemis-backend-env process-environment))
-           (proc (make-process
-                  :name "hemis-backend"
-                  :buffer buf
-                  :command (cons exe args)
-                  :connection-type 'pipe
-                  :stderr buf
-                  :coding 'no-conversion)))
-      (set-process-query-on-exit-flag proc nil)
-      (setq hemis--process proc)
-      (setq hemis--conn
-            (jsonrpc-process-connection
-             :process proc
-             :on-shutdown (lambda (&rest _)
-                            (message "Hemis backend shut down")
-                            (setq hemis--process nil
-                                  hemis--conn nil))))
-      (message "Hemis backend started."))))
+
+    ;; Try to connect to existing socket
+    (let ((connected nil))
+      (when (hemis--socket-exists-p)
+        (let ((proc (hemis--connect-socket)))
+          (when proc
+            (hemis--setup-connection proc)
+            (setq connected t))))
+
+      (unless connected
+        ;; Socket doesn't exist or connection failed - need to start server
+        ;; Check if stale lock/socket
+        (when (hemis--socket-exists-p)
+          (let ((pid (hemis--read-lock-pid)))
+            (unless (hemis--process-alive-p pid)
+              ;; Stale, clean up
+              (message "Hemis: cleaning up stale socket")
+              (ignore-errors (delete-file (hemis--socket-path)))
+              (ignore-errors (delete-file (hemis--lock-path))))))
+
+        ;; Try to start the server
+        (if (hemis--try-acquire-lock)
+            (progn
+              (hemis--start-server)
+              (unless (hemis--wait-for-socket 5)
+                (ignore-errors (delete-file (hemis--lock-path)))
+                (error "Hemis: server failed to create socket"))
+              (sleep-for 0.1)
+              (let ((proc (hemis--connect-socket)))
+                (unless proc
+                  (error "Hemis: failed to connect after starting server"))
+                (hemis--setup-connection proc)))
+          ;; Someone else is starting the server, wait for socket
+          (message "Hemis: waiting for server to start...")
+          (unless (hemis--wait-for-socket 5)
+            (error "Hemis: timeout waiting for server"))
+          (sleep-for 0.1)
+          (let ((proc (hemis--connect-socket)))
+            (unless proc
+              (error "Hemis: failed to connect to server"))
+            (hemis--setup-connection proc)))))))
+
+(cl-defun hemis--setup-connection (proc)
+  "Set up the jsonrpc connection using PROC."
+  (setq hemis--process proc)
+  (setq hemis--conn
+        (jsonrpc-process-connection
+         :process proc
+         :on-shutdown (lambda (&rest _)
+                        (message "Hemis backend shut down")
+                        (setq hemis--process nil
+                              hemis--conn nil))))
+  ;; Check version
+  (condition-case err
+      (let ((info (hemis--request "hemis/version")))
+        (when info
+          (let ((proto (alist-get 'protocolVersion info)))
+            (cond
+             ((and proto (> proto hemis--expected-protocol-version))
+              (message "Hemis: backend is newer. Consider updating the plugin."))
+             ((and proto (< proto hemis--expected-protocol-version))
+              (display-warning 'hemis
+                               "Backend is outdated. Run: pkill -f 'hemis --serve'"
+                               :warning)))
+            (message "Hemis: connected to backend v%s (%s)"
+                     (or proto "?")
+                     (or (alist-get 'gitHash info) "?")))))
+    (error
+     (message "Hemis: version check failed: %s" (error-message-string err)))))
 
 (defun hemis--ensure-connection ()
   "Ensure that the Hemis backend connection is live."
@@ -173,18 +317,27 @@
     (hemis--start-process)))
 
 (defun hemis-shutdown ()
-  "Shutdown the Hemis backend."
+  "Shutdown the Hemis backend server."
   (interactive)
   (when (and hemis--conn (jsonrpc-running-p hemis--conn))
-    (jsonrpc-notify hemis--conn "shutdown" nil))
+    (ignore-errors (jsonrpc-request hemis--conn "shutdown" nil :timeout 1)))
   (when (and hemis--process (process-live-p hemis--process))
-    (kill-process hemis--process))
+    (delete-process hemis--process))
   (setq hemis--process nil
         hemis--conn nil)
   (message "Hemis backend stopped."))
 
-;; Ensure backends are terminated when Emacs exits.
-(add-hook 'kill-emacs-hook #'hemis--kill-backend-processes)
+(defun hemis-disconnect ()
+  "Disconnect from the Hemis backend (does not shutdown server)."
+  (interactive)
+  (when (and hemis--process (process-live-p hemis--process))
+    (delete-process hemis--process))
+  (setq hemis--process nil
+        hemis--conn nil)
+  (message "Hemis: disconnected."))
+
+;; Disconnect when Emacs exits (server keeps running)
+(add-hook 'kill-emacs-hook #'hemis-disconnect)
 
 (defun hemis--request (method &optional params)
   "Synchronously send JSON-RPC METHOD with PARAMS and return result."
@@ -998,8 +1151,9 @@ Opens in another window if available, keeping the notes list visible."
   hemis-notes-mode hemis--maybe-enable-notes
   :group 'hemis)
 
-;; Enable Hemis notes automatically in programming buffers by default.
-(hemis-notes-global-mode 1)
+;; Do NOT enable global mode by default - users should opt in via their config:
+;;   (hemis-notes-global-mode 1)
+;; This avoids unexpected backend connections and allows testing isolation.
 
 (defun hemis--ensure-notes-list-keymap ()
   "Ensure `hemis-notes-list-mode-map` is a valid keymap."

@@ -4,50 +4,79 @@
 (require 'hemis)
 
 (defmacro hemis-test-with-mocked-backend (&rest body)
+  "Run BODY with a mocked backend (no real connections)."
   (declare (indent 0))
-  `(let (hemis-test-last-method hemis-test-last-params)
-     (cl-letf (((symbol-function 'hemis--request)
-                (lambda (method &optional params)
-                  (setq hemis-test-last-method method
-                        hemis-test-last-params params)
-                  (pcase method
-                    ("notes/list-for-file"
-                     (list (list 'id "1"
-                                 'file (cdr (assoc 'file params))
-                                 'line 1
-                                 'column 0
-                                 'summary "Mock note"
-                                 'text "Mock note body")))
-                    ("notes/get"
-                     (list 'id (cdr (assoc 'id params))
-                           'file "/tmp/mock.rs"
-                           'line 1
-                           'column 0
-                           'text "Title\n\n- bullet"))
-                    ("notes/create"
-                     (list 'id "2"
-                           'file (cdr (assoc 'file params))
-                           'line (cdr (assoc 'line params))
-                           'column (cdr (assoc 'column params))
-                           'text (cdr (assoc 'text params))
-                           'summary "Created"
-                           'nodePath (cdr (assoc 'nodePath params))))
-                    (_ (error "Unexpected method in mock: %s" method))))))
-       ,@body)))
+  `(let (hemis-test-last-method hemis-test-last-params
+         ;; Isolate from any real backend state
+         (hemis--process nil)
+         (hemis--conn nil)
+         (hemis-dir (make-temp-file "hemis-mock-" t)))
+     ;; Disable global mode to prevent auto-connections
+     (hemis-notes-global-mode -1)
+     (unwind-protect
+         (cl-letf (((symbol-function 'hemis--request)
+                    (lambda (method &optional params)
+                      (setq hemis-test-last-method method
+                            hemis-test-last-params params)
+                      (pcase method
+                        ("hemis/version"
+                         (list 'protocolVersion 1
+                               'gitHash "mock"
+                               'uptimeSecs 0
+                               'connections 1))
+                        ("notes/list-for-file"
+                         (list (list 'id "1"
+                                     'file (cdr (assoc 'file params))
+                                     'line 1
+                                     'column 0
+                                     'summary "Mock note"
+                                     'text "Mock note body")))
+                        ("notes/get"
+                         (list 'id (cdr (assoc 'id params))
+                               'file "/tmp/mock.rs"
+                               'line 1
+                               'column 0
+                               'text "Title\n\n- bullet"))
+                        ("notes/create"
+                         (list 'id "2"
+                               'file (cdr (assoc 'file params))
+                               'line (cdr (assoc 'line params))
+                               'column (cdr (assoc 'column params))
+                               'text (cdr (assoc 'text params))
+                               'summary "Created"
+                               'nodePath (cdr (assoc 'nodePath params))))
+                        (_ (error "Unexpected method in mock: %s" method)))))
+                   ;; Also mock ensure-connection to prevent any real connections
+                   ((symbol-function 'hemis--ensure-connection)
+                    (lambda () nil)))
+           ,@body)
+       ;; Cleanup
+       (ignore-errors (delete-directory hemis-dir t)))))
 
 (defmacro hemis-test-with-backend (&rest body)
-  "Run BODY with a real backend using a temp SQLite DB."
+  "Run BODY with a real backend using isolated temp directory."
   (declare (indent 0))
-  `(let* ((hemis-backend-env (list (concat "HEMIS_DB_PATH=" (make-temp-file "hemis-test-db"))))
+  `(let* ((test-dir (make-temp-file "hemis-test-" t))
+          (hemis-dir test-dir)
+          (hemis--process nil)
+          (hemis--conn nil)
+          (hemis-backend-env (list (concat "HEMIS_DIR=" test-dir)
+                                   (concat "HEMIS_DB_PATH=" test-dir "/hemis.db")))
           (hemis-backend (or (getenv "HEMIS_BACKEND")
                              hemis-backend
                              hemis--default-backend
                              (error "Set HEMIS_BACKEND to the Rust backend binary"))))
+     ;; Disable global mode to prevent auto-connections to wrong socket
+     (hemis-notes-global-mode -1)
      (unwind-protect
          (progn
-           (hemis-shutdown)
+           ;; Clean up any stale connections (not shutdown, just disconnect local state)
+           (setq hemis--process nil hemis--conn nil)
            ,@body)
-       (hemis-shutdown))))
+       ;; Shutdown the isolated server
+       (ignore-errors (hemis-shutdown))
+       ;; Clean up test directory
+       (ignore-errors (delete-directory test-dir t)))))
 
 (defun hemis-test--note-id (note)
   "Extract note id from NOTE (alist/plist/hash-table)."
