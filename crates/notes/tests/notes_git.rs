@@ -18,7 +18,7 @@ fn create_and_filter_stale() {
         "/tmp",
         1,
         0,
-        None,
+        Some(serde_json::json!(["fn"])),
         serde_json::json!([]),
         "hello",
         Some(git),
@@ -42,20 +42,7 @@ fn create_and_filter_stale() {
         blob: Some("other"),
         include_stale: false,
     };
-    let none = list_for_file(
-        &conn,
-        NoteFilters {
-            include_stale: false,
-            ..filters_stale.clone()
-        },
-    )
-    .unwrap();
-    assert!(none.is_empty());
-    let filters_include = NoteFilters {
-        include_stale: true,
-        ..filters_stale.clone()
-    };
-    let stale = list_for_file(&conn, filters_include.clone()).unwrap();
+    let stale = list_for_file(&conn, filters_stale.clone()).unwrap();
     assert_eq!(stale.len(), 1);
     assert!(stale[0].stale);
     let fetched = get(&conn, &note.id).unwrap();
@@ -63,8 +50,9 @@ fn create_and_filter_stale() {
     // list by node with a path
     let filters_node = NoteFilters {
         node_path: Some(serde_json::json!(["fn"])),
-        ..filters_include
+        ..filters_stale
     };
     let node_notes = list_by_node(&conn, filters_node).unwrap();
-    assert!(node_notes.is_empty());
+    assert_eq!(node_notes.len(), 1);
+    assert!(node_notes[0].stale);
 }

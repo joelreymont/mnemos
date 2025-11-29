@@ -150,10 +150,7 @@ pub fn list_for_file(conn: &Connection, filters: NoteFilters<'_>) -> Result<Vec<
             map_note(row, is_stale)
         },
     )?;
-    Ok(rows
-        .into_iter()
-        .filter(|n| filters.include_stale || !n.stale)
-        .collect())
+    Ok(rows)
 }
 
 pub fn list_by_node(conn: &Connection, filters: NoteFilters<'_>) -> Result<Vec<Note>> {
@@ -170,10 +167,7 @@ pub fn list_by_node(conn: &Connection, filters: NoteFilters<'_>) -> Result<Vec<N
             let is_stale = stale(&note_commit, &note_blob, filters.commit, filters.blob);
             map_note(row, is_stale)
         })?;
-    Ok(rows
-        .into_iter()
-        .filter(|n| filters.include_stale || !n.stale)
-        .collect())
+    Ok(rows)
 }
 
 pub fn get(conn: &Connection, id: &str) -> Result<Note> {

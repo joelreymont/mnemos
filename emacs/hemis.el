@@ -674,21 +674,21 @@ NOTES is a list of note objects (alist/plist) from the backend."
   "Fetch and render all notes for the current buffer."
   (interactive)
   (when (buffer-file-name)
-    (let* ((params (hemis--buffer-params))
+    (let* ((params (append (hemis--buffer-params) '((includeStale . t))))
            (notes  (hemis--request "notes/list-for-file" params)))
       (hemis--apply-notes notes)
       (when (and notes (null hemis--overlays))
         ;; Fallback if overlays evaporated; place a marker at point-min.
         (let ((pos (point-min)))
           (let ((marker-ov (make-overlay pos pos (current-buffer) t t)))
-        (overlay-put marker-ov 'hemis-note-marker t)
-        (overlay-put marker-ov 'hemis-note-count (length notes))
-        (overlay-put marker-ov 'before-string
-                     (propertize (format "ⓝ%d" (length notes))
-                                 'face 'hemis-note-marker-face))
-        (overlay-put marker-ov 'priority 9999)
-        (overlay-put marker-ov 'evaporate nil)
-        (push marker-ov hemis--overlays))))
+            (overlay-put marker-ov 'hemis-note-marker t)
+            (overlay-put marker-ov 'hemis-note-count (length notes))
+            (overlay-put marker-ov 'before-string
+                         (propertize (format "ⓝ%d" (length notes))
+                                     'face 'hemis-note-marker-face))
+            (overlay-put marker-ov 'priority 9999)
+            (overlay-put marker-ov 'evaporate nil)
+            (push marker-ov hemis--overlays))))
       (unless hemis--overlays
         (let ((ov (make-overlay (point-min) (point-min))))
           (overlay-put ov 'priority 9999)
@@ -731,13 +731,15 @@ NOTES is a list of note objects (alist/plist) from the backend."
                       (projectRoot . ,proj)
                       (commit . ,commit)
                       (blob . ,blob)
+                      (includeStale . t)
                       (nodePath . ,(and node-path (vconcat node-path)))))))
 
 (defun hemis-list-notes ()
   "List all Hemis notes for the current file in a separate buffer."
   (interactive)
   (let* ((params (hemis--buffer-params))
-         (notes  (hemis--request "notes/list-for-file" params))
+         (notes  (hemis--request "notes/list-for-file"
+                                 (append params '((includeStale . t)))))
          (buf    (get-buffer-create "*Hemis Notes*")))
     (with-current-buffer buf
       (setq buffer-read-only nil)

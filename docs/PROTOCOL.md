@@ -86,7 +86,7 @@ Response: note object.
   "projectRoot": "/abs/path",
   "commit": "HEAD sha",     // optional filter; when present, stale notes are excluded
   "blob": "blob sha",       // optional filter
-  "includeStale": false     // optional; include notes from other commits/blobs (stale=true)
+  "includeStale": false     // optional; notes always return; stale=true when commit/blob mismatch
 }
 ```
 

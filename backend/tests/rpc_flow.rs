@@ -231,9 +231,17 @@ fn filters_stale_notes_by_commit() -> anyhow::Result<()> {
         .result
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
-    assert!(
-        filtered_list.is_empty(),
-        "stale notes should be filtered out"
+    assert_eq!(
+        filtered_list.len(),
+        1,
+        "stale notes should still be returned for re-anchoring"
+    );
+    assert_eq!(
+        filtered_list[0]
+            .get("stale")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        true
     );
     let included: Response = serde_json::from_slice(&bodies[2])?;
     let included_list = included
@@ -358,9 +366,16 @@ fn filters_stale_notes_by_blob() -> anyhow::Result<()> {
         .result
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
+    assert_eq!(
+        filtered_list.len(),
+        1,
+        "stale notes should still return for blob/commit mismatch"
+    );
     assert!(
-        filtered_list.is_empty(),
-        "stale notes should be filtered out when blob/commit mismatch"
+        filtered_list[0]
+            .get("stale")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
     );
     let included: Response = serde_json::from_slice(&bodies[2])?;
     let included_list = included
