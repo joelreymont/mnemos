@@ -1,4 +1,7 @@
 CONTEXT.md
 HISTORY.md
+SESSION.md
 *.log
+*.db
 target/
+.DS_Store

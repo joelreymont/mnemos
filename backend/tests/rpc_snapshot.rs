@@ -67,7 +67,7 @@ fn snapshot_create_and_list() -> anyhow::Result<()> {
         req_list.len(),
         req_list
     );
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
@@ -123,7 +123,7 @@ fn snapshot_update_and_delete() -> anyhow::Result<()> {
     });
     // First create, then patch in the returned id for update/delete.
     let create_input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(create_input)
         .assert()
@@ -158,7 +158,7 @@ fn snapshot_update_and_delete() -> anyhow::Result<()> {
         del.len(),
         del
     );
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
@@ -216,7 +216,7 @@ fn snapshot_list_by_node() -> anyhow::Result<()> {
         req_list.len(),
         req_list
     );
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
@@ -267,7 +267,7 @@ fn snapshot_index_search() -> anyhow::Result<()> {
         search_req.len(),
         search_req
     );
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
@@ -301,7 +301,7 @@ fn snapshot_invalid_params() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
@@ -346,7 +346,7 @@ fn snapshot_missing_id_update_delete() -> anyhow::Result<()> {
         req_delete.len(),
         req_delete
     );
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
@@ -376,7 +376,7 @@ fn snapshot_unknown_method() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
@@ -409,7 +409,7 @@ fn snapshot_list_files() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
@@ -461,7 +461,7 @@ fn snapshot_explain_region() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
@@ -527,7 +527,7 @@ fn snapshot_save_and_load() -> anyhow::Result<()> {
         load_req.len(),
         load_req
     );
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
@@ -606,7 +606,7 @@ fn snapshot_status_returns_counts() -> anyhow::Result<()> {
         status_req.len(),
         status_req
     );
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
@@ -671,7 +671,7 @@ fn snapshot_index_project() -> anyhow::Result<()> {
         req_search.len(),
         req_search
     );
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()

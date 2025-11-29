@@ -1,4 +1,4 @@
-The docs describing this app are in hemis-spec/docs
+The docs describing this app are in docs/
 
 ## Development Guidelines
 
@@ -39,10 +39,6 @@ Author: `Joel Reymont <18791+joelreymont@users.noreply.github.com>`
 
 ### Docs
 - See `docs/ARCHITECTURE.md` for the current backend/frontend architecture and stale-note behavior.
-
-### Tools (Lisp/Elisp helpers)
-
-- `scripts/check_parens.py` verifies parenthesis balance for Lisp/Elisp files; use it when editing Lisp code. (Used for emacs/hemis.el)
 
 ### Context and Compaction
 

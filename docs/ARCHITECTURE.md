@@ -3,7 +3,7 @@
 ## Overview
 - Rust backend (Cargo workspace) provides a JSON-RPC 2.0 server over stdio (`backend` bin).
 - SQLite storage for notes/files/embeddings/snapshots (default `hemis-notes.db`).
-- Emacs frontend (`emacs/hemis.el`) speaks JSON-RPC over stdio, renders notes as comment-style overlays, and auto-installs the Rust Tree-sitter grammar when needed.
+- Emacs frontend (`ui/emacs/hemis.el`) speaks JSON-RPC over stdio, renders notes as comment-style overlays, and auto-installs the Rust Tree-sitter grammar when needed.
 
 ## Workspace layout
 - `backend` (bin): JSON-RPC server, framing, routing, snapshot/status, project/file/index/search endpoints, integrates crates below.

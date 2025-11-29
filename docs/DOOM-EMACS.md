@@ -12,13 +12,13 @@ From the repo root:
 ```bash
 cargo build -p backend
 ```
-This produces `target/debug/backend`. The backend stores data in SQLite; override with `HEMIS_DB_PATH` if you want a custom location.
+This produces `target/debug/hemis`. The backend stores data in SQLite; override with `HEMIS_DB_PATH` if you want a custom location.
 
 ## Doom module install
 1) Symlink the module:
 ```bash
 mkdir -p ~/.config/doom/modules/tools
-ln -s /Users/joel/Work/hemis/emacs/doom/tools/hemis ~/.config/doom/modules/tools/hemis
+ln -s /Users/joel/Work/hemis/ui/emacs/doom/tools/hemis ~/.config/doom/modules/tools/hemis
 ```
 2) Enable in `~/config/doom/init.el` under `:tools`:
 ```lisp
@@ -27,12 +27,12 @@ hemis
 3) Point Doom to the local frontend in `~/.config/doom/packages.el`:
 ```lisp
 (package! hemis
-  :recipe (:local-repo "/Users/joel/Work/hemis/emacs"
+  :recipe (:local-repo "/Users/joel/Work/hemis/ui/emacs"
            :files ("hemis.el")))
 ```
 4) Configure backend path and DB in `~/.config/doom/config.el`:
 ```lisp
-(setq hemis-backend "/Users/joel/Work/hemis/target/debug/backend"
+(setq hemis-backend "/Users/joel/Work/hemis/target/debug/hemis"
       hemis-backend-env '("HEMIS_DB_PATH=/Users/joel/Work/hemis/hemis-notes.db")
       hemis-auto-install-treesit-grammars t) ;; installs Rust grammar if missing
 ```

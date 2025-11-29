@@ -3,16 +3,20 @@ name = "backend"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "hemis"
+path = "src/main.rs"
+
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
-rpc = { path = "../crates/rpc" }
-notes = { path = "../crates/notes" }
-index = { path = "../crates/index" }
-storage = { path = "../crates/storage" }
-git = { path = "../crates/git" }
+rpc = { path = "crates/rpc" }
+notes = { path = "crates/notes" }
+index = { path = "crates/index" }
+storage = { path = "crates/storage" }
+git = { path = "crates/git" }
 rusqlite = { workspace = true }
 memchr = "2"
 

@@ -1,16 +1,16 @@
 # Hemis Emacs UI
 
-- Backend: Rust JSON-RPC server over stdio (`backend/` bin in the Cargo workspace).
+- Backend: Rust JSON-RPC server over stdio (`hemis` binary in the Cargo workspace).
 - Client: `hemis.el` provides notes overlays and a notes list; uses built-in Emacs `jsonrpc`.
-- Doom: module stubs live in `emacs/doom/tools/hemis/`.
+- Doom: module stubs live in `ui/emacs/doom/tools/hemis/`.
 
 Quick start:
 
 ```elisp
-(add-to-list 'load-path "/path/to/hemis/emacs")
+(add-to-list 'load-path "/path/to/hemis/ui/emacs")
 (require 'hemis)
 ;; Point to the built Rust backend (or set env HEMIS_BACKEND).
-(setq hemis-backend (expand-file-name "target/debug/backend" "/path/to/hemis"))
+(setq hemis-backend (expand-file-name "target/debug/hemis" "/path/to/hemis"))
 ```
 
 Use `M-x hemis-notes-mode` in a buffer to show sticky notes; `C-c h a` to add a note, `C-c h r` to refresh, `C-c h l` to list notes. `M-x hemis-shutdown` stops the backend.
@@ -29,11 +29,11 @@ Run Rust backend + Emacs ERT suite from the repo root:
 Run only the Emacs ERT suite:
 
 ```bash
-HEMIS_BACKEND=/path/to/target/debug/backend \
+HEMIS_BACKEND=/path/to/target/debug/hemis \
 emacs -Q --batch \
-  -L emacs \
+  -L ui/emacs \
   -l hemis.el \
-  -L emacs/tests \
+  -L ui/emacs/tests \
   -l hemis-test.el \
   -f ert-run-tests-batch-and-exit
 ```

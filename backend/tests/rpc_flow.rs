@@ -60,7 +60,7 @@ fn handles_multiple_framed_requests() -> anyhow::Result<()> {
         req_list.len(),
         req_list
     );
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
@@ -118,7 +118,7 @@ fn handles_large_framed_body() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
@@ -139,7 +139,7 @@ fn handles_large_framed_body() -> anyhow::Result<()> {
 fn handles_line_delimited_shutdown() -> anyhow::Result<()> {
     let db = NamedTempFile::new()?;
     let req = r#"{"jsonrpc":"2.0","id":7,"method":"shutdown","params":{}}"#;
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(format!("{req}\n"))
         .assert()
@@ -212,7 +212,7 @@ fn filters_stale_notes_by_commit() -> anyhow::Result<()> {
         req_stale_included.len(),
         req_stale_included
     );
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
@@ -330,7 +330,7 @@ fn filters_stale_notes_by_blob() -> anyhow::Result<()> {
         req_stale_included.len(),
         req_stale_included
     );
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
@@ -427,7 +427,7 @@ fn indexes_project_and_searches() -> anyhow::Result<()> {
         req_search.len(),
         req_search
     );
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
@@ -485,7 +485,7 @@ fn lists_and_reads_files() -> anyhow::Result<()> {
         req_get.len(),
         req_get
     );
-    let assert = cargo_bin_cmd!("backend")
+    let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()

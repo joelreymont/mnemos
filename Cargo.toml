@@ -1,11 +1,11 @@
 [workspace]
 members = [
   "backend",
-  "crates/notes",
-  "crates/index",
-  "crates/git",
-  "crates/storage",
-  "crates/rpc"
+  "backend/crates/notes",
+  "backend/crates/index",
+  "backend/crates/git",
+  "backend/crates/storage",
+  "backend/crates/rpc"
 ]
 resolver = "2"
 

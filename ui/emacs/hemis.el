@@ -18,8 +18,8 @@
 
 (defconst hemis--default-backend
   (let* ((here (file-name-directory (or load-file-name buffer-file-name)))
-         (root (expand-file-name ".." here))
-         (candidate (expand-file-name "target/debug/backend" root)))
+         (root (expand-file-name "../.." here))
+         (candidate (expand-file-name "target/debug/hemis" root)))
     (when (file-exists-p candidate) candidate))
   "Default path to the Hemis Rust backend binary (if built locally).")
 
@@ -604,10 +604,11 @@ NOTES is a list of note objects (alist/plist) from the backend."
   "Search QUERY in indexed files/notes for the current project and show results."
   (interactive "sSearch query: ")
   (let* ((root (or (hemis--project-root) default-directory))
-         (results (hemis--request "hemis/search"
-                                  `((query . ,query)
-                                    (projectRoot . ,root)
-                                    (includeNotes . t))))
+         (results (let ((r (hemis--request "hemis/search"
+                                           `((query . ,query)
+                                             (projectRoot . ,root)
+                                             (includeNotes . t)))))
+                    (if (vectorp r) (append r nil) r)))
          (buf (get-buffer-create "*Hemis Search*")))
     (with-current-buffer buf
       (setq buffer-read-only nil)
@@ -618,16 +619,16 @@ NOTES is a list of note objects (alist/plist) from the backend."
         (insert (make-string 80 ?-))
         (insert "\n")
         (dolist (hit results)
-          (let* ((file (alist-get 'file hit))
-                 (line (alist-get 'line hit))
-                 (col  (alist-get 'column hit))
-                 (text (alist-get 'text hit))
-                 (score (alist-get 'score hit))
-                 (kind (or (alist-get 'kind hit) "file")))
+          (let* ((file (hemis--note-get hit 'file))
+                 (line (hemis--note-get hit 'line))
+                 (col  (hemis--note-get hit 'column))
+                 (text (hemis--note-get hit 'text))
+                 (score (hemis--note-get hit 'score))
+                 (kind (or (hemis--note-get hit 'kind) "file")))
             (insert (format "%-6s %-6.2f %-40s %s\n"
-                            kind score
+                            kind (or score 0.0)
                             (format "%s:%s:%s" file line col)
-                            text))
+                            (or text "")))
             (add-text-properties (line-beginning-position 0) (line-end-position)
                                  (list 'hemis-search-hit hit)))))
       (goto-char (point-min))
@@ -639,16 +640,18 @@ NOTES is a list of note objects (alist/plist) from the backend."
 
 (defun hemis--render-link-search (results)
   "Render note search RESULTS into the link search buffer."
-  (let ((buf (get-buffer-create hemis--link-search-buffer)))
+  (let ((buf (get-buffer-create hemis--link-search-buffer))
+        (notes (if (vectorp results) (append results nil) results)))
     (with-current-buffer buf
       (setq buffer-read-only nil)
       (erase-buffer)
       (let ((inhibit-read-only t))
         (insert "Hemis note link search results\n\n")
-        (dolist (note results)
-          (let ((id (alist-get 'id note))
-                (summary (alist-get 'summary note))
-                (file (alist-get 'file note)))
+        (dolist (note notes)
+          (let ((id (hemis--note-get note 'id))
+                (summary (or (hemis--note-get note 'summary)
+                             (hemis--note-get note 'text)))
+                (file (hemis--note-get note 'file)))
             (insert (format "%s\t%s\t%s\n" id summary file)))))
       (goto-char (point-min))
       (special-mode))
@@ -659,22 +662,28 @@ NOTES is a list of note objects (alist/plist) from the backend."
   (interactive)
   (let* ((query (or query (read-string "Link search query: ")))
          (root (or (hemis--project-root) default-directory))
-         (results (hemis--request "notes/search"
-                                  `((query . ,query)
-                                    (projectRoot . ,root)))))
+         (results (let ((r (hemis--request "notes/search"
+                                           `((query . ,query)
+                                             (projectRoot . ,root)))))
+                    (if (vectorp r) (append r nil) r))))
     (hemis--render-link-search results)
     (unless results
       (user-error "No notes found"))
     (let* ((choices (mapcar (lambda (note)
-                              (cons (format "%s (%s)" (alist-get 'summary note)
-                                            (alist-get 'id note))
+                              (cons (format "%s (%s)"
+                                            (or (hemis--note-get note 'summary)
+                                                (hemis--note-get note 'text)
+                                                "")
+                                            (hemis--note-get note 'id))
                                     note))
                             results))
            (chosen (cdr (assoc (completing-read "Select note: " choices nil t)
                                choices)))
-           (default-desc (alist-get 'summary chosen))
+           (default-desc (or (hemis--note-get chosen 'summary)
+                             (hemis--note-get chosen 'text)
+                             ""))
            (desc (read-string "Description: " default-desc))
-           (id (alist-get 'id chosen)))
+           (id (hemis--note-get chosen 'id)))
       (insert (format "[[%s][%s]]" desc id)))))
 
 (defun hemis--maybe-trigger-link ()
@@ -700,8 +709,9 @@ NOTES is a list of note objects (alist/plist) from the backend."
   "List files under ROOT (defaults to current project)."
   (interactive)
   (let* ((root (or root (hemis--project-root) default-directory))
-         (files (hemis--request "hemis/list-files"
-                                `((projectRoot . ,root))))
+         (files (let ((r (hemis--request "hemis/list-files"
+                                         `((projectRoot . ,root)))))
+                  (if (vectorp r) (append r nil) r)))
          (buf (get-buffer-create "*Hemis Files*")))
     (with-current-buffer buf
       (setq buffer-read-only nil)
@@ -778,7 +788,8 @@ NOTES is a list of note objects (alist/plist) from the backend."
   (interactive)
   (when (buffer-file-name)
     (let* ((params (append (hemis--buffer-params) '((includeStale . t))))
-           (notes  (hemis--request "notes/list-for-file" params)))
+           (notes  (let ((r (hemis--request "notes/list-for-file" params)))
+                     (if (vectorp r) (append r nil) r))))
       (hemis--apply-notes notes)
       (when (and notes (null hemis--overlays))
         ;; Fallback if overlays evaporated; place a marker at point-min.
@@ -830,14 +841,15 @@ NOTES is a list of note objects (alist/plist) from the backend."
          (file (alist-get 'file params))
          (proj (alist-get 'projectRoot params))
          (commit (alist-get 'commit params))
-         (blob (alist-get 'blob params)))
-    (hemis--request "notes/list-by-node"
-                    `((file . ,file)
-                      (projectRoot . ,proj)
-                      (commit . ,commit)
-                      (blob . ,blob)
-                      (includeStale . t)
-                      (nodePath . ,(and node-path (vconcat node-path)))))))
+         (blob (alist-get 'blob params))
+         (result (hemis--request "notes/list-by-node"
+                                 `((file . ,file)
+                                   (projectRoot . ,proj)
+                                   (commit . ,commit)
+                                   (blob . ,blob)
+                                   (includeStale . t)
+                                   (nodePath . ,(and node-path (vconcat node-path)))))))
+    (if (vectorp result) (append result nil) result)))
 
 (defun hemis-list-notes ()
   "List all Hemis notes for the current file in a separate buffer."
