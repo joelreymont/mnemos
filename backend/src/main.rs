@@ -40,8 +40,22 @@ fn framed_needs_more(buf: &[u8]) -> bool {
     true
 }
 
+fn default_db_path() -> String {
+    if let Some(home) = dirs::home_dir() {
+        let hemis_dir = home.join(".hemis");
+        // Create directory if it doesn't exist
+        let _ = std::fs::create_dir_all(&hemis_dir);
+        hemis_dir
+            .join("hemis-notes.db")
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        "hemis-notes.db".into()
+    }
+}
+
 fn main() -> Result<()> {
-    let db_path = std::env::var("HEMIS_DB_PATH").unwrap_or_else(|_| "hemis-notes.db".into());
+    let db_path = std::env::var("HEMIS_DB_PATH").unwrap_or_else(|_| default_db_path());
     let conn = connect(&db_path)?;
     // Preload tables to warm cache and ensure schema is ready.
     backend::preload::preload(&conn)?;

@@ -30,11 +30,13 @@ hemis
   :recipe (:local-repo "/Users/joel/Work/hemis/ui/emacs"
            :files ("hemis.el")))
 ```
-4) Configure backend path and DB in `~/.config/doom/config.el`:
+4) Configure backend path in `~/.config/doom/config.el`:
 ```lisp
 (setq hemis-backend "/Users/joel/Work/hemis/target/debug/hemis"
-      hemis-backend-env '("HEMIS_DB_PATH=/Users/joel/Work/hemis/hemis-notes.db")
       hemis-auto-install-treesit-grammars t) ;; installs Rust grammar if missing
+;; Database defaults to ~/.hemis/hemis-notes.db
+;; Uncomment to use a different location:
+;; (setq hemis-backend-env '("HEMIS_DB_PATH=/path/to/custom.db"))
 ```
 5) `doom sync` and restart Emacs.
 

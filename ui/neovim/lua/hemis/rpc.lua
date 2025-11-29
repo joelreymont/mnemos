@@ -5,6 +5,7 @@ local M = {}
 
 -- State
 M.job_id = nil
+M.job_generation = 0 -- Incremented on each start to detect stale exit events
 M.request_id = 0
 M.pending = {} -- id -> callback
 M.buffer = ""
@@ -68,10 +69,9 @@ local function on_stdout(_, data, _)
     return
   end
 
-  -- Concatenate data chunks
-  for _, chunk in ipairs(data) do
-    M.buffer = M.buffer .. chunk
-  end
+  -- Neovim splits stdout on newlines; rejoin them to reconstruct original data
+  -- data is a list of strings split by \n, e.g. "foo\nbar\n" -> {"foo", "", "bar", ""}
+  M.buffer = M.buffer .. table.concat(data, "\n")
 
   -- Parse all complete responses
   while true do
@@ -105,14 +105,43 @@ local function on_stderr(_, data, _)
   end
 end
 
-local function on_exit(_, code, _)
-  log("info", "Backend exited with code " .. tostring(code))
-  M.job_id = nil
-  M.buffer = ""
-  -- Fail all pending requests
-  for id, callback in pairs(M.pending) do
-    callback({ code = -1, message = "Backend process exited" }, nil)
-    M.pending[id] = nil
+local function make_on_exit(expected_generation)
+  return function(_, code, _)
+    log("info", "Backend exited with code " .. tostring(code))
+
+    -- Ignore exit events from old jobs (after stop() was called or new start())
+    if M.job_generation ~= expected_generation then
+      return
+    end
+
+    M.job_id = nil
+
+    -- Process any remaining buffered responses before failing
+    while true do
+      local response, remaining = parse_response(M.buffer)
+      if not response then
+        break
+      end
+      M.buffer = remaining
+
+      local id = response.id
+      if id and M.pending[id] then
+        local callback = M.pending[id]
+        M.pending[id] = nil
+        if response.error then
+          callback(response.error, nil)
+        else
+          callback(nil, response.result)
+        end
+      end
+    end
+
+    M.buffer = ""
+    -- Fail any still-pending requests
+    for id, callback in pairs(M.pending) do
+      callback({ code = -1, message = "Backend process exited" }, nil)
+      M.pending[id] = nil
+    end
   end
 end
 
@@ -153,10 +182,14 @@ function M.start()
   -- Merge with current environment
   local full_env = vim.tbl_extend("force", vim.fn.environ(), env_dict)
 
+  -- Increment generation to invalidate any pending exit callbacks from old jobs
+  M.job_generation = M.job_generation + 1
+  local current_generation = M.job_generation
+
   M.job_id = vim.fn.jobstart({ backend }, {
     on_stdout = on_stdout,
     on_stderr = on_stderr,
-    on_exit = on_exit,
+    on_exit = make_on_exit(current_generation),
     env = full_env,
     stdin = "pipe",
     stdout_buffered = false,
@@ -178,16 +211,24 @@ function M.stop()
     return
   end
 
-  -- Send shutdown request
-  M.request("shutdown", {}, function() end)
+  local job = M.job_id
 
-  -- Give it a moment, then force kill
+  -- Increment generation to ignore any exit callbacks from this job
+  M.job_generation = M.job_generation + 1
+
+  -- Clear state immediately to prevent new requests
+  M.job_id = nil
+  M.buffer = ""
+  M.pending = {}
+
+  -- Try graceful shutdown
+  local encoded = encode_request("shutdown", {}, 0)
+  pcall(vim.fn.chansend, job, encoded)
+
+  -- Force stop after brief delay
   vim.defer_fn(function()
-    if M.job_id then
-      vim.fn.jobstop(M.job_id)
-      M.job_id = nil
-    end
-  end, 100)
+    pcall(vim.fn.jobstop, job)
+  end, 50)
 end
 
 -- Send an async request
