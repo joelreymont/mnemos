@@ -37,6 +37,9 @@ Author: `Joel Reymont <18791+joelreymont@users.noreply.github.com>`
 - Update CONTEXT.md after each major step (not checked into git)
 - Do NOT read or update SESSION.md (deprecated, use CONTEXT.md instead)
 
+### Docs
+- See `docs/ARCHITECTURE.md` for the current backend/frontend architecture and stale-note behavior.
+
 ### Tools (Lisp/Elisp helpers)
 
 - `scripts/check_parens.py` verifies parenthesis balance for Lisp/Elisp files; use it when editing Lisp code. (Used for emacs/hemis.el)
