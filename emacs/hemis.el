@@ -294,6 +294,34 @@ Prefers the start of the Tree-sitter node at point; falls back to point."
       (list :line (line-number-at-pos)
             :column (current-column)))))
 
+(defun hemis--line-indentation (pos)
+  "Return indentation (whitespace) of the line at POS."
+  (save-excursion
+    (goto-char pos)
+    (buffer-substring (line-beginning-position)
+                      (progn (back-to-indentation) (point)))))
+
+(defun hemis--comment-prefix ()
+  "Return a comment prefix suitable for the current buffer."
+  (or (and (boundp 'comment-start) comment-start)
+      "// "))
+
+(defun hemis--format-note-texts (texts pos)
+  "Format TEXTS (list of strings) as comment lines above POS."
+  (let* ((indent (hemis--line-indentation pos))
+         (prefix (concat indent (hemis--comment-prefix)))
+         (body (mapconcat
+                (lambda (t)
+                  (mapconcat (lambda (line)
+                               (concat prefix line))
+                             (split-string (or t "") "\n")
+                             "\n"))
+                texts
+                (concat "\n" indent)))
+         ;; Re-indent after the block so code resumes at the same column.
+         (suffix indent))
+    (concat body "\n" suffix)))
+
 
 ;;; Notes data & overlays
 
@@ -366,16 +394,20 @@ NOTE is an alist or plist parsed from JSON, keys like :id, :line, :column, :summ
       (overlay-put marker-ov 'hemis-note-marker t)
       (overlay-put marker-ov 'hemis-note-count 0)
       (overlay-put marker-ov 'hemis-note-ids nil)
+      (overlay-put marker-ov 'hemis-note-texts nil)
       (overlay-put marker-ov 'priority 9999)
       (overlay-put marker-ov 'evaporate nil)
       (push marker-ov new-list))
     (let* ((count (1+ (or (overlay-get marker-ov 'hemis-note-count) 0)))
            (ids (cons id (overlay-get marker-ov 'hemis-note-ids)))
-           (marker (propertize (format "ⓝ%d" count)
-                               'face 'hemis-note-marker-face)))
+           (texts (append (overlay-get marker-ov 'hemis-note-texts)
+                          (list text)))
+           (display (hemis--format-note-texts texts pos)))
       (overlay-put marker-ov 'hemis-note-count count)
       (overlay-put marker-ov 'hemis-note-ids ids)
-      (overlay-put marker-ov 'before-string marker))
+      (overlay-put marker-ov 'hemis-note-texts texts)
+      (overlay-put marker-ov 'before-string
+                   (propertize display 'face 'hemis-note-marker-face)))
     ;; Per-note overlay (no marker) for downstream consumers.
     (let ((note-ov (make-overlay pos pos (current-buffer) t t)))
       (overlay-put note-ov 'hemis-note-id id)
@@ -395,8 +427,9 @@ NOTES is a list of note objects (alist/plist) from the backend."
       (let ((marker-ov (make-overlay pos pos (current-buffer) t t)))
         (overlay-put marker-ov 'hemis-note-marker t)
         (overlay-put marker-ov 'hemis-note-count (length notes))
+        (overlay-put marker-ov 'hemis-note-texts (mapcar #'hemis--note-text notes))
         (overlay-put marker-ov 'before-string
-                     (propertize (format "ⓝ%d" (length notes))
+                     (propertize (hemis--format-note-texts (mapcar #'hemis--note-text notes) pos)
                                  'face 'hemis-note-marker-face))
         (overlay-put marker-ov 'priority 9999)
         (overlay-put marker-ov 'evaporate t)
