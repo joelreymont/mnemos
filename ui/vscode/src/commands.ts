@@ -246,7 +246,8 @@ export async function searchCommand(): Promise<void> {
   }
 
   try {
-    const hits = await search(query);
+    const projectRoot = getProjectRoot();
+    const hits = await search(query, projectRoot || undefined);
 
     if (hits.length === 0) {
       vscode.window.showInformationMessage('No results found');
@@ -299,7 +300,8 @@ export async function insertLinkCommand(): Promise<void> {
   }
 
   try {
-    const hits = await search(query);
+    const projectRoot = getProjectRoot();
+    const hits = await search(query, projectRoot || undefined);
     const noteHits = hits.filter((h: SearchHit) => h.kind === 'note');
 
     if (noteHits.length === 0) {

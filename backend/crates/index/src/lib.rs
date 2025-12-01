@@ -29,6 +29,8 @@ pub struct SearchHit {
     pub kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note_summary: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -194,6 +196,7 @@ pub fn search(
                     score: 1.0,
                     kind: Some("file".into()),
                     note_id: None,
+                    note_summary: None,
                 });
             }
         }
@@ -229,6 +232,7 @@ pub fn semantic_search(
             score,
             kind: Some("semantic".into()),
             note_id: None,
+            note_summary: None,
         });
     }
     hits.sort_by(|a, b| b.score.total_cmp(&a.score));

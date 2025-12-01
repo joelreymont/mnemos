@@ -169,6 +169,7 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                                     score: 0.5,
                                     kind: Some("note".into()),
                                     note_id: Some(n.id.clone()),
+                                    note_summary: Some(n.summary.clone()),
                                 });
                             }
                         }

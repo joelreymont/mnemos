@@ -1,4 +1,4 @@
-# Hemis Protocol v2 (JSON-RPC 2.0)
+# Hemis Protocol v1 (JSON-RPC 2.0)
 
 Transport: **stdio** (UTF-8). Accepts either newline-delimited JSON objects or LSP-style `Content-Length` framed messages. Responses mirror the framing used by the client.  
 Protocol: **JSON-RPC 2.0**.
@@ -87,11 +87,13 @@ Response: note object.
 {
   "file": "/abs/path/file.rs",
   "projectRoot": "/abs/path",
-  "commit": "HEAD sha",     // optional filter; when present, stale notes are excluded
-  "blob": "blob sha",       // optional filter
-  "includeStale": false     // optional; notes always return; stale=true when commit/blob mismatch
+  "commit": "HEAD sha",     // optional; used to compute stale flag
+  "blob": "blob sha",       // optional; used to compute stale flag
+  "includeStale": true      // optional; notes always returned with stale=true/false flag
 }
 ```
+
+Notes are always returned with a `stale` boolean flag. A note is stale when its stored `commitSha`/`blobSha` differ from the provided `commit`/`blob` params. The `includeStale` param is accepted but currently ignored (all notes returned).
 
 Response: array of note objects.
 
