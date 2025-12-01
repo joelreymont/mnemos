@@ -641,3 +641,147 @@ fn backlinks_returns_linking_notes() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Verify that deleting a note removes its edges (both outgoing and incoming).
+#[test]
+fn delete_note_removes_edges() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+
+    // Create note A (the target)
+    let req_create_a = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 1,
+            "column": 0,
+            "text": "Note A - target",
+            "tags": []
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create_a.len(), req_create_a);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("create A response");
+    let resp_a: Response = serde_json::from_slice(&body)?;
+    let note_a_id = resp_a
+        .result
+        .as_ref()
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .expect("note A id")
+        .to_string();
+
+    // Create note B that links to A
+    let link_text = format!("Note B links to [[target][{}]]", note_a_id);
+    let req_create_b = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 10,
+            "column": 0,
+            "text": link_text,
+            "tags": []
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create_b.len(), req_create_b);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("create B response");
+    let resp_b: Response = serde_json::from_slice(&body)?;
+    let note_b_id = resp_b
+        .result
+        .as_ref()
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .expect("note B id")
+        .to_string();
+
+    // Verify backlinks exist before delete
+    let req_backlinks = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "notes/backlinks",
+        "params": { "id": note_a_id }
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_backlinks.len(), req_backlinks);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("backlinks before delete");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let backlinks = resp
+        .result
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(backlinks.len(), 1, "should have one backlink before delete");
+
+    // Delete note B (the one with the outgoing link)
+    let req_delete = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "notes/delete",
+        "params": { "id": note_b_id }
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_delete.len(), req_delete);
+    cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    // Verify backlinks are gone after delete
+    let req_backlinks = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "notes/backlinks",
+        "params": { "id": note_a_id }
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_backlinks.len(), req_backlinks);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("backlinks after delete");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let backlinks = resp
+        .result
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        backlinks.len(),
+        0,
+        "backlinks should be empty after deleting linking note"
+    );
+
+    Ok(())
+}

@@ -225,7 +225,6 @@ function M.visit_note_from_list(buf)
   local line = cursor[1]
 
   local notes_list = vim.b[buf].hemis_notes
-  local file = vim.b[buf].hemis_file
 
   if not notes_list then
     return
@@ -245,6 +244,12 @@ function M.visit_note_from_list(buf)
 
   if note_idx and notes_list[note_idx] then
     local note = notes_list[note_idx]
+    -- Use file from note itself (works for both notes list and backlinks)
+    local file = note.file or vim.b[buf].hemis_file
+    if not file then
+      vim.notify("No file for this note", vim.log.levels.WARN)
+      return
+    end
     vim.cmd("close")
     vim.cmd("edit " .. file)
     vim.api.nvim_win_set_cursor(0, { note.line or 1, note.column or 0 })

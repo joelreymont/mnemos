@@ -44,6 +44,11 @@ CREATE TABLE IF NOT EXISTS edges (
   project_root TEXT,
   updated_at INTEGER
 );
+
+CREATE INDEX IF NOT EXISTS idx_notes_file ON notes(file);
+CREATE INDEX IF NOT EXISTS idx_notes_project_root ON notes(project_root);
+CREATE INDEX IF NOT EXISTS idx_edges_src ON edges(src);
+CREATE INDEX IF NOT EXISTS idx_edges_dst ON edges(dst);
 "#;
 
 pub fn connect(path: &str) -> Result<Connection> {

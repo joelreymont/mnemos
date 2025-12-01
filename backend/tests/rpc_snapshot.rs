@@ -4,6 +4,14 @@ use rpc::decode_framed;
 use serde_json::{self, json, Value};
 use tempfile::NamedTempFile;
 
+/// Regex for matching UUIDs (full or truncated) in text fields.
+fn scrub_uuids_in_string(s: &str) -> String {
+    // Match full UUIDs or truncated UUIDs (at least 8 chars of the first segment)
+    let re = regex::Regex::new(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{1,12}\.{0,3}|[a-f0-9]{8}-[a-f0-9]{1,4}\.{0,3}")
+        .unwrap();
+    re.replace_all(s, "<uuid>").to_string()
+}
+
 fn scrub_obj(obj: &mut serde_json::Map<String, Value>) {
     if obj.contains_key("id") {
         obj.insert("id".into(), json!("<id>"));
@@ -13,6 +21,13 @@ fn scrub_obj(obj: &mut serde_json::Map<String, Value>) {
     }
     if obj.contains_key("updatedAt") {
         obj.insert("updatedAt".into(), json!("<ts>"));
+    }
+    // Scrub UUIDs from text and summary fields
+    for key in ["text", "summary"] {
+        if let Some(Value::String(s)) = obj.get(key) {
+            let scrubbed = scrub_uuids_in_string(s);
+            obj.insert(key.to_string(), json!(scrubbed));
+        }
     }
 }
 
@@ -711,5 +726,88 @@ fn snapshot_index_project() -> anyhow::Result<()> {
         })
         .collect();
     assert_json_snapshot!("index_project", responses);
+    Ok(())
+}
+
+#[test]
+fn snapshot_backlinks() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    // Create target note A
+    let req_create_a = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 1,
+            "column": 0,
+            "text": "Note A - the target"
+        }
+    })
+    .to_string();
+    let create_a_input = format!("Content-Length: {}\r\n\r\n{}", req_create_a.len(), req_create_a);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(create_a_input)
+        .assert()
+        .success();
+    let mut stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("create A response");
+    let created_a: Value = serde_json::from_slice(&body)?;
+    let note_a_id = created_a
+        .get("result")
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .unwrap();
+
+    // Create note B that links to A
+    let req_create_b = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 10,
+            "column": 0,
+            "text": format!("Note B links to [[target][{}]]", note_a_id)
+        }
+    })
+    .to_string();
+    // Query backlinks for A
+    let req_backlinks = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "notes/backlinks",
+        "params": { "id": note_a_id }
+    })
+    .to_string();
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        req_create_b.len(),
+        req_create_b,
+        req_backlinks.len(),
+        req_backlinks
+    );
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    let mut responses: Vec<Value> = bodies
+        .into_iter()
+        .map(|b| serde_json::from_slice(&b).unwrap())
+        .map(scrub_response)
+        .collect();
+    // Prepend the create A response for context
+    responses.insert(0, scrub_response(created_a));
+    assert_json_snapshot!("backlinks", responses);
     Ok(())
 }

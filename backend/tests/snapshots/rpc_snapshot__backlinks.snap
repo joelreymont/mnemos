@@ -1,0 +1,60 @@
+---
+source: backend/tests/rpc_snapshot.rs
+assertion_line: 811
+expression: responses
+---
+[
+  {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "result": {
+      "column": 0,
+      "createdAt": "<ts>",
+      "file": "/tmp/test.rs",
+      "id": "<id>",
+      "line": 1,
+      "projectRoot": "/tmp",
+      "stale": false,
+      "summary": "Note A - the target",
+      "tags": [],
+      "text": "Note A - the target",
+      "updatedAt": "<ts>"
+    }
+  },
+  {
+    "id": 2,
+    "jsonrpc": "2.0",
+    "result": {
+      "column": 0,
+      "createdAt": "<ts>",
+      "file": "/tmp/test.rs",
+      "id": "<id>",
+      "line": 10,
+      "projectRoot": "/tmp",
+      "stale": false,
+      "summary": "Note B links to [[target][<uuid>",
+      "tags": [],
+      "text": "Note B links to [[target][<uuid>]]",
+      "updatedAt": "<ts>"
+    }
+  },
+  {
+    "id": 3,
+    "jsonrpc": "2.0",
+    "result": [
+      {
+        "column": 0,
+        "createdAt": "<ts>",
+        "file": "/tmp/test.rs",
+        "id": "<id>",
+        "line": 10,
+        "projectRoot": "/tmp",
+        "stale": false,
+        "summary": "Note B links to [[target][<uuid>",
+        "tags": [],
+        "text": "Note B links to [[target][<uuid>]]",
+        "updatedAt": "<ts>"
+      }
+    ]
+  }
+]

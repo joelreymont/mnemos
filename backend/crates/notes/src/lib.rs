@@ -2,11 +2,17 @@
 
 use anyhow::Result;
 use git::GitInfo;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use rusqlite;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use storage::{exec, now_unix, query_all};
 use uuid::Uuid;
+
+/// Regex for extracting note links in [[desc][id]] format.
+static LINK_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"\[\[[^\]]*\]\[([a-f0-9-]{36})\]\]").unwrap());
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -63,8 +69,8 @@ fn summarize(text: &str) -> String {
 
 /// Extract note IDs from links in the format [[desc][id]].
 fn extract_links(text: &str) -> Vec<String> {
-    let re = regex::Regex::new(r"\[\[[^\]]*\]\[([a-f0-9-]{36})\]\]").unwrap();
-    re.captures_iter(text)
+    LINK_RE
+        .captures_iter(text)
         .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
         .collect()
 }
@@ -216,6 +222,8 @@ pub fn list_project(conn: &Connection, project_root: &str) -> Result<Vec<Note>> 
 }
 
 pub fn delete(conn: &Connection, id: &str) -> Result<bool> {
+    // Remove edges where this note is source or target
+    exec(conn, "DELETE FROM edges WHERE src = ? OR dst = ?;", &[&id, &id])?;
     let count = exec(conn, "DELETE FROM notes WHERE id = ?;", &[&id])?;
     Ok(count > 0)
 }

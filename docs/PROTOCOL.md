@@ -34,6 +34,7 @@ Protocol: **JSON-RPC 2.0**.
 - `notes/get` → fetch a single note by id
 - `notes/search` → naive text search across notes
 - `notes/list-by-node` → list notes for a specific nodePath
+- `notes/backlinks` → find notes that link to a given note
 - `index/add-file` → store file content (for search)
 - `index/search` → naive text search across indexed files
 - `shutdown` → cleanly terminate the backend
@@ -45,6 +46,8 @@ Protocol: **JSON-RPC 2.0**.
 - `hemis/save-snapshot` → write a snapshot summary (version, counts, timestamps)
 - `hemis/load-snapshot` → load a snapshot file
 - `hemis/index-project` → index all project files under `projectRoot`
+- `hemis/status` → get counts of notes, files, embeddings
+- `hemis/version` → get backend version and protocol version
 
 Notes attach to files, git versions, node paths, and tags. Backend returns JSON objects.
 
@@ -127,3 +130,52 @@ Response:
 ```
 
 Response: updated note object.
+
+#### `notes/backlinks`
+
+Find all notes that link to a given note (reverse link traversal).
+
+```json
+{ "id": "note-id" }
+```
+
+Response: array of note objects that contain `[[...][note-id]]` links.
+
+### System Methods
+
+#### `hemis/version`
+
+Get backend version info.
+
+```json
+{}
+```
+
+Response:
+
+```json
+{
+  "protocolVersion": 1,
+  "gitHash": "abc123"
+}
+```
+
+#### `hemis/status`
+
+Get current counts.
+
+```json
+{}
+```
+
+Response:
+
+```json
+{
+  "counts": {
+    "notes": 42,
+    "files": 100,
+    "embeddings": 50
+  }
+}
+```

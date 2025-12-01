@@ -28,3 +28,4 @@ assert_cmd = "2"
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 insta = { workspace = true }
+regex = "1"
