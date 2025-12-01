@@ -21,6 +21,10 @@ if not ok then
   return
 end
 
+-- Count spec files to know when all tests are done
+local spec_files = vim.fn.glob(test_root .. "/*_spec.lua", false, true)
+local spec_count = #spec_files
+
 -- Run tests and track results
 -- plenary.test_harness.test_directory runs async, so we parse output for failures
 local failed = false
@@ -56,19 +60,17 @@ check_timer:start(100, 100, function()
   vim.schedule(function()
     local messages = vim.fn.execute("messages")
 
-    -- Look for final summary lines (both test files complete)
-    local display_done = messages:match("Testing:%s+.-display_spec%.lua") and messages:match("Success:%s+%d+.-display_spec")
-    local integration_done = messages:match("Testing:%s+.-integration_spec%.lua") and messages:match("Success:%s+%d+.-integration_spec")
-
-    -- Also check for failure patterns
+    -- Check for failure patterns
     if messages:match("Failed%s*:%s*[1-9]") or messages:match("Errors%s*:%s*[1-9]") then
       failed = true
     end
 
-    -- Count completed test blocks (each file shows "Success: N")
+    -- Count completed test files (each shows "Success: N" or "Failed: N")
     local _, success_count = messages:gsub("Success:%s+%d+", "")
+    local _, failed_count = messages:gsub("Failed%s*:%s*%d+", "")
+    local completed_count = success_count + failed_count
 
-    if success_count >= 2 or check_count >= max_checks then
+    if completed_count >= spec_count or check_count >= max_checks then
       check_timer:stop()
       check_timer:close()
       _G.print = original_print
