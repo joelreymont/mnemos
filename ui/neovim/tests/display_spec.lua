@@ -56,7 +56,7 @@ describe("hemis display", function()
       assert.equals(2, #state.extmarks)
     end)
 
-    it("marks stale notes differently", function()
+    it("marks stale notes with HemisNoteStale highlight", function()
       local display = require("hemis.display")
       local notes = {
         { id = "1", line = 1, column = 0, text = "Stale note", stale = true },
@@ -66,8 +66,16 @@ describe("hemis display", function()
       helpers.wait()
 
       local state = helpers.capture_display_state(buf)
-      -- Stale notes should have [stale] indicator
-      helpers.assert_extmark_at_line(state, 1, "stale")
+      assert.equals(1, #state.extmarks)
+      local mark = state.extmarks[1]
+      -- Stale notes use HemisNoteStale highlight group
+      local has_stale_hl = false
+      for _, hl in ipairs(mark.hl_groups) do
+        if hl == "HemisNoteStale" then
+          has_stale_hl = true
+        end
+      end
+      assert.truthy(has_stale_hl, "Should use HemisNoteStale highlight")
     end)
 
     it("clears previous notes before rendering new ones", function()
@@ -198,7 +206,7 @@ describe("hemis display virt_lines details", function()
 
   it("virt_lines_above is true for full display style", function()
     local config = require("hemis.config")
-    config.set("display_style", "full")
+    config.options.display_style = "full"
     local display = require("hemis.display")
     local notes = {
       { id = "1", line = 2, column = 0, text = "Above note" },
@@ -214,7 +222,7 @@ describe("hemis display virt_lines details", function()
 
   it("minimal style uses virt_text at eol with [n:xxxx] format", function()
     local config = require("hemis.config")
-    config.set("display_style", "minimal")
+    config.options.display_style = "minimal"
     local display = require("hemis.display")
     local notes = {
       { id = "abcd1234-5678", line = 1, column = 0, text = "Minimal note" },
@@ -230,7 +238,7 @@ describe("hemis display virt_lines details", function()
     -- Should have [n:xxxx] format (first 8 chars of id)
     assert.truthy(string.find(mark.text, "%[n:abcd1234%]"), "Should have [n:id] format")
     -- Reset config
-    config.set("display_style", "full")
+    config.options.display_style = "full"
   end)
 
   it("multiple notes on same line combine with --- separator", function()

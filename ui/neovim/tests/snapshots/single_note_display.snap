@@ -1,0 +1,9 @@
+=== Buffer Content ===
+fn main() {
+    let x = 1;
+}
+
+=== Extmarks ===
+[1] Line 2: // Remember to add error handling\n\n
+
+=== Cursor: 1,0 ===

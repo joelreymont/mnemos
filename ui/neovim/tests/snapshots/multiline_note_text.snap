@@ -1,0 +1,9 @@
+=== Buffer Content ===
+fn main() {
+    let x = 1;
+}
+
+=== Extmarks ===
+[1] Line 1: // This is a multiline note:\n// - Point one\n// - Point two\n// - Point three\n\n
+
+=== Cursor: 1,0 ===

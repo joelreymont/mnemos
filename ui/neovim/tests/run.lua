@@ -15,6 +15,7 @@ local function run_tests()
   -- Collect test results
   local passed = 0
   local failed = 0
+  local skipped = 0
   local errors = {}
 
   -- Simple describe/it implementation
@@ -32,6 +33,9 @@ local function run_tests()
     if ok then
       passed = passed + 1
       print("  [PASS] " .. name)
+    elseif type(err) == "string" and err:match("^.*PENDING:") then
+      skipped = skipped + 1
+      print("  [SKIP] " .. name)
     else
       failed = failed + 1
       print("  [FAIL] " .. name)
@@ -63,6 +67,11 @@ local function run_tests()
     end)
   end
 
+  -- Skip marker for tests that can't run
+  _G.pending = function(msg)
+    error("PENDING: " .. (msg or "test skipped"))
+  end
+
   -- Simple assertions
   _G.assert = setmetatable({}, {
     __call = function(_, v, msg)
@@ -91,6 +100,36 @@ local function run_tests()
           error("expected non-nil value")
         end
       end,
+      is_true = function(v)
+        if v ~= true then
+          error(string.format("expected true but got %s", vim.inspect(v)))
+        end
+      end,
+      is_false = function(v)
+        if v ~= false then
+          error(string.format("expected false but got %s", vim.inspect(v)))
+        end
+      end,
+      is_boolean = function(v)
+        if type(v) ~= "boolean" then
+          error(string.format("expected boolean but got %s", type(v)))
+        end
+      end,
+      is_number = function(v)
+        if type(v) ~= "number" then
+          error(string.format("expected number but got %s", type(v)))
+        end
+      end,
+      is_string = function(v)
+        if type(v) ~= "string" then
+          error(string.format("expected string but got %s", type(v)))
+        end
+      end,
+      is_table = function(v)
+        if type(v) ~= "table" then
+          error(string.format("expected table but got %s", type(v)))
+        end
+      end,
     },
   })
 
@@ -110,7 +149,7 @@ local function run_tests()
 
   -- Summary
   print("\n" .. string.rep("=", 50))
-  print(string.format("Results: %d passed, %d failed", passed, failed))
+  print(string.format("Results: %d passed, %d failed, %d skipped", passed, failed, skipped))
 
   if #errors > 0 then
     print("\nFailures:")

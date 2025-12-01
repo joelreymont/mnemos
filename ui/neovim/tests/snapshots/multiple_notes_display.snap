@@ -1,0 +1,11 @@
+=== Buffer Content ===
+fn main() {
+    let x = 1;
+}
+
+=== Extmarks ===
+[1] Line 1: // Entry point\n\n
+[2] Line 2: // Variable declaration\n\n
+[3] Line 3: // End of function\n\n
+
+=== Cursor: 1,0 ===
