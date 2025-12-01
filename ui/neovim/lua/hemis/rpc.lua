@@ -3,6 +3,19 @@ local config = require("hemis.config")
 
 local M = {}
 
+-- Helper: schedule a function to run after a delay using libuv timer
+-- Works better than vim.defer_fn in some headless/test contexts
+-- Signature matches vim.defer_fn: (fn, delay_ms)
+local function schedule_after(fn, delay_ms)
+  local uv = vim.uv or vim.loop
+  local timer = uv.new_timer()
+  timer:start(delay_ms, 0, function()
+    timer:stop()
+    timer:close()
+    vim.schedule(fn)
+  end)
+end
+
 -- Expected protocol version (bump when backend protocol changes)
 local EXPECTED_PROTOCOL_VERSION = 1
 
@@ -31,12 +44,14 @@ local function get_lock_path()
   return get_hemis_dir() .. "/hemis.lock"
 end
 
--- Logging
+-- Logging (schedule to avoid "fast event context" errors in libuv callbacks)
 local function log(level, msg)
   local levels = { debug = 1, info = 2, warn = 3, error = 4 }
   local cfg_level = levels[config.get("log_level")] or 3
   if levels[level] >= cfg_level then
-    vim.notify("[hemis] " .. msg, vim.log.levels[level:upper()])
+    vim.schedule(function()
+      vim.notify("[hemis] " .. msg, vim.log.levels[level:upper()])
+    end)
   end
 end
 
@@ -151,6 +166,9 @@ end
 
 -- Try to acquire lock file (returns true if acquired)
 local function try_acquire_lock()
+  local hemis_dir = get_hemis_dir()
+  -- Ensure directory exists before trying to create lock
+  vim.fn.mkdir(hemis_dir, "p")
   local lock_path = get_lock_path()
   -- Use O_CREAT | O_EXCL via shell
   local cmd = string.format('set -C; echo %d > "%s" 2>/dev/null', vim.fn.getpid(), lock_path)
@@ -177,11 +195,18 @@ local function start_server()
     return false
   end
 
-  -- Ensure hemis directory exists
-  vim.fn.mkdir(get_hemis_dir(), "p")
+  local hemis_dir = get_hemis_dir()
 
-  -- Build environment
-  local env_parts = {}
+  -- Ensure hemis directory exists
+  vim.fn.mkdir(hemis_dir, "p")
+
+  -- Build environment - always set HEMIS_DIR and HEMIS_DB_PATH
+  local env_parts = {
+    "HEMIS_DIR=" .. vim.fn.shellescape(hemis_dir),
+    "HEMIS_DB_PATH=" .. vim.fn.shellescape(hemis_dir .. "/hemis.db"),
+  }
+
+  -- Add any additional env from config
   local env_config = config.get("backend_env") or {}
   for k, v in pairs(env_config) do
     if type(k) == "number" then
@@ -197,8 +222,9 @@ local function start_server()
     "%s %s --serve >> %s/hemis.log 2>&1 &",
     env_str,
     vim.fn.shellescape(backend),
-    get_hemis_dir()
+    hemis_dir
   )
+  log("debug", "Starting server: " .. cmd)
   os.execute(cmd)
 
   log("info", "Started backend server")
@@ -208,24 +234,28 @@ end
 -- Wait for socket to appear
 local function wait_for_socket(timeout_ms, callback)
   local socket_path = get_socket_path()
-  local start = vim.loop.now()
+  local uv = vim.uv or vim.loop
+  local start = uv.now()
   local check_interval = 100
 
+  local timer = uv.new_timer()
   local function check()
     if vim.fn.filereadable(socket_path) == 1 then
+      timer:stop()
+      timer:close()
       callback(true)
       return
     end
 
-    if (vim.loop.now() - start) >= timeout_ms then
+    if (uv.now() - start) >= timeout_ms then
+      timer:stop()
+      timer:close()
       callback(false)
       return
     end
-
-    vim.defer_fn(check, check_interval)
   end
 
-  check()
+  timer:start(0, check_interval, vim.schedule_wrap(check))
 end
 
 -- Connect to the socket
@@ -272,7 +302,7 @@ function M.ensure_connected(callback)
 
   if M.connecting then
     -- Already trying to connect, queue this callback
-    vim.defer_fn(function()
+    schedule_after(function()
       M.ensure_connected(callback)
     end, 100)
     return
@@ -334,7 +364,7 @@ function M.ensure_connected_start_server(callback)
       end
 
       -- Give it a moment
-      vim.defer_fn(function()
+      schedule_after(function()
         connect_socket(function(err)
           M.connecting = false
           callback(err)
@@ -351,7 +381,7 @@ function M.ensure_connected_start_server(callback)
         return
       end
 
-      vim.defer_fn(function()
+      schedule_after(function()
         connect_socket(function(err)
           M.connecting = false
           callback(err)
@@ -405,10 +435,11 @@ end
 -- Disconnect from the backend (does NOT shutdown server)
 function M.stop()
   if M.socket then
-    M.socket:close()
+    pcall(function() M.socket:close() end)
     M.socket = nil
   end
   M.connected = false
+  M.connecting = false  -- Reset connecting flag
   M.buffer = ""
   M.pending = {}
 end

@@ -150,19 +150,49 @@ end)
 ### Display State Capture
 
 ```lua
--- tests/helpers.lua
+-- tests/helpers.lua (simplified - see actual file for full implementation)
 local M = {}
 
-function M.capture_display_state()
-  local buf = vim.api.nvim_get_current_buf()
-  local ns = vim.api.nvim_create_namespace("hemis")
-  local marks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, {details = true})
+function M.capture_display_state(buf)
+  buf = buf or vim.api.nvim_get_current_buf()
+  local display = require("hemis.display")
+  local ns = display.ns_id
+  local marks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })
 
   local extmarks = {}
   for _, mark in ipairs(marks) do
+    local details = mark[4] or {}
+    local virt_text = ""
+    local virt_lines_raw = {}
+    local hl_groups = {}
+
+    if details.virt_lines then
+      -- Note overlays use virt_lines (block above)
+      for _, vline in ipairs(details.virt_lines) do
+        local line_parts = {}
+        for _, chunk in ipairs(vline) do
+          virt_text = virt_text .. (chunk[1] or "")
+          table.insert(line_parts, { text = chunk[1], hl = chunk[2] })
+          if chunk[2] then hl_groups[chunk[2]] = true end
+        end
+        table.insert(virt_lines_raw, line_parts)
+      end
+    elseif details.virt_text then
+      -- Inline virtual text (minimal style)
+      for _, chunk in ipairs(details.virt_text) do
+        virt_text = virt_text .. (chunk[1] or "")
+        if chunk[2] then hl_groups[chunk[2]] = true end
+      end
+    end
+
     table.insert(extmarks, {
+      id = mark[1],
       line = mark[2] + 1,  -- 1-indexed
-      text = mark[4].virt_text and mark[4].virt_text[1][1] or "",
+      text = virt_text,
+      virt_lines = virt_lines_raw,
+      virt_lines_above = details.virt_lines_above,
+      virt_text_pos = details.virt_text_pos,
+      hl_groups = vim.tbl_keys(hl_groups),
     })
   end
 
@@ -173,10 +203,13 @@ function M.capture_display_state()
   }
 end
 
-function M.setup_test_buffer()
+function M.setup_test_buffer(content)
+  content = content or { "fn main() {", "    let x = 1;", "}" }
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_set_current_buf(buf)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, {"fn main() {", "}"})
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, content)
+  vim.bo[buf].filetype = "rust"
+  return buf
 end
 
 return M
@@ -291,47 +324,58 @@ test('notes tree shows created notes', async () => {
 
 ## Running Tests
 
-### All UIs
+### Emacs
 
 ```bash
-# From project root
-make test-ui
-
-# Or individually:
-make test-emacs
-make test-neovim
-make test-vscode
+# From project root - with HEMIS_BACKEND pointing to the backend binary
+HEMIS_BACKEND=./target/debug/hemis emacs -batch -L ui/emacs -l ui/emacs/tests/hemis-test.el \
+  -f ert-run-tests-batch-and-exit
 ```
 
-### Makefile Targets
+### Neovim
 
-```makefile
-test-emacs:
-	cd ui/emacs && emacs --batch -L . -L tests -l ert -l hemis.el -l hemis-test.el \
-		-f ert-run-tests-batch-and-exit
+```bash
+# From ui/neovim directory
+cd ui/neovim && nvim --headless -u tests/minimal_init.lua -c "luafile tests/run.lua"
+```
 
-test-neovim:
-	cd ui/neovim && nvim --headless -u NONE -c "set rtp+=." -c "lua require('tests.run')"
+### VS Code
 
-test-vscode:
-	cd ui/vscode && npm test
+```bash
+# From ui/vscode directory
+cd ui/vscode && npm test
+```
+
+### Snapshot Testing
+
+Snapshot tests compare captured display state against committed baseline files.
+
+```bash
+# Run tests (fails if snapshots missing or mismatched)
+HEMIS_BACKEND=./target/debug/hemis emacs -batch -L ui/emacs -l ui/emacs/tests/hemis-test.el \
+  -f ert-run-tests-batch-and-exit
+
+# Create or update snapshots (Neovim)
+HEMIS_UPDATE_SNAPSHOTS=1 cd ui/neovim && nvim --headless -u tests/minimal_init.lua -c "luafile tests/run.lua"
 ```
 
 ## Test Coverage Goals
 
 | Feature | Emacs | Neovim | VS Code |
 |---------|-------|--------|---------|
-| Note overlay at correct line | [x] | [x] | [x] |
-| Note overlay shows text | [x] | [x] | [x] |
-| Comment prefix per language | [x] | [x] | [x] |
-| Stale indicator displayed | [x] | [x] | [x] |
-| Multiline note formatting | [x] | [x] | [x] |
+| Note overlay at correct line | [x] | [x] | [ ] |
+| Note overlay shows text | [x] | [x] | [ ] |
+| Comment prefix per language | [x] | [x] | [ ] |
+| Stale indicator displayed | [x] | [x] | [ ] |
+| Multiline note formatting | [x] | [x] | [ ] |
 | Multiple notes same line | [x] | [x] | [ ] |
 | List buffer shows notes | [x] | [x] | [ ] |
 | List navigation (n/p) | [x] | [ ] | [ ] |
 | List visit (RET) | [x] | [ ] | [ ] |
 | Status command | [ ] | [x] | [ ] |
 | Help content | [ ] | [x] | [ ] |
+
+**Note:** VS Code tests are limited because VS Code doesn't expose decoration content directly in tests. See "VS Code Limitations" section above.
 
 ## Best Practices
 

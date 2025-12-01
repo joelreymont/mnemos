@@ -193,9 +193,14 @@
           t)
       (error nil))))
 
+(defvar hemis--server-process nil
+  "The Emacs process object for the server (for managed startup).")
+
 (defun hemis--start-server ()
-  "Start the Hemis server process in the background."
+  "Start the Hemis server process in the background.
+Output is redirected to `hemis--log-path' via shell redirection (no filter overhead)."
   (let* ((exe (or hemis-backend (error "Set `hemis-backend' to the Rust backend binary")))
+         (exe-abs (expand-file-name exe))
          (log (hemis--log-path))
          ;; Build environment variables as shell exports
          (env-exports (mapconcat
@@ -205,9 +210,11 @@
                        " "))
          (cmd (format "%s %s --serve >> %s 2>&1 &"
                       env-exports
-                      (shell-quote-argument exe)
+                      (shell-quote-argument exe-abs)
                       (shell-quote-argument log))))
     (make-directory hemis-dir t)
+    (message "Hemis: starting server: %s --serve (log: %s)" exe-abs log)
+    ;; Run detached via shell - auto-cleanup, no filter overhead
     (call-process-shell-command cmd nil 0)
     (message "Hemis: started backend server")))
 
@@ -323,8 +330,11 @@
     (ignore-errors (jsonrpc-request hemis--conn "shutdown" nil :timeout 1)))
   (when (and hemis--process (process-live-p hemis--process))
     (delete-process hemis--process))
+  (when (and hemis--server-process (process-live-p hemis--server-process))
+    (delete-process hemis--server-process))
   (setq hemis--process nil
-        hemis--conn nil)
+        hemis--conn nil
+        hemis--server-process nil)
   (message "Hemis backend stopped."))
 
 (defun hemis-disconnect ()

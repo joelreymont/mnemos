@@ -60,18 +60,21 @@
           (hemis-dir test-dir)
           (hemis--process nil)
           (hemis--conn nil)
+          (hemis--server-process nil)
           (hemis-backend-env (list (concat "HEMIS_DIR=" test-dir)
                                    (concat "HEMIS_DB_PATH=" test-dir "/hemis.db")))
-          (hemis-backend (or (getenv "HEMIS_BACKEND")
-                             hemis-backend
-                             hemis--default-backend
-                             (error "Set HEMIS_BACKEND to the Rust backend binary"))))
+          ;; Expand backend path NOW before test changes default-directory
+          (hemis-backend (expand-file-name
+                          (or (getenv "HEMIS_BACKEND")
+                              hemis-backend
+                              hemis--default-backend
+                              (error "Set HEMIS_BACKEND to the Rust backend binary")))))
      ;; Disable global mode to prevent auto-connections to wrong socket
      (hemis-notes-global-mode -1)
      (unwind-protect
          (progn
            ;; Clean up any stale connections (not shutdown, just disconnect local state)
-           (setq hemis--process nil hemis--conn nil)
+           (setq hemis--process nil hemis--conn nil hemis--server-process nil)
            ,@body)
        ;; Shutdown the isolated server
        (ignore-errors (hemis-shutdown))
@@ -264,84 +267,129 @@
         (should (string-match-p "line" before))))))
 
 (ert-deftest hemis-index-rust-integration ()
-  (skip-unless (and (fboundp 'rust-ts-mode)
-                    (file-readable-p "../bebop/util/src/lib.rs")))
-  (hemis-test-with-backend
-    (let* ((file (expand-file-name "../bebop/util/src/lib.rs" default-directory)))
-      (with-temp-buffer
-        (insert-file-contents file)
-        (set-visited-file-name file t t)
-        (rust-ts-mode)
-        (unless (hemis--ensure-rust-grammar t)
-          (ert-skip "Rust Tree-sitter grammar unavailable"))
-        (unless (hemis--treesit-available-p)
-          (ert-skip "Rust Tree-sitter not ready"))
-        (let ((proj (hemis--project-root)))
-          (hemis-index-file)
-          (goto-char (point-min))
-          (search-forward "fn")
-          (let ((local-path (hemis--node-path-at-point)))
-            (should (sequencep local-path))
-            (should (stringp (elt local-path 0))))
-          (let* ((created (hemis-add-note "integration note"))
-                 (created2 (hemis-add-note "integration note 2"))
-                 (cid (hemis-test--note-id created))
-                 (fetched (hemis-get-note cid)))
-            (should (stringp cid))
-            (should (string= cid (hemis-test--note-id fetched)))
-            (should (equal (or (alist-get 'nodePath created)
-                               (alist-get "nodePath" created nil nil #'equal)
-                               (and (hash-table-p created) (gethash "nodePath" created)))
-                           (or (alist-get 'nodePath fetched)
-                               (alist-get "nodePath" fetched nil nil #'equal)
-                               (and (hash-table-p fetched) (gethash "nodePath" fetched))))))
-          (hemis-refresh-notes)
-          (should (>= (length hemis--overlays) 2))
-          (let* ((results (hemis--request "index/search"
-                                          `((query . "fn")
-                                            (projectRoot . ,proj)))))
-            (should (sequencep results))
-            (should (> (length results) 0))
-            (let* ((by-node (hemis-notes-for-node (hemis--node-path-at-point))))
-              (should (sequencep by-node))
-              (should (>= (length by-node) 2)))
-            ;; Ensure backend returns stored nodePath for created note.
-            (let* ((notes (hemis--request "notes/list-for-file"
-                                          `((file . ,file)
-                                            (projectRoot . ,proj))))
-                   (first-note (seq-first notes))
-                   (node-path (or (alist-get 'nodePath first-note)
-                                  (plist-get first-note :nodePath))))
-              (should (sequencep notes))
-              (should (sequencep node-path))
-              (should (stringp (elt node-path 0))))))))))
+  "Test note CRUD, overlays, and tree-sitter features when available."
+  (let ((rust-content "fn main() {\n    println!(\"hello\");\n}\n\nfn helper() {\n    let x = 1;\n}\n"))
+    (hemis-test-with-backend
+      (let ((test-file (expand-file-name "test.rs" test-dir)))
+        (with-temp-file test-file
+          (insert rust-content))
+        (with-temp-buffer
+          (insert rust-content)
+          (set-visited-file-name test-file t t)
+          (setq comment-start "// ")
+          (let ((hemis--project-root-override test-dir)
+                (ts-available (and (fboundp 'rust-ts-mode)
+                                   (hemis--ensure-rust-grammar t))))
+            ;; Enable tree-sitter mode if available
+            (when ts-available
+              (rust-ts-mode)
+              (setq ts-available (hemis--treesit-available-p)))
+            ;; Index when tree-sitter available
+            (when ts-available
+              (hemis-index-file)
+              ;; Verify nodePath at point
+              (goto-char (point-min))
+              (search-forward "fn main")
+              (let ((local-path (hemis--node-path-at-point)))
+                (should (sequencep local-path))
+                (should (stringp (elt local-path 0)))))
+            ;; Basic note CRUD (always runs)
+            (goto-char (point-min))
+            (search-forward "println")
+            (let* ((created (hemis-add-note "integration note"))
+                   (created2 (hemis-add-note "second note"))
+                   (cid (hemis-test--note-id created))
+                   (fetched (hemis-get-note cid)))
+              (should (stringp cid))
+              (should (string= cid (hemis-test--note-id fetched)))
+              ;; nodePath round-trip when tree-sitter available
+              (when ts-available
+                (let ((created-path (or (alist-get 'nodePath created)
+                                        (alist-get "nodePath" created nil nil #'equal)
+                                        (and (hash-table-p created)
+                                             (gethash "nodePath" created))))
+                      (fetched-path (or (alist-get 'nodePath fetched)
+                                        (alist-get "nodePath" fetched nil nil #'equal)
+                                        (and (hash-table-p fetched)
+                                             (gethash "nodePath" fetched)))))
+                  (should (equal created-path fetched-path))))
+              ;; Verify overlays with comment prefix and note text
+              (hemis-refresh-notes)
+              (should (>= (length hemis--overlays) 2))
+              ;; Collect all texts from all marker overlays
+              (let* ((markers (seq-filter (lambda (o) (overlay-get o 'hemis-note-marker))
+                                          hemis--overlays))
+                     (all-texts (apply #'append
+                                       (mapcar (lambda (o) (overlay-get o 'hemis-note-texts))
+                                               markers)))
+                     (first-marker (car markers))
+                     (before (and first-marker (overlay-get first-marker 'before-string))))
+                (should markers)
+                (should (stringp before))
+                ;; Comment prefix (// for Rust)
+                (should (string-match-p "^\\s-*\\(\n\\|//\\|;\\|--\\|#\\)" before))
+                ;; Both note texts stored across markers
+                (should (member "integration note" all-texts))
+                (should (member "second note" all-texts))
+                ;; Face is applied to overlay text
+                (should (get-text-property 0 'face before)))
+              ;; Tree-sitter specific: index/search and notes-for-node
+              (when ts-available
+                (let* ((results (hemis--request "index/search"
+                                                `((query . "fn")
+                                                  (projectRoot . ,test-dir)))))
+                  (should (sequencep results))
+                  (should (> (length results) 0)))
+                ;; notes-for-node at the position where we created notes
+                (goto-char (point-min))
+                (search-forward "println")
+                (let* ((by-node (hemis-notes-for-node (hemis--node-path-at-point))))
+                  (should (sequencep by-node))
+                  (should (>= (length by-node) 2)))
+                ;; Verify backend returns stored nodePath
+                (let* ((notes (hemis--request "notes/list-for-file"
+                                              `((file . ,test-file)
+                                                (projectRoot . ,test-dir))))
+                       (first-note (seq-first notes))
+                       (node-path (or (alist-get 'nodePath first-note)
+                                      (plist-get first-note :nodePath))))
+                  (should (sequencep notes))
+                  (should (>= (length notes) 2))
+                  (should (sequencep node-path))
+                  (should (stringp (elt node-path 0))))))))))))
 
 (ert-deftest hemis-list-notes-integration ()
   "Test hemis-list-notes with real backend returns notes in buffer."
-  (skip-unless (and (fboundp 'rust-ts-mode)
-                    (file-readable-p "../bebop/util/src/lib.rs")))
-  (hemis-test-with-backend
-    (let* ((file (expand-file-name "../bebop/util/src/lib.rs" default-directory)))
-      (with-temp-buffer
-        (insert-file-contents file)
-        (set-visited-file-name file t t)
-        (rust-ts-mode)
-        (goto-char (point-min))
-        ;; Create a note so list-notes has something to show
-        (hemis-add-note "integration list test")
-        ;; Now list notes
-        (hemis-list-notes)
-        (with-current-buffer "*Hemis Notes*"
-          (goto-char (point-min))
-          ;; Should find our note text in the buffer
-          (should (search-forward "integration list test" nil t))
-          ;; Should have hemis-note property on that line
-          (goto-char (point-min))
-          (let ((found nil))
-            (while (and (not found) (not (eobp)))
-              (setq found (get-text-property (line-beginning-position) 'hemis-note))
-              (forward-line 1))
-            (should found)))))))
+  (let ((rust-content "fn main() {\n    println!(\"hello\");\n}\n"))
+    (hemis-test-with-backend
+      ;; Create test file inside the macro's test-dir
+      (let ((test-file (expand-file-name "test.rs" test-dir)))
+        (with-temp-file test-file
+          (insert rust-content))
+        (with-temp-buffer
+          (insert rust-content)
+          (set-visited-file-name test-file t t)
+          (setq comment-start "// ")
+          ;; Try tree-sitter mode if available
+          (when (and (fboundp 'rust-ts-mode) (hemis--ensure-rust-grammar t))
+            (rust-ts-mode))
+          (let ((hemis--project-root-override test-dir))
+            (goto-char (point-min))
+            ;; Create a note so list-notes has something to show
+            (hemis-add-note "integration list test")
+            ;; Now list notes
+            (hemis-list-notes)
+            (with-current-buffer "*Hemis Notes*"
+              (goto-char (point-min))
+              ;; Should find our note text in the buffer
+              (should (search-forward "integration list test" nil t))
+              ;; Should have hemis-note property on that line
+              (goto-char (point-min))
+              (let ((found nil))
+                (while (and (not found) (not (eobp)))
+                  (setq found (get-text-property (line-beginning-position) 'hemis-note))
+                  (forward-line 1))
+                (should found)))))))))
 
 (ert-deftest hemis-explain-region-calls-backend ()
   (hemis-test-with-mocked-backend
@@ -492,66 +540,78 @@
 
 (ert-deftest hemis-notes-list-visit-integration ()
   "Integration test: visit note from list opens correct location."
-  (skip-unless (and (fboundp 'rust-ts-mode)
-                    (file-readable-p "../bebop/util/src/lib.rs")))
-  (hemis-test-with-backend
-    (let* ((file (expand-file-name "../bebop/util/src/lib.rs" default-directory)))
-      (with-temp-buffer
-        (insert-file-contents file)
-        (set-visited-file-name file t t)
-        (rust-ts-mode)
-        ;; Go to a specific line and create a note
-        (goto-char (point-min))
-        (forward-line 2)
-        (let ((target-line (line-number-at-pos)))
-          (hemis-add-note "visit integration test")
-          ;; List notes and visit
-          (hemis-list-notes)
-          (with-current-buffer "*Hemis Notes*"
+  (let ((rust-content "fn main() {\n    let x = 1;\n    let y = 2;\n}\n"))
+    (hemis-test-with-backend
+      ;; Create test file inside the macro's test-dir
+      (let ((test-file (expand-file-name "test.rs" test-dir)))
+        (with-temp-file test-file
+          (insert rust-content))
+        (with-temp-buffer
+          (insert rust-content)
+          (set-visited-file-name test-file t t)
+          (setq comment-start "// ")
+          ;; Try tree-sitter mode if available
+          (when (and (fboundp 'rust-ts-mode) (hemis--ensure-rust-grammar t))
+            (rust-ts-mode))
+          (let ((hemis--project-root-override test-dir))
+            ;; Go to a specific line and create a note
             (goto-char (point-min))
-            (hemis-notes-list-next)
-            (hemis-notes-list-visit))
-          ;; Should be in the file buffer at the note's line
-          (with-current-buffer (find-buffer-visiting file)
-            (should (= (line-number-at-pos) target-line))))))))
+            (forward-line 2)
+            (let ((target-line (line-number-at-pos)))
+              (hemis-add-note "visit integration test")
+              ;; List notes and visit
+              (hemis-list-notes)
+              (with-current-buffer "*Hemis Notes*"
+                (goto-char (point-min))
+                (hemis-notes-list-next)
+                (hemis-notes-list-visit))
+              ;; Should be in the file buffer at the note's line
+              (with-current-buffer (find-buffer-visiting test-file)
+                (should (= (line-number-at-pos) target-line))))))))))
 
 (ert-deftest hemis-notes-list-visit-other-window ()
   "Integration test: visit opens in other window when multiple windows exist."
-  (skip-unless (and (fboundp 'rust-ts-mode)
-                    (file-readable-p "../bebop/util/src/lib.rs")))
-  (hemis-test-with-backend
-    (let* ((file (expand-file-name "../bebop/util/src/lib.rs" default-directory)))
-      ;; Set up a split window layout
-      (delete-other-windows)
-      (split-window-horizontally)
-      (should (= (count-windows) 2))
-      (let ((left-window (selected-window))
-            (right-window (next-window)))
-        (unwind-protect
-            (with-temp-buffer
-              (insert-file-contents file)
-              (set-visited-file-name file t t)
-              (rust-ts-mode)
-              (goto-char (point-min))
-              (hemis-add-note "window test note")
-              ;; Open notes list - it will appear in one window
-              (hemis-list-notes)
-              (let ((list-window (get-buffer-window "*Hemis Notes*")))
-                (should list-window)
-                ;; Select the list window and visit
-                (select-window list-window)
-                (with-current-buffer "*Hemis Notes*"
+  (let ((rust-content "fn main() {\n    let x = 1;\n}\n"))
+    (hemis-test-with-backend
+      ;; Create test file inside the macro's test-dir
+      (let ((test-file (expand-file-name "test.rs" test-dir)))
+        (with-temp-file test-file
+          (insert rust-content))
+        ;; Set up a split window layout
+        (delete-other-windows)
+        (split-window-horizontally)
+        (should (= (count-windows) 2))
+        (let ((left-window (selected-window))
+              (right-window (next-window)))
+          (unwind-protect
+              (with-temp-buffer
+                (insert rust-content)
+                (set-visited-file-name test-file t t)
+                (setq comment-start "// ")
+                ;; Try tree-sitter mode if available
+                (when (and (fboundp 'rust-ts-mode) (hemis--ensure-rust-grammar t))
+                  (rust-ts-mode))
+                (let ((hemis--project-root-override test-dir))
                   (goto-char (point-min))
-                  (hemis-notes-list-next)
-                  (hemis-notes-list-visit))
-                ;; Notes list should still be visible
-                (should (get-buffer-window "*Hemis Notes*"))
-                ;; File should be open in a different window
-                (let ((file-window (get-buffer-window (find-buffer-visiting file))))
-                  (should file-window)
-                  (should-not (eq file-window list-window)))))
-          ;; Cleanup
-          (delete-other-windows))))))
+                  (hemis-add-note "window test note")
+                  ;; Open notes list - it will appear in one window
+                  (hemis-list-notes)
+                  (let ((list-window (get-buffer-window "*Hemis Notes*")))
+                    (should list-window)
+                    ;; Select the list window and visit
+                    (select-window list-window)
+                    (with-current-buffer "*Hemis Notes*"
+                      (goto-char (point-min))
+                      (hemis-notes-list-next)
+                      (hemis-notes-list-visit))
+                    ;; Notes list should still be visible
+                    (should (get-buffer-window "*Hemis Notes*"))
+                    ;; File should be open in a different window
+                    (let ((file-window (get-buffer-window (find-buffer-visiting test-file))))
+                      (should file-window)
+                      (should-not (eq file-window list-window))))))
+            ;; Cleanup window layout
+            (delete-other-windows)))))))
 
 (ert-deftest hemis-insert-note-link-inserts-format ()
   (hemis-test-with-mocked-backend

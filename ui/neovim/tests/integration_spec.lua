@@ -25,6 +25,10 @@ local function get_test_env()
     f:close()
   end
 
+  -- Stop any existing RPC connection before reconfiguring
+  local rpc = require("hemis.rpc")
+  rpc.stop()
+
   local config = require("hemis.config")
   config.setup({
     backend = vim.g.hemis_test_backend,
@@ -36,8 +40,13 @@ local function get_test_env()
   return {
     dir = test_dir,
     file = test_file,
-    rpc = require("hemis.rpc"),
+    rpc = rpc,
     cleanup = function()
+      -- Stop the RPC connection first
+      rpc.stop()
+      -- Remove any lock file
+      os.remove(test_dir .. "/hemis.lock")
+      -- Delete the test directory
       vim.fn.delete(test_dir, "rf")
     end,
   }
@@ -50,20 +59,17 @@ describe("hemis integration", function()
 
   describe("notes/create", function()
     it("creates a note and returns id", function()
-      if not vim.g.hemis_test_backend then
-        pending("Backend not found")
-        return
-      end
-
       local env = get_test_env()
       local done = false
       local result = nil
+      local connect_ok = false
 
       env.rpc.start(function(ok)
         if not ok then
           done = true
           return
         end
+        connect_ok = true
 
         env.rpc.request("notes/create", {
           file = env.file,
@@ -77,8 +83,9 @@ describe("hemis integration", function()
         end)
       end)
 
-      vim.wait(5000, function() return done end)
+      helpers.wait_for(function() return done end, 5000)
       env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
       assert.is_not_nil(result, "Should return result")
       assert.is_not_nil(result.id, "Should have note id")
     end)
@@ -86,20 +93,17 @@ describe("hemis integration", function()
 
   describe("notes/list-for-file", function()
     it("lists notes for a file", function()
-      if not vim.g.hemis_test_backend then
-        pending("Backend not found")
-        return
-      end
-
       local env = get_test_env()
       local done = false
       local result = nil
+      local connect_ok = false
 
       env.rpc.start(function(ok)
         if not ok then
           done = true
           return
         end
+        connect_ok = true
 
         -- First create a note
         env.rpc.request("notes/create", {
@@ -120,8 +124,9 @@ describe("hemis integration", function()
         end)
       end)
 
-      vim.wait(5000, function() return done end)
+      helpers.wait_for(function() return done end, 5000)
       env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
       assert.is_not_nil(result, "Should return notes")
       assert.is_table(result)
       assert.truthy(#result >= 1, "Should have at least one note")
@@ -130,20 +135,18 @@ describe("hemis integration", function()
 
   describe("notes/update", function()
     it("updates note text", function()
-      if not vim.g.hemis_test_backend then
-        pending("Backend not found")
-        return
-      end
-
       local env = get_test_env()
       local done = false
       local updated = nil
+      local connect_ok = false
+      local create_ok = false
 
       env.rpc.start(function(ok)
         if not ok then
           done = true
           return
         end
+        connect_ok = true
 
         -- Create note first
         env.rpc.request("notes/create", {
@@ -153,6 +156,11 @@ describe("hemis integration", function()
           text = "Original text",
           projectRoot = env.dir,
         }, function(err, res)
+          if not res then
+            done = true
+            return
+          end
+          create_ok = true
           -- Update it
           env.rpc.request("notes/update", {
             id = res.id,
@@ -164,8 +172,10 @@ describe("hemis integration", function()
         end)
       end)
 
-      vim.wait(5000, function() return done end)
+      helpers.wait_for(function() return done end, 5000)
       env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
+      assert.truthy(create_ok, "Note creation failed")
       assert.is_not_nil(updated, "Should return updated note")
       assert.equals("Updated text", updated.text)
     end)
@@ -173,20 +183,18 @@ describe("hemis integration", function()
 
   describe("notes/delete", function()
     it("deletes a note", function()
-      if not vim.g.hemis_test_backend then
-        pending("Backend not found")
-        return
-      end
-
       local env = get_test_env()
       local done = false
       local delete_ok = false
+      local connect_ok = false
+      local create_ok = false
 
       env.rpc.start(function(ok)
         if not ok then
           done = true
           return
         end
+        connect_ok = true
 
         -- Create note first
         env.rpc.request("notes/create", {
@@ -196,6 +204,11 @@ describe("hemis integration", function()
           text = "To be deleted",
           projectRoot = env.dir,
         }, function(err, res)
+          if not res then
+            done = true
+            return
+          end
+          create_ok = true
           -- Delete it
           env.rpc.request("notes/delete", { id = res.id }, function(err2, res2)
             delete_ok = not err2
@@ -204,28 +217,28 @@ describe("hemis integration", function()
         end)
       end)
 
-      vim.wait(5000, function() return done end)
+      helpers.wait_for(function() return done end, 5000)
       env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
+      assert.truthy(create_ok, "Note creation failed")
       assert.is_true(delete_ok, "Delete should succeed")
     end)
   end)
 
   describe("notes/backlinks", function()
     it("finds notes linking to target", function()
-      if not vim.g.hemis_test_backend then
-        pending("Backend not found")
-        return
-      end
-
       local env = get_test_env()
       local done = false
       local backlinks = nil
+      local connect_ok = false
+      local target_ok = false
 
       env.rpc.start(function(ok)
         if not ok then
           done = true
           return
         end
+        connect_ok = true
 
         -- Create target note
         env.rpc.request("notes/create", {
@@ -235,12 +248,17 @@ describe("hemis integration", function()
           text = "Target note",
           projectRoot = env.dir,
         }, function(err, target)
-          -- Create linking note
+          if not target then
+            done = true
+            return
+          end
+          target_ok = true
+          -- Create linking note (use full UUID for proper link detection)
           env.rpc.request("notes/create", {
             file = env.file,
             line = 2,
             column = 0,
-            text = "Links to [[" .. target.id:sub(1, 8) .. "]]",
+            text = "Links to [[target][" .. target.id .. "]]",
             projectRoot = env.dir,
           }, function(err2, linking)
             -- Get backlinks
@@ -255,8 +273,10 @@ describe("hemis integration", function()
         end)
       end)
 
-      vim.wait(5000, function() return done end)
+      helpers.wait_for(function() return done end, 5000)
       env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
+      assert.truthy(target_ok, "Target note creation failed")
       assert.is_not_nil(backlinks, "Should return backlinks")
       assert.is_table(backlinks)
     end)
@@ -264,20 +284,17 @@ describe("hemis integration", function()
 
   describe("hemis/status", function()
     it("returns note and file counts", function()
-      if not vim.g.hemis_test_backend then
-        pending("Backend not found")
-        return
-      end
-
       local env = get_test_env()
       local done = false
       local status = nil
+      local connect_ok = false
 
       env.rpc.start(function(ok)
         if not ok then
           done = true
           return
         end
+        connect_ok = true
 
         env.rpc.request("hemis/status", { projectRoot = env.dir }, function(err, res)
           status = res
@@ -285,8 +302,9 @@ describe("hemis integration", function()
         end)
       end)
 
-      vim.wait(5000, function() return done end)
+      helpers.wait_for(function() return done end, 5000)
       env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
       assert.is_not_nil(status, "Should return status")
       assert.is_not_nil(status.counts, "Should have counts")
     end)
@@ -294,20 +312,17 @@ describe("hemis integration", function()
 
   describe("hemis/list-files", function()
     it("lists project files", function()
-      if not vim.g.hemis_test_backend then
-        pending("Backend not found")
-        return
-      end
-
       local env = get_test_env()
       local done = false
       local files = nil
+      local connect_ok = false
 
       env.rpc.start(function(ok)
         if not ok then
           done = true
           return
         end
+        connect_ok = true
 
         env.rpc.request("hemis/list-files", { projectRoot = env.dir }, function(err, res)
           files = res
@@ -315,8 +330,9 @@ describe("hemis integration", function()
         end)
       end)
 
-      vim.wait(5000, function() return done end)
+      helpers.wait_for(function() return done end, 5000)
       env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
       assert.is_not_nil(files, "Should return files")
       assert.is_table(files)
     end)
@@ -324,15 +340,11 @@ describe("hemis integration", function()
 
   describe("hemis/save-snapshot and load-snapshot", function()
     it("saves and loads snapshots", function()
-      if not vim.g.hemis_test_backend then
-        pending("Backend not found")
-        return
-      end
-
       local env = get_test_env()
       local done = false
       local save_ok = false
       local load_ok = false
+      local connect_ok = false
       local snapshot_path = env.dir .. "/snapshot.json"
 
       env.rpc.start(function(ok)
@@ -340,6 +352,7 @@ describe("hemis integration", function()
           done = true
           return
         end
+        connect_ok = true
 
         -- Create a note first
         env.rpc.request("notes/create", {
@@ -366,8 +379,9 @@ describe("hemis integration", function()
         end)
       end)
 
-      vim.wait(5000, function() return done end)
+      helpers.wait_for(function() return done end, 5000)
       env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
       assert.is_true(save_ok, "Save should succeed")
       assert.is_true(load_ok, "Load should succeed")
     end)

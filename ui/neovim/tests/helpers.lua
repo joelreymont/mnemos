@@ -16,6 +16,12 @@ end
 
 -- Clean up test state
 function M.cleanup()
+  -- Stop any RPC connections to avoid state leaking between tests
+  local ok, rpc = pcall(require, "hemis.rpc")
+  if ok and rpc.stop then
+    rpc.stop()
+  end
+
   -- Close all buffers except current
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_valid(buf) then
@@ -133,10 +139,25 @@ function M.mock_rpc(responses)
   end
 end
 
--- Wait for async operations
+-- Wait for async operations (simple delay)
 function M.wait(ms)
   ms = ms or 100
   vim.wait(ms)
+end
+
+-- Wait for a condition with libuv event processing
+-- This is needed for socket callbacks to fire in headless mode
+function M.wait_for(condition_fn, timeout_ms)
+  timeout_ms = timeout_ms or 5000
+  local uv = vim.uv or vim.loop
+  local start = uv.now()
+  while not condition_fn() and (uv.now() - start) < timeout_ms do
+    -- Process any pending libuv events
+    uv.run("nowait")
+    -- Also give vim a chance to process
+    vim.wait(10, condition_fn, 10)
+  end
+  return condition_fn()
 end
 
 --------------------------------------------------------------------------------
@@ -282,25 +303,32 @@ function M.serialize_screen(screen)
 end
 
 -- Assert screen matches snapshot
+-- Set HEMIS_UPDATE_SNAPSHOTS=1 to update/create snapshots
+-- Without this env var, missing snapshots FAIL (must be committed first)
 function M.assert_screen_snapshot(name)
   local screen = M.capture_screen()
   local serialized = M.serialize_screen(screen)
-
   local existing = M.load_snapshot(name .. ".screen")
-  if existing == nil then
-    M.save_snapshot(name .. ".screen", serialized)
-    print("Created screen snapshot: " .. name)
-    return true
-  end
 
   if vim.env.HEMIS_UPDATE_SNAPSHOTS == "1" then
+    -- Update mode - create or overwrite snapshot
     M.save_snapshot(name .. ".screen", serialized)
-    print("Updated screen snapshot: " .. name)
+    if existing == nil then
+      print("Created screen snapshot: " .. name)
+    else
+      print("Updated screen snapshot: " .. name)
+    end
     return true
   end
 
+  if existing == nil then
+    -- Snapshot missing and not in update mode - FAIL
+    error("Screen snapshot missing: " .. name .. "\nRun with HEMIS_UPDATE_SNAPSHOTS=1 to create it")
+  end
+
+  -- Compare
   if serialized ~= existing then
-    error("Screen snapshot mismatch for: " .. name .. "\n\nExpected:\n" .. existing .. "\n\nActual:\n" .. serialized)
+    error("Screen snapshot mismatch for: " .. name .. "\n\nExpected:\n" .. existing .. "\n\nActual:\n" .. serialized .. "\n\nRun with HEMIS_UPDATE_SNAPSHOTS=1 to update")
   end
 
   return true
