@@ -1,7 +1,7 @@
 use git::info_for_file;
 use index as idx;
 use notes::{self, NoteFilters};
-use rpc::{Request, Response, INTERNAL_ERROR, METHOD_NOT_FOUND, PARSE_ERROR};
+use rpc::{Request, Response, INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, PARSE_ERROR};
 use rusqlite::Connection;
 use serde_json::json;
 use std::fs;
@@ -58,7 +58,7 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
-                Response::error(id, METHOD_NOT_FOUND, "missing projectRoot")
+                Response::error(id, INVALID_PARAMS, "missing projectRoot")
             }
         }
         "hemis/get-file" => {
@@ -74,7 +74,7 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
-                Response::error(id, METHOD_NOT_FOUND, "missing file")
+                Response::error(id, INVALID_PARAMS, "missing file")
             }
         }
         "hemis/open-project" => {
@@ -86,7 +86,7 @@ pub fn handle(req: Request, db: &Connection) -> Response {
             {
                 Response::result(id, json!({"ok": true}))
             } else {
-                Response::error(id, METHOD_NOT_FOUND, "missing projectRoot")
+                Response::error(id, INVALID_PARAMS, "missing projectRoot")
             }
         }
         "hemis/explain-region" => {
@@ -126,7 +126,7 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
-                Response::error(id, METHOD_NOT_FOUND, "missing file")
+                Response::error(id, INVALID_PARAMS, "missing file")
             }
         }
         "hemis/search" => {
@@ -200,7 +200,7 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
-                Response::error(id, METHOD_NOT_FOUND, "missing projectRoot")
+                Response::error(id, INVALID_PARAMS, "missing projectRoot")
             }
         }
         "hemis/save-snapshot" => {
@@ -218,7 +218,7 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
-                Response::error(id, METHOD_NOT_FOUND, "missing path")
+                Response::error(id, INVALID_PARAMS, "missing path")
             }
         }
         "hemis/load-snapshot" => {
@@ -234,7 +234,7 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
-                Response::error(id, METHOD_NOT_FOUND, "missing path")
+                Response::error(id, INVALID_PARAMS, "missing path")
             }
         }
         "hemis/status" => {
@@ -278,17 +278,22 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
-                Response::error(id, METHOD_NOT_FOUND, "missing file/projectRoot")
+                Response::error(id, INVALID_PARAMS, "missing file/projectRoot")
             }
         }
         "notes/list-project" => {
             if let Some(proj) = req.params.get("projectRoot").and_then(|v| v.as_str()) {
+                let limit = req.params.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
+                let offset = req.params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
                 match notes::list_project(db, proj) {
-                    Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
+                    Ok(n) => {
+                        let paginated: Vec<_> = n.into_iter().skip(offset).take(limit.unwrap_or(usize::MAX)).collect();
+                        Response::result(id, serde_json::to_value(paginated).unwrap())
+                    }
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
-                Response::error(id, METHOD_NOT_FOUND, "missing projectRoot")
+                Response::error(id, INVALID_PARAMS, "missing projectRoot")
             }
         }
         "notes/search" => {
@@ -298,8 +303,13 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
+            let limit = req.params.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
+            let offset = req.params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
             match notes::search(db, query, proj) {
-                Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
+                Ok(n) => {
+                    let paginated: Vec<_> = n.into_iter().skip(offset).take(limit.unwrap_or(usize::MAX)).collect();
+                    Response::result(id, serde_json::to_value(paginated).unwrap())
+                }
                 Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
             }
         }
@@ -328,7 +338,7 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
-                Response::error(id, METHOD_NOT_FOUND, "missing file/projectRoot")
+                Response::error(id, INVALID_PARAMS, "missing file/projectRoot")
             }
         }
         "notes/create" => {
@@ -354,7 +364,7 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
-                Response::error(id, METHOD_NOT_FOUND, "missing file/projectRoot")
+                Response::error(id, INVALID_PARAMS, "missing file/projectRoot")
             }
         }
         "notes/delete" => {
@@ -364,7 +374,7 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
-                Response::error(id, METHOD_NOT_FOUND, "missing id")
+                Response::error(id, INVALID_PARAMS, "missing id")
             }
         }
         "notes/update" => {
@@ -376,7 +386,7 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
-                Response::error(id, METHOD_NOT_FOUND, "missing id")
+                Response::error(id, INVALID_PARAMS, "missing id")
             }
         }
         "notes/get" => {
@@ -386,7 +396,7 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
-                Response::error(id, METHOD_NOT_FOUND, "missing id")
+                Response::error(id, INVALID_PARAMS, "missing id")
             }
         }
         "notes/backlinks" => {
@@ -396,7 +406,7 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
-                Response::error(id, METHOD_NOT_FOUND, "missing id")
+                Response::error(id, INVALID_PARAMS, "missing id")
             }
         }
         "index/add-file" => {
@@ -413,7 +423,7 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
-                Response::error(id, METHOD_NOT_FOUND, "missing file/projectRoot")
+                Response::error(id, INVALID_PARAMS, "missing file/projectRoot")
             }
         }
         "index/search" => {

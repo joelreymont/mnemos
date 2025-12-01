@@ -115,3 +115,22 @@ where
     }
     Ok(out)
 }
+
+/// Execute a function within a database transaction.
+/// Commits on success, rolls back on error.
+pub fn transaction<T, F>(conn: &Connection, f: F) -> Result<T>
+where
+    F: FnOnce() -> Result<T>,
+{
+    conn.execute("BEGIN IMMEDIATE", [])?;
+    match f() {
+        Ok(result) => {
+            conn.execute("COMMIT", [])?;
+            Ok(result)
+        }
+        Err(e) => {
+            let _ = conn.execute("ROLLBACK", []);
+            Err(e)
+        }
+    }
+}

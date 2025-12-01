@@ -38,14 +38,13 @@ fn info_cli(path: &str) -> Result<Option<GitInfo>> {
     }
     let p = Path::new(path);
     let dir = p.parent().unwrap_or_else(|| Path::new("."));
-    let root = cmd(dir, ["rev-parse", "--show-toplevel"])?;
-    let commit = cmd(dir, ["rev-parse", "HEAD"])?;
-    let path_owned = path.to_string();
-    let blob = cmd(dir, ["hash-object", Box::leak(path_owned.into_boxed_str())]).ok();
+    let root = cmd(dir, &["rev-parse", "--show-toplevel"])?;
+    let commit = cmd(dir, &["rev-parse", "HEAD"])?;
+    let blob = cmd(dir, &["hash-object", path]).ok();
     Ok(Some(GitInfo { root, commit, blob }))
 }
 
-fn cmd(dir: &Path, args: impl IntoIterator<Item = &'static str>) -> Result<String> {
+fn cmd(dir: &Path, args: &[&str]) -> Result<String> {
     let out = std::process::Command::new("git")
         .args(args)
         .current_dir(dir)

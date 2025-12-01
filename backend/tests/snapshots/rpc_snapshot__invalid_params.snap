@@ -5,7 +5,7 @@ expression: responses
 [
   {
     "error": {
-      "code": -32601,
+      "code": -32602,
       "message": "missing file/projectRoot"
     },
     "id": 1,

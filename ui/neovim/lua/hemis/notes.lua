@@ -166,7 +166,7 @@ function M.index_project(callback)
       callback(err, result)
     end
     if not err and result then
-      vim.notify(string.format("Project indexed: %d files", result.filesIndexed or 0), vim.log.levels.INFO)
+      vim.notify(string.format("Project indexed: %d files", result.indexed or 0), vim.log.levels.INFO)
     end
   end)
 end

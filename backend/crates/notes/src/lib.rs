@@ -60,10 +60,19 @@ impl<'a> Clone for NoteFilters<'a> {
 }
 
 fn summarize(text: &str) -> String {
-    if text.len() <= 60 {
-        text.to_string()
+    // Get first line only for summary
+    let first_line = text.lines().next().unwrap_or(text);
+    if first_line.chars().count() <= 60 {
+        first_line.to_string()
     } else {
-        format!("{}...", &text[..57])
+        // Find char boundary at or before position 57
+        let boundary = first_line
+            .char_indices()
+            .take(57)
+            .last()
+            .map(|(i, c)| i + c.len_utf8())
+            .unwrap_or(0);
+        format!("{}...", &first_line[..boundary])
     }
 }
 

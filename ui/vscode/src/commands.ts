@@ -10,6 +10,7 @@ import {
   search,
   getStatus,
   getNoteAtCursor,
+  getProjectRoot,
   Note,
   SearchHit,
 } from './notes';
@@ -28,6 +29,12 @@ export async function addNoteCommand(): Promise<void> {
     return;
   }
 
+  const projectRoot = getProjectRoot();
+  if (!projectRoot) {
+    vscode.window.showErrorMessage('No workspace folder open');
+    return;
+  }
+
   const text = await vscode.window.showInputBox({
     prompt: 'Enter note text',
     placeHolder: 'Note about this code...',
@@ -43,6 +50,7 @@ export async function addNoteCommand(): Promise<void> {
   try {
     await createNote({
       file: document.uri.fsPath,
+      projectRoot,
       line: position.line + 1, // 1-indexed
       column: position.character,
       text,
@@ -139,9 +147,14 @@ export async function listNotesCommand(): Promise<void> {
   }
 
   const file = editor.document.uri.fsPath;
+  const projectRoot = getProjectRoot();
+  if (!projectRoot) {
+    vscode.window.showErrorMessage('No workspace folder open');
+    return;
+  }
 
   try {
-    const notes = await listNotes(file);
+    const notes = await listNotes(file, projectRoot);
 
     if (notes.length === 0) {
       vscode.window.showInformationMessage('No notes in this file');
@@ -179,9 +192,15 @@ export async function indexFileCommand(): Promise<void> {
   }
 
   const file = editor.document.uri.fsPath;
+  const projectRoot = getProjectRoot();
+  if (!projectRoot) {
+    vscode.window.showErrorMessage('No workspace folder open');
+    return;
+  }
+  const content = editor.document.getText();
 
   try {
-    await indexFile(file);
+    await indexFile(file, projectRoot, content);
     vscode.window.showInformationMessage(`Indexed: ${path.basename(file)}`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -190,13 +209,11 @@ export async function indexFileCommand(): Promise<void> {
 }
 
 export async function indexProjectCommand(): Promise<void> {
-  const workspaceFolders = vscode.workspace.workspaceFolders;
-  if (!workspaceFolders || workspaceFolders.length === 0) {
+  const projectRoot = getProjectRoot();
+  if (!projectRoot) {
     vscode.window.showErrorMessage('No workspace folder open');
     return;
   }
-
-  const root = workspaceFolders[0].uri.fsPath;
 
   await vscode.window.withProgress(
     {
@@ -206,9 +223,9 @@ export async function indexProjectCommand(): Promise<void> {
     },
     async () => {
       try {
-        const result = await indexProject(root);
+        const result = await indexProject(projectRoot);
         vscode.window.showInformationMessage(
-          `Indexed ${result.filesIndexed} files`
+          `Indexed ${result.indexed} files`
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

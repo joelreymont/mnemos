@@ -785,3 +785,419 @@ fn delete_note_removes_edges() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Verify UTF-8 handling in note summary - should not panic on multi-byte characters.
+#[test]
+fn handles_utf8_in_summary() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    // Text with multi-byte UTF-8 characters that would cause panic if slicing at byte 57
+    // Use Japanese text mixed with ASCII to exceed the 60 char limit
+    let unicode_text = "Hello \u{3053}\u{3093}\u{306B}\u{3061}\u{306F} ".repeat(15); // ~90 chars
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 1,
+            "column": 0,
+            "text": unicode_text,
+            "tags": []
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("create response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    assert!(resp.error.is_none(), "should not error on UTF-8 text");
+    let note = resp.result.expect("should have result");
+    let text = note.get("text").and_then(|v| v.as_str()).expect("text");
+    assert!(text.chars().count() > 60, "text should be longer than 60 chars");
+    let summary = note.get("summary").and_then(|v| v.as_str()).expect("summary");
+    // Summary should be truncated with "..." and not panic
+    assert!(summary.ends_with("..."), "long text should be truncated");
+    // Should contain Japanese characters
+    assert!(summary.contains("\u{3053}"), "summary should preserve Japanese chars");
+    // Summary char count should be exactly 60 (57 + "...")
+    assert_eq!(summary.chars().count(), 60, "summary should be 57 chars + ...");
+    Ok(())
+}
+
+/// Verify that updating a note's text updates its edges.
+#[test]
+fn update_note_updates_edges() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+
+    // Create note A (first target)
+    let req_create_a = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 1,
+            "column": 0,
+            "text": "Note A",
+            "tags": []
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create_a.len(), req_create_a);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).unwrap();
+    let resp_a: Response = serde_json::from_slice(&body)?;
+    let note_a_id = resp_a
+        .result
+        .as_ref()
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .expect("note A id")
+        .to_string();
+
+    // Create note B (second target)
+    let req_create_b = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 5,
+            "column": 0,
+            "text": "Note B",
+            "tags": []
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create_b.len(), req_create_b);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).unwrap();
+    let resp_b: Response = serde_json::from_slice(&body)?;
+    let note_b_id = resp_b
+        .result
+        .as_ref()
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .expect("note B id")
+        .to_string();
+
+    // Create note C that links to A
+    let link_text_a = format!("Note C links to [[A][{}]]", note_a_id);
+    let req_create_c = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 10,
+            "column": 0,
+            "text": link_text_a,
+            "tags": []
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create_c.len(), req_create_c);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).unwrap();
+    let resp_c: Response = serde_json::from_slice(&body)?;
+    let note_c_id = resp_c
+        .result
+        .as_ref()
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .expect("note C id")
+        .to_string();
+
+    // Verify A has a backlink from C
+    let req_backlinks_a = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "notes/backlinks",
+        "params": { "id": note_a_id }
+    })
+    .to_string();
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}",
+        req_backlinks_a.len(),
+        req_backlinks_a
+    );
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).unwrap();
+    let resp: Response = serde_json::from_slice(&body)?;
+    let backlinks = resp
+        .result
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(backlinks.len(), 1, "A should have one backlink from C");
+
+    // Verify B has no backlinks
+    let req_backlinks_b = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "notes/backlinks",
+        "params": { "id": note_b_id }
+    })
+    .to_string();
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}",
+        req_backlinks_b.len(),
+        req_backlinks_b
+    );
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).unwrap();
+    let resp: Response = serde_json::from_slice(&body)?;
+    let backlinks = resp
+        .result
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(backlinks.len(), 0, "B should have no backlinks initially");
+
+    // Update note C to link to B instead of A
+    let link_text_b = format!("Note C now links to [[B][{}]]", note_b_id);
+    let req_update = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "notes/update",
+        "params": {
+            "id": note_c_id,
+            "text": link_text_b
+        }
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_update.len(), req_update);
+    cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    // Verify A no longer has backlinks
+    let req_backlinks_a = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "notes/backlinks",
+        "params": { "id": note_a_id }
+    })
+    .to_string();
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}",
+        req_backlinks_a.len(),
+        req_backlinks_a
+    );
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).unwrap();
+    let resp: Response = serde_json::from_slice(&body)?;
+    let backlinks = resp
+        .result
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        backlinks.len(),
+        0,
+        "A should have no backlinks after C's update"
+    );
+
+    // Verify B now has a backlink from C
+    let req_backlinks_b = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "notes/backlinks",
+        "params": { "id": note_b_id }
+    })
+    .to_string();
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}",
+        req_backlinks_b.len(),
+        req_backlinks_b
+    );
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).unwrap();
+    let resp: Response = serde_json::from_slice(&body)?;
+    let backlinks = resp
+        .result
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(backlinks.len(), 1, "B should have one backlink from C");
+    assert_eq!(
+        backlinks[0].get("id").and_then(|v| v.as_str()).unwrap(),
+        note_c_id,
+        "backlink should be note C"
+    );
+
+    Ok(())
+}
+
+/// Verify pagination works for notes/list-project.
+#[test]
+fn pagination_works_for_list_project() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+
+    // Create 5 notes
+    for i in 1..=5 {
+        let req = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": i,
+            "method": "notes/create",
+            "params": {
+                "file": "/tmp/test.rs",
+                "projectRoot": "/tmp",
+                "line": i,
+                "column": 0,
+                "text": format!("Note {}", i),
+                "tags": []
+            }
+        })
+        .to_string();
+        let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+        cargo_bin_cmd!("hemis")
+            .env("HEMIS_DB_PATH", db.path())
+            .write_stdin(input)
+            .assert()
+            .success();
+    }
+
+    // List with limit=2, offset=0
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "notes/list-project",
+        "params": {
+            "projectRoot": "/tmp",
+            "limit": 2,
+            "offset": 0
+        }
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).unwrap();
+    let resp: Response = serde_json::from_slice(&body)?;
+    let notes = resp
+        .result
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(notes.len(), 2, "should return 2 notes with limit=2");
+
+    // List with limit=2, offset=2
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "notes/list-project",
+        "params": {
+            "projectRoot": "/tmp",
+            "limit": 2,
+            "offset": 2
+        }
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).unwrap();
+    let resp: Response = serde_json::from_slice(&body)?;
+    let notes = resp
+        .result
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(notes.len(), 2, "should return 2 notes with offset=2");
+
+    // List with offset=4 (only 1 remaining)
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 12,
+        "method": "notes/list-project",
+        "params": {
+            "projectRoot": "/tmp",
+            "limit": 10,
+            "offset": 4
+        }
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).unwrap();
+    let resp: Response = serde_json::from_slice(&body)?;
+    let notes = resp
+        .result
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(notes.len(), 1, "should return 1 note with offset=4");
+
+    Ok(())
+}

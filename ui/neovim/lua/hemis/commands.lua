@@ -342,11 +342,12 @@ function M.status()
       return
     end
 
+    local counts = result.counts or {}
     local msg = string.format(
       "Hemis: %d notes, %d files, %d embeddings",
-      result.notes or 0,
-      result.files or 0,
-      result.embeddings or 0
+      counts.notes or 0,
+      counts.files or 0,
+      counts.embeddings or 0
     )
     vim.notify(msg, vim.log.levels.INFO)
   end)

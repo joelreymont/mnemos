@@ -17,6 +17,7 @@ export interface Note {
 
 export interface CreateNoteParams {
   file: string;
+  projectRoot: string;
   line: number;
   column: number;
   text: string;
@@ -48,28 +49,29 @@ export async function deleteNote(id: string): Promise<void> {
   await client.request<void>('notes/delete', { id });
 }
 
-export async function listNotes(file: string, includeStale = true): Promise<Note[]> {
+export async function listNotes(file: string, projectRoot: string, includeStale = true): Promise<Note[]> {
   const client = getRpcClient();
-  return client.request<Note[]>('notes/list', { file, includeStale });
+  return client.request<Note[]>('notes/list-for-file', { file, projectRoot, includeStale });
 }
 
 export async function listNotesByNode(
   file: string,
+  projectRoot: string,
   nodePath: string[],
   includeStale = true
 ): Promise<Note[]> {
   const client = getRpcClient();
-  return client.request<Note[]>('notes/list-by-node', { file, nodePath, includeStale });
+  return client.request<Note[]>('notes/list-by-node', { file, projectRoot, nodePath, includeStale });
 }
 
-export async function indexFile(file: string): Promise<void> {
+export async function indexFile(file: string, projectRoot: string, content: string): Promise<void> {
   const client = getRpcClient();
-  await client.request<void>('index/add-file', { file });
+  await client.request<void>('index/add-file', { file, projectRoot, content });
 }
 
-export async function indexProject(root: string): Promise<{ filesIndexed: number }> {
+export async function indexProject(projectRoot: string): Promise<{ indexed: number }> {
   const client = getRpcClient();
-  return client.request<{ filesIndexed: number }>('hemis/index-project', { root });
+  return client.request<{ indexed: number }>('hemis/index-project', { projectRoot });
 }
 
 export interface SearchHit {
@@ -82,9 +84,9 @@ export interface SearchHit {
   noteSummary?: string;
 }
 
-export async function search(query: string, includeNotes = true): Promise<SearchHit[]> {
+export async function search(query: string, projectRoot?: string, includeNotes = true): Promise<SearchHit[]> {
   const client = getRpcClient();
-  return client.request<SearchHit[]>('hemis/search', { query, includeNotes });
+  return client.request<SearchHit[]>('hemis/search', { query, projectRoot, includeNotes });
 }
 
 export interface Status {
@@ -103,6 +105,15 @@ export async function getStatus(): Promise<Status> {
   return client.request<Status>('hemis/status', {});
 }
 
+// Helper to get project root from workspace
+export function getProjectRoot(): string | null {
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (!workspaceFolders || workspaceFolders.length === 0) {
+    return null;
+  }
+  return workspaceFolders[0].uri.fsPath;
+}
+
 // Helper to get note at current cursor position
 export async function getNoteAtCursor(
   editor: vscode.TextEditor
@@ -111,8 +122,13 @@ export async function getNoteAtCursor(
   const position = editor.selection.active;
   const file = document.uri.fsPath;
   const line = position.line + 1; // 1-indexed
+  const projectRoot = getProjectRoot();
 
-  const notes = await listNotes(file);
+  if (!projectRoot) {
+    return null;
+  }
+
+  const notes = await listNotes(file, projectRoot);
 
   // Find note closest to cursor line
   for (const note of notes) {
