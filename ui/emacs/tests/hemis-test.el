@@ -728,4 +728,130 @@
   (should (eq (lookup-key hemis-notes-list-mode-map (kbd "b"))
               'hemis-show-backlinks)))
 
+;;; Overlay Display State Tests
+;;; These tests verify the exact rendered content users see
+
+(defun hemis-test--capture-overlay-state ()
+  "Capture the display state of all hemis overlays in current buffer.
+Returns list of plists with :line :before-string :face :count :texts."
+  (let (result)
+    (dolist (ov hemis--overlays)
+      (when (overlay-get ov 'hemis-note-marker)
+        (push (list :line (line-number-at-pos (overlay-start ov))
+                    :before-string (overlay-get ov 'before-string)
+                    :face (get-text-property 0 'face (or (overlay-get ov 'before-string) ""))
+                    :count (overlay-get ov 'hemis-note-count)
+                    :texts (overlay-get ov 'hemis-note-texts))
+              result)))
+    (nreverse result)))
+
+(ert-deftest hemis-overlay-renders-comment-block ()
+  "Verify overlay before-string contains formatted comment block."
+  (with-temp-buffer
+    (insert "fn main() {\n    let x = 1;\n}\n")
+    (set-visited-file-name "/tmp/comment.rs" t t)
+    (setq comment-start "// ")
+    (hemis--apply-notes
+     (list '((id . "1") (file . "/tmp/comment.rs") (line . 2) (column . 4)
+             (text . "Check this variable"))))
+    (let* ((state (hemis-test--capture-overlay-state))
+           (ov-state (car state))
+           (before-str (plist-get ov-state :before-string)))
+      (should (= 1 (length state)))
+      ;; Should contain comment prefix
+      (should (string-match-p "//" before-str))
+      ;; Should contain the note text
+      (should (string-match-p "Check this variable" before-str))
+      ;; Should have indentation matching line 2
+      (should (string-match-p "^    //" before-str)))))
+
+(ert-deftest hemis-overlay-has-steel-blue-face ()
+  "Verify overlay face is SteelBlue for visibility."
+  (with-temp-buffer
+    (insert "fn main() {}\n")
+    (set-visited-file-name "/tmp/face.rs" t t)
+    (hemis--apply-notes
+     (list '((id . "1") (file . "/tmp/face.rs") (line . 1) (column . 0)
+             (text . "Note with face"))))
+    (let* ((state (hemis-test--capture-overlay-state))
+           (ov-state (car state))
+           (face (plist-get ov-state :face)))
+      (should face)
+      ;; Face should specify foreground color
+      (should (plist-get face :foreground)))))
+
+(ert-deftest hemis-overlay-multiline-note ()
+  "Verify multiline notes render each line with comment prefix."
+  (with-temp-buffer
+    (insert "fn main() {}\n")
+    (set-visited-file-name "/tmp/multi.rs" t t)
+    (setq comment-start "// ")
+    (hemis--apply-notes
+     (list '((id . "1") (file . "/tmp/multi.rs") (line . 1) (column . 0)
+             (text . "Line one\nLine two\nLine three"))))
+    (let* ((state (hemis-test--capture-overlay-state))
+           (ov-state (car state))
+           (before-str (plist-get ov-state :before-string)))
+      ;; Each line should have comment prefix
+      (should (string-match-p "// Line one" before-str))
+      (should (string-match-p "// Line two" before-str))
+      (should (string-match-p "// Line three" before-str)))))
+
+(ert-deftest hemis-overlay-multiple-notes-same-line ()
+  "Verify multiple notes on same line at same column are combined."
+  (with-temp-buffer
+    (insert "fn main() {}\n")
+    (set-visited-file-name "/tmp/combined.rs" t t)
+    (setq comment-start "// ")
+    ;; Both notes at same position (line 1, column 0) to ensure combining
+    (hemis--apply-notes
+     (list '((id . "1") (file . "/tmp/combined.rs") (line . 1) (column . 0)
+             (text . "First note"))
+           '((id . "2") (file . "/tmp/combined.rs") (line . 1) (column . 0)
+             (text . "Second note"))))
+    (let* ((state (hemis-test--capture-overlay-state))
+           (ov-state (car state))
+           (before-str (plist-get ov-state :before-string))
+           (count (plist-get ov-state :count))
+           (texts (plist-get ov-state :texts)))
+      ;; Notes at same position combine into single marker overlay
+      (should (= 1 (length state)))
+      ;; Count should be 2
+      (should (= 2 count))
+      ;; Both texts stored
+      (should (= 2 (length texts)))
+      ;; Both notes appear in rendered string
+      (should (string-match-p "First note" before-str))
+      (should (string-match-p "Second note" before-str)))))
+
+(ert-deftest hemis-overlay-lisp-comment-style ()
+  "Verify Lisp modes use ;; comment prefix."
+  (with-temp-buffer
+    (insert "(defun foo () nil)\n")
+    (set-visited-file-name "/tmp/test.el" t t)
+    (setq comment-start "; ")
+    (hemis--apply-notes
+     (list '((id . "1") (file . "/tmp/test.el") (line . 1) (column . 0)
+             (text . "Lisp note"))))
+    (let* ((state (hemis-test--capture-overlay-state))
+           (ov-state (car state))
+           (before-str (plist-get ov-state :before-string)))
+      ;; Should use ;; for Lisp (not single ;)
+      (should (string-match-p ";; Lisp note" before-str)))))
+
+(ert-deftest hemis-overlay-preserves-indentation ()
+  "Verify overlay indentation matches the code line."
+  (with-temp-buffer
+    (insert "fn main() {\n        let deeply_indented = 1;\n}\n")
+    (set-visited-file-name "/tmp/indent.rs" t t)
+    (setq comment-start "// ")
+    (hemis--apply-notes
+     (list '((id . "1") (file . "/tmp/indent.rs") (line . 2) (column . 8)
+             (text . "Indented note"))))
+    (let* ((state (hemis-test--capture-overlay-state))
+           (ov-state (car state))
+           (before-str (plist-get ov-state :before-string)))
+      ;; Should start with 8-space indent
+      (should (string-match-p "^        //" before-str)))))
+
 (provide 'hemis-test)

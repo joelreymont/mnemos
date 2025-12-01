@@ -17,10 +17,11 @@ const staleNoteDecorationType = vscode.window.createTextEditorDecorationType({
   },
 });
 
-// Track decorations per editor
-const editorDecorations: Map<string, vscode.DecorationOptions[]> = new Map();
+// Track decorations per editor (exported for testing)
+export const editorDecorations: Map<string, vscode.DecorationOptions[]> = new Map();
 
-function getCommentPrefix(languageId: string): string {
+// Export for testing
+export function getCommentPrefix(languageId: string): string {
   const commentPrefixes: Record<string, string> = {
     rust: '//',
     typescript: '//',
@@ -47,7 +48,8 @@ function getCommentPrefix(languageId: string): string {
   return commentPrefixes[languageId] || '//';
 }
 
-function formatNoteText(note: Note, languageId: string, style: 'full' | 'minimal'): string {
+// Export for testing
+export function formatNoteText(note: Note, languageId: string, style: 'full' | 'minimal'): string {
   if (style === 'minimal') {
     return `[n:${note.id.substring(0, 8)}]`;
   }
