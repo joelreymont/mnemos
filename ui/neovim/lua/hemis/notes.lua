@@ -192,4 +192,38 @@ function M.backlinks(id, callback)
   rpc.request("notes/backlinks", { id = id }, callback)
 end
 
+-- List project files
+function M.list_files(callback)
+  local root = get_project_root()
+  rpc.request("hemis/list-files", { projectRoot = root }, callback)
+end
+
+-- Get file content
+function M.get_file(file, callback)
+  rpc.request("hemis/get-file", { file = file }, callback)
+end
+
+-- Explain region (for LLM context)
+function M.explain_region(file, start_line, end_line, callback)
+  rpc.request("hemis/explain-region", {
+    file = file,
+    startLine = start_line,
+    endLine = end_line,
+  }, callback)
+end
+
+-- Save snapshot
+function M.save_snapshot(path, callback)
+  local root = get_project_root()
+  rpc.request("hemis/save-snapshot", {
+    path = path,
+    projectRoot = root,
+  }, callback)
+end
+
+-- Load snapshot
+function M.load_snapshot(path, callback)
+  rpc.request("hemis/load-snapshot", { path = path }, callback)
+end
+
 return M

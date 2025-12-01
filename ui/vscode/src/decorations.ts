@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { Note, listNotes } from './notes';
+import { Note, listNotes, getProjectRoot } from './notes';
 import { getConfig } from './config';
 
 // Decoration type for note markers
@@ -118,9 +118,15 @@ export function clearNotes(editor: vscode.TextEditor): void {
 
 export async function refreshNotes(editor: vscode.TextEditor): Promise<void> {
   const file = editor.document.uri.fsPath;
+  const projectRoot = getProjectRoot();
+
+  if (!projectRoot) {
+    clearNotes(editor);
+    return;
+  }
 
   try {
-    const notes = await listNotes(file);
+    const notes = await listNotes(file, projectRoot);
     renderNotes(editor, notes);
   } catch (err) {
     // Backend might not be running, silently ignore

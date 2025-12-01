@@ -10,10 +10,17 @@ import {
   search,
   getStatus,
   getBacklinks,
+  shutdown,
+  listFiles,
+  getFile,
+  explainRegion,
+  saveSnapshot,
+  loadSnapshot,
   getNoteAtCursor,
   getProjectRoot,
   Note,
   SearchHit,
+  FileInfo,
 } from './notes';
 import { refreshNotes, refreshAllEditors } from './decorations';
 
@@ -434,6 +441,201 @@ export async function viewNoteCommand(): Promise<void> {
   await vscode.window.showTextDocument(doc, { preview: true });
 }
 
+export async function helpCommand(): Promise<void> {
+  const commands = [
+    '**Hemis Commands**',
+    '',
+    '| Command | Keybinding | Description |',
+    '|---------|------------|-------------|',
+    '| Add Note | Cmd+Shift+H N | Create a note at cursor |',
+    '| Edit Note | Cmd+Shift+H E | Edit note at cursor |',
+    '| Delete Note | Cmd+Shift+H D | Delete note at cursor |',
+    '| List Notes | Cmd+Shift+H L | List notes in file |',
+    '| View Note | Cmd+Shift+H V | View full note text |',
+    '| Backlinks | Cmd+Shift+H B | Show notes linking here |',
+    '| Search | Cmd+Shift+H S | Search notes and files |',
+    '| Insert Link | Cmd+Shift+H K | Insert note link |',
+    '| Index File | Cmd+Shift+H I | Index current file |',
+    '| Index Project | Cmd+Shift+H P | Index all project files |',
+    '| List Files | | Browse project files |',
+    '| Explain Region | | Get code snippet for LLM |',
+    '| Save Snapshot | | Backup notes to file |',
+    '| Load Snapshot | | Restore notes from file |',
+    '| Status | | Show database counts |',
+    '| Shutdown | | Stop backend server |',
+  ].join('\n');
+
+  const doc = await vscode.workspace.openTextDocument({
+    content: commands,
+    language: 'markdown',
+  });
+  await vscode.window.showTextDocument(doc, { preview: true });
+}
+
+export async function shutdownCommand(): Promise<void> {
+  try {
+    await shutdown();
+    vscode.window.showInformationMessage('Hemis backend shutdown');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`Failed to shutdown: ${message}`);
+  }
+}
+
+export async function listFilesCommand(): Promise<void> {
+  const projectRoot = getProjectRoot();
+  if (!projectRoot) {
+    vscode.window.showErrorMessage('No workspace folder open');
+    return;
+  }
+
+  try {
+    const files = await listFiles(projectRoot);
+
+    if (files.length === 0) {
+      vscode.window.showInformationMessage('No files found');
+      return;
+    }
+
+    const items = files.map((f: FileInfo) => ({
+      label: path.relative(projectRoot, f.file),
+      description: `${f.size} bytes`,
+      file: f.file,
+    }));
+
+    const selected = await vscode.window.showQuickPick(items, {
+      placeHolder: 'Select a file to open',
+    });
+
+    if (selected) {
+      const uri = vscode.Uri.file(selected.file);
+      const document = await vscode.workspace.openTextDocument(uri);
+      await vscode.window.showTextDocument(document);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`Failed to list files: ${message}`);
+  }
+}
+
+export async function viewFileCommand(): Promise<void> {
+  const filePath = await vscode.window.showInputBox({
+    prompt: 'Enter file path',
+    placeHolder: '/path/to/file',
+  });
+
+  if (!filePath) {
+    return;
+  }
+
+  try {
+    const result = await getFile(filePath);
+    const doc = await vscode.workspace.openTextDocument({
+      content: result.content,
+      language: path.extname(filePath).slice(1) || 'plaintext',
+    });
+    await vscode.window.showTextDocument(doc, { preview: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`Failed to view file: ${message}`);
+  }
+}
+
+export async function explainRegionCommand(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    vscode.window.showErrorMessage('No active editor');
+    return;
+  }
+
+  const selection = editor.selection;
+  if (selection.isEmpty) {
+    vscode.window.showInformationMessage('Select a region first');
+    return;
+  }
+
+  const file = editor.document.uri.fsPath;
+  const startLine = selection.start.line + 1;
+  const endLine = selection.end.line + 1;
+
+  try {
+    const result = await explainRegion(file, startLine, endLine);
+
+    // Copy to clipboard
+    await vscode.env.clipboard.writeText(result.content);
+    vscode.window.showInformationMessage(
+      `Copied ${endLine - startLine + 1} lines to clipboard (LLM-ready)`
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`Failed to explain region: ${message}`);
+  }
+}
+
+export async function saveSnapshotCommand(): Promise<void> {
+  const uri = await vscode.window.showSaveDialog({
+    defaultUri: vscode.Uri.file('hemis-snapshot.json'),
+    filters: { 'JSON files': ['json'] },
+  });
+
+  if (!uri) {
+    return;
+  }
+
+  try {
+    const projectRoot = getProjectRoot();
+    const result = await saveSnapshot(uri.fsPath, projectRoot || undefined);
+
+    if (result.ok && result.counts) {
+      vscode.window.showInformationMessage(
+        `Snapshot saved: ${result.counts.notes} notes, ${result.counts.files} files`
+      );
+    } else {
+      vscode.window.showInformationMessage('Snapshot saved');
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`Failed to save snapshot: ${message}`);
+  }
+}
+
+export async function loadSnapshotCommand(): Promise<void> {
+  const uri = await vscode.window.showOpenDialog({
+    canSelectMany: false,
+    filters: { 'JSON files': ['json'] },
+  });
+
+  if (!uri || uri.length === 0) {
+    return;
+  }
+
+  const confirm = await vscode.window.showWarningMessage(
+    'Loading a snapshot will replace all current data. Continue?',
+    { modal: true },
+    'Load'
+  );
+
+  if (confirm !== 'Load') {
+    return;
+  }
+
+  try {
+    const result = await loadSnapshot(uri[0].fsPath);
+
+    if (result.ok && result.counts) {
+      vscode.window.showInformationMessage(
+        `Snapshot loaded: ${result.counts.notes} notes, ${result.counts.files} files`
+      );
+      await refreshAllEditors();
+    } else {
+      vscode.window.showInformationMessage('Snapshot loaded');
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`Failed to load snapshot: ${message}`);
+  }
+}
+
 export function registerCommands(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('hemis.addNote', addNoteCommand),
@@ -447,6 +649,13 @@ export function registerCommands(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('hemis.insertLink', insertLinkCommand),
     vscode.commands.registerCommand('hemis.status', statusCommand),
     vscode.commands.registerCommand('hemis.backlinks', backlinksCommand),
-    vscode.commands.registerCommand('hemis.viewNote', viewNoteCommand)
+    vscode.commands.registerCommand('hemis.viewNote', viewNoteCommand),
+    vscode.commands.registerCommand('hemis.help', helpCommand),
+    vscode.commands.registerCommand('hemis.shutdown', shutdownCommand),
+    vscode.commands.registerCommand('hemis.listFiles', listFilesCommand),
+    vscode.commands.registerCommand('hemis.viewFile', viewFileCommand),
+    vscode.commands.registerCommand('hemis.explainRegion', explainRegionCommand),
+    vscode.commands.registerCommand('hemis.saveSnapshot', saveSnapshotCommand),
+    vscode.commands.registerCommand('hemis.loadSnapshot', loadSnapshotCommand)
   );
 }

@@ -303,9 +303,35 @@ Move cursor to note line
 → Note removed
 ```
 
-### 2.14 Shutdown Backend
+### 2.14 Browse Project Files
 ```
-:Hemis shutdown
+:HemisListFiles
+→ Shows all files in project
+→ Select to open file
+```
+
+### 2.15 Explain Region (LLM Hook)
+```
+Select lines 12-16 (Server struct) in visual mode
+:HemisExplainRegion
+→ Copies snippet to clipboard (LLM-ready)
+```
+
+### 2.16 Save/Load Snapshot
+```
+:HemisSaveSnapshot
+→ Enter path: /tmp/hemis-backup.json
+→ Saves all notes, files, embeddings
+
+:HemisLoadSnapshot
+→ Enter path
+→ Confirms replacement
+→ Restores database state
+```
+
+### 2.17 Shutdown Backend
+```
+:HemisShutdown
 → Cleanly stops the backend process
 ```
 
@@ -409,6 +435,44 @@ Place cursor on note line
 Cmd+Shift+P → "Hemis: Show Backlinks" (or Cmd+Shift+H B)
 → Lists notes that link to this note
 → Select to jump to linking note
+```
+
+### 3.15 Browse Project Files
+```
+Cmd+Shift+P → "Hemis: List Project Files"
+→ Shows all files in project with sizes
+→ Select to open file
+```
+
+### 3.16 Explain Region (LLM Hook)
+```
+Select lines 12-16 (Server struct)
+Cmd+Shift+P → "Hemis: Explain Region" (or Cmd+Shift+H X)
+→ Copies code snippet to clipboard (LLM-ready format)
+```
+
+### 3.17 Save/Load Snapshot
+```
+Cmd+Shift+P → "Hemis: Save Snapshot"
+→ Choose save location
+→ "Snapshot saved: X notes, Y files"
+
+Cmd+Shift+P → "Hemis: Load Snapshot"
+→ Select snapshot file
+→ Confirms replacement
+→ Restores database state
+```
+
+### 3.18 Show Help
+```
+Cmd+Shift+P → "Hemis: Help"
+→ Opens markdown with all commands and keybindings
+```
+
+### 3.19 Shutdown Backend
+```
+Cmd+Shift+P → "Hemis: Shutdown Backend"
+→ Cleanly stops the backend process
 ```
 
 ---

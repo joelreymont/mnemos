@@ -110,6 +110,62 @@ export async function getBacklinks(id: string): Promise<Note[]> {
   return client.request<Note[]>('notes/backlinks', { id });
 }
 
+export async function shutdown(): Promise<void> {
+  const client = getRpcClient();
+  await client.request<void>('shutdown', {});
+}
+
+export interface FileInfo {
+  file: string;
+  size: number;
+}
+
+export async function listFiles(projectRoot: string): Promise<FileInfo[]> {
+  const client = getRpcClient();
+  return client.request<FileInfo[]>('hemis/list-files', { projectRoot });
+}
+
+export async function getFile(file: string): Promise<{ content: string }> {
+  const client = getRpcClient();
+  return client.request<{ content: string }>('hemis/get-file', { file });
+}
+
+export interface ExplainResult {
+  file: string;
+  startLine: number;
+  endLine: number;
+  content: string;
+}
+
+export async function explainRegion(
+  file: string,
+  startLine: number,
+  endLine: number
+): Promise<ExplainResult> {
+  const client = getRpcClient();
+  return client.request<ExplainResult>('hemis/explain-region', { file, startLine, endLine });
+}
+
+export interface SnapshotResult {
+  ok: boolean;
+  counts?: {
+    notes: number;
+    files: number;
+    embeddings: number;
+    edges: number;
+  };
+}
+
+export async function saveSnapshot(path: string, projectRoot?: string): Promise<SnapshotResult> {
+  const client = getRpcClient();
+  return client.request<SnapshotResult>('hemis/save-snapshot', { path, projectRoot });
+}
+
+export async function loadSnapshot(path: string): Promise<SnapshotResult> {
+  const client = getRpcClient();
+  return client.request<SnapshotResult>('hemis/load-snapshot', { path });
+}
+
 // Helper to get project root from workspace
 export function getProjectRoot(): string | null {
   const workspaceFolders = vscode.workspace.workspaceFolders;

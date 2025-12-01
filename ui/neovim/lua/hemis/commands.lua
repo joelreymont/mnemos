@@ -426,10 +426,19 @@ function M.help()
     prefix .. "p  - Index project",
     prefix .. "k  - Insert note link",
     prefix .. "b  - Show backlinks",
+    prefix .. "f  - List project files",
+    prefix .. "S  - Save snapshot",
+    prefix .. "L  - Load snapshot",
+    prefix .. "x  - Explain region (visual)",
     prefix .. "?  - Show this help",
     "",
-    ":HemisStatus   - Show backend status",
-    ":HemisShutdown - Stop backend",
+    ":HemisStatus       - Show backend status",
+    ":HemisShutdown     - Stop backend",
+    ":HemisListFiles    - Browse project files",
+    ":HemisViewFile     - View file content",
+    ":HemisExplainRegion - Copy region for LLM",
+    ":HemisSaveSnapshot - Save notes backup",
+    ":HemisLoadSnapshot - Restore notes",
   }
 
   vim.notify(table.concat(help, "\n"), vim.log.levels.INFO)
@@ -439,6 +448,148 @@ end
 function M.shutdown()
   rpc.stop()
   vim.notify("Hemis backend stopped", vim.log.levels.INFO)
+end
+
+-- List project files
+function M.list_files()
+  notes.list_files(function(err, result)
+    if err then
+      vim.notify("Failed to list files: " .. (err.message or "unknown"), vim.log.levels.ERROR)
+      return
+    end
+
+    if not result or #result == 0 then
+      vim.notify("No files found", vim.log.levels.INFO)
+      return
+    end
+
+    local items = {}
+    for _, f in ipairs(result) do
+      table.insert(items, string.format("%s (%d bytes)", f.file, f.size or 0))
+    end
+
+    vim.ui.select(items, { prompt = "Select file:" }, function(choice, idx)
+      if choice and idx then
+        local file = result[idx].file
+        vim.cmd("edit " .. file)
+      end
+    end)
+  end)
+end
+
+-- View file content (via backend)
+function M.view_file()
+  vim.ui.input({ prompt = "File path: " }, function(file)
+    if not file or file == "" then
+      return
+    end
+
+    notes.get_file(file, function(err, result)
+      if err then
+        vim.notify("Failed to get file: " .. (err.message or "unknown"), vim.log.levels.ERROR)
+        return
+      end
+
+      -- Create buffer with content
+      local buf = vim.api.nvim_create_buf(false, true)
+      local lines = vim.split(result.content or "", "\n")
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+      vim.bo[buf].buftype = "nofile"
+      vim.bo[buf].modifiable = false
+
+      -- Set filetype based on extension
+      local ext = file:match("%.(%w+)$")
+      if ext then
+        vim.bo[buf].filetype = ext
+      end
+
+      vim.cmd("split")
+      vim.api.nvim_win_set_buf(0, buf)
+    end)
+  end)
+end
+
+-- Explain region (copy visual selection for LLM)
+function M.explain_region()
+  local start_pos = vim.fn.getpos("'<")
+  local end_pos = vim.fn.getpos("'>")
+  local start_line = start_pos[2]
+  local end_line = end_pos[2]
+
+  if start_line == 0 or end_line == 0 then
+    vim.notify("Select a region first", vim.log.levels.WARN)
+    return
+  end
+
+  local file = vim.fn.expand("%:p")
+
+  notes.explain_region(file, start_line, end_line, function(err, result)
+    if err then
+      vim.notify("Failed to explain region: " .. (err.message or "unknown"), vim.log.levels.ERROR)
+      return
+    end
+
+    -- Copy to clipboard
+    vim.fn.setreg("+", result.content or "")
+    vim.fn.setreg("*", result.content or "")
+    vim.notify(
+      string.format("Copied %d lines to clipboard (LLM-ready)", end_line - start_line + 1),
+      vim.log.levels.INFO
+    )
+  end)
+end
+
+-- Save snapshot
+function M.save_snapshot()
+  vim.ui.input({ prompt = "Snapshot path: ", default = "hemis-snapshot.json" }, function(path)
+    if not path or path == "" then
+      return
+    end
+
+    notes.save_snapshot(path, function(err, result)
+      if err then
+        vim.notify("Failed to save snapshot: " .. (err.message or "unknown"), vim.log.levels.ERROR)
+        return
+      end
+
+      local counts = result.counts or {}
+      vim.notify(
+        string.format("Snapshot saved: %d notes, %d files", counts.notes or 0, counts.files or 0),
+        vim.log.levels.INFO
+      )
+    end)
+  end)
+end
+
+-- Load snapshot
+function M.load_snapshot()
+  vim.ui.input({ prompt = "Snapshot path: " }, function(path)
+    if not path or path == "" then
+      return
+    end
+
+    vim.ui.select({ "Yes", "No" }, { prompt = "Loading will replace all data. Continue?" }, function(choice)
+      if choice ~= "Yes" then
+        return
+      end
+
+      notes.load_snapshot(path, function(err, result)
+        if err then
+          vim.notify("Failed to load snapshot: " .. (err.message or "unknown"), vim.log.levels.ERROR)
+          return
+        end
+
+        local counts = result.counts or {}
+        vim.notify(
+          string.format("Snapshot loaded: %d notes, %d files", counts.notes or 0, counts.files or 0),
+          vim.log.levels.INFO
+        )
+
+        -- Refresh current buffer
+        M.refresh()
+      end)
+    end)
+  end)
 end
 
 -- Setup user commands
@@ -457,6 +608,11 @@ function M.setup_commands()
   vim.api.nvim_create_user_command("HemisStatus", M.status, {})
   vim.api.nvim_create_user_command("HemisHelp", M.help, {})
   vim.api.nvim_create_user_command("HemisShutdown", M.shutdown, {})
+  vim.api.nvim_create_user_command("HemisListFiles", M.list_files, {})
+  vim.api.nvim_create_user_command("HemisViewFile", M.view_file, {})
+  vim.api.nvim_create_user_command("HemisExplainRegion", M.explain_region, { range = true })
+  vim.api.nvim_create_user_command("HemisSaveSnapshot", M.save_snapshot, {})
+  vim.api.nvim_create_user_command("HemisLoadSnapshot", M.load_snapshot, {})
 end
 
 -- Setup keymaps
@@ -479,12 +635,18 @@ function M.setup_keymaps()
     { "p", M.index_project, "Index project" },
     { "k", M.insert_link, "Insert link" },
     { "b", M.show_backlinks, "Show backlinks" },
+    { "f", M.list_files, "List files" },
+    { "S", M.save_snapshot, "Save snapshot" },
+    { "L", M.load_snapshot, "Load snapshot" },
     { "?", M.help, "Help" },
   }
 
   for _, m in ipairs(mappings) do
     vim.keymap.set("n", prefix .. m[1], m[2], { desc = "Hemis: " .. m[3] })
   end
+
+  -- Visual mode mapping for explain region
+  vim.keymap.set("v", prefix .. "x", M.explain_region, { desc = "Hemis: Explain region" })
 end
 
 -- Setup autocommands

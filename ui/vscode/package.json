@@ -69,6 +69,34 @@
       {
         "command": "hemis.viewNote",
         "title": "Hemis: View Note"
+      },
+      {
+        "command": "hemis.help",
+        "title": "Hemis: Help"
+      },
+      {
+        "command": "hemis.shutdown",
+        "title": "Hemis: Shutdown Backend"
+      },
+      {
+        "command": "hemis.listFiles",
+        "title": "Hemis: List Project Files"
+      },
+      {
+        "command": "hemis.viewFile",
+        "title": "Hemis: View File"
+      },
+      {
+        "command": "hemis.explainRegion",
+        "title": "Hemis: Explain Region (Copy for LLM)"
+      },
+      {
+        "command": "hemis.saveSnapshot",
+        "title": "Hemis: Save Snapshot"
+      },
+      {
+        "command": "hemis.loadSnapshot",
+        "title": "Hemis: Load Snapshot"
       }
     ],
     "configuration": {
@@ -176,6 +204,12 @@
         "key": "ctrl+shift+h v",
         "mac": "cmd+shift+h v",
         "when": "editorTextFocus"
+      },
+      {
+        "command": "hemis.explainRegion",
+        "key": "ctrl+shift+h x",
+        "mac": "cmd+shift+h x",
+        "when": "editorTextFocus && editorHasSelection"
       }
     ]
   },

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { listNotes, Note } from '../notes';
+import { listNotes, Note, getProjectRoot } from '../notes';
 
 export class NotesTreeDataProvider implements vscode.TreeDataProvider<NoteItem> {
   private _onDidChangeTreeData: vscode.EventEmitter<NoteItem | undefined | null | void> =
@@ -29,9 +29,14 @@ export class NotesTreeDataProvider implements vscode.TreeDataProvider<NoteItem> 
     }
 
     const file = editor.document.uri.fsPath;
+    const projectRoot = getProjectRoot();
+
+    if (!projectRoot) {
+      return [];
+    }
 
     try {
-      const notes = await listNotes(file);
+      const notes = await listNotes(file, projectRoot);
       return notes.map((note) => new NoteItem(note));
     } catch {
       // Backend might not be running
