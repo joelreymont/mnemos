@@ -67,8 +67,9 @@ Custom commands in `.claude/commands/` for common workflows.
 
 ## Test Counts (keep updated)
 - Rust backend: 40 tests (including 12 RPC flow + 13 snapshot tests)
-- Emacs UI: 37 tests
-- Neovim UI: 32 tests (21 display + 11 integration)
+- Emacs UI: 47 tests (37 unit + 10 demo flow)
+- Neovim UI: 36 tests (21 display + 15 integration)
+- VS Code UI: 22 tests (10 decoration + 12 integration)
 
 ### Common Debugging Patterns
 

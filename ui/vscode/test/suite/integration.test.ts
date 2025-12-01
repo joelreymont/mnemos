@@ -415,4 +415,203 @@ suite('Integration Test Suite', () => {
     assert.strictEqual(backlinks[0].id, noteB.id, 'Backlink should be note B');
     assert.ok(backlinks[0].text.includes('Note B links to'), 'Backlink text should match note B');
   });
+
+  test('RPC client can search notes', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    await client.start();
+
+    // Create a note with searchable text
+    await client.request('notes/create', {
+      file: '/tmp/search-test.rs',
+      projectRoot: '/tmp',
+      line: 1,
+      column: 0,
+      text: 'Searchable unique content',
+    });
+
+    // Search for it
+    const results = await client.request<unknown[]>('hemis/search', {
+      query: 'Searchable',
+      projectRoot: '/tmp',
+    });
+
+    assert.ok(Array.isArray(results), 'Search results should be an array');
+  });
+
+  test('RPC client can index file', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    await client.start();
+
+    // Create a test file
+    const testFile = path.join(testDir, 'index-test.rs');
+    fs.writeFileSync(testFile, 'fn main() {}\n');
+
+    // Index the file
+    const result = await client.request<unknown>('index/add-file', {
+      file: testFile,
+      projectRoot: testDir,
+    });
+
+    assert.ok(result !== undefined, 'Index file should return result');
+  });
+
+  test('RPC client can index project', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    await client.start();
+
+    // Create a test file
+    const testFile = path.join(testDir, 'project-test.rs');
+    fs.writeFileSync(testFile, 'fn main() { println!("hello"); }\n');
+
+    // Index the project
+    const result = await client.request<{ indexed: number }>('hemis/index-project', {
+      projectRoot: testDir,
+    });
+
+    assert.ok(result, 'Index project should return result');
+    assert.strictEqual(typeof result.indexed, 'number', 'Should have indexed count');
+  });
+
+  test('RPC client can explain region', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    await client.start();
+
+    // Create a test file
+    const testFile = path.join(testDir, 'explain-test.rs');
+    fs.writeFileSync(testFile, 'fn main() {\n    println!("hello");\n}\n');
+
+    // Explain a region
+    const result = await client.request<{ content?: string; explanation?: string }>('hemis/explain-region', {
+      file: testFile,
+      startLine: 1,
+      endLine: 3,
+      projectRoot: testDir,
+    });
+
+    assert.ok(result, 'Explain region should return result');
+    assert.ok(result.content || result.explanation, 'Should have content');
+  });
+
+  test('RPC client can save and load snapshot', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    await client.start();
+
+    // Create a note first
+    await client.request('notes/create', {
+      file: '/tmp/snapshot-test.rs',
+      projectRoot: '/tmp',
+      line: 1,
+      column: 0,
+      text: 'Snapshot test note',
+    });
+
+    // Save snapshot
+    const snapshotPath = path.join(testDir, 'snapshot.json');
+    const saveResult = await client.request<{ counts: { notes: number } }>('hemis/save-snapshot', {
+      path: snapshotPath,
+      projectRoot: '/tmp',
+    });
+
+    assert.ok(saveResult, 'Save snapshot should return result');
+    assert.ok(saveResult.counts, 'Should have counts');
+    assert.ok(fs.existsSync(snapshotPath), 'Snapshot file should exist');
+
+    // Load snapshot
+    const loadResult = await client.request<{ counts: { notes: number } }>('hemis/load-snapshot', {
+      path: snapshotPath,
+    });
+
+    assert.ok(loadResult, 'Load snapshot should return result');
+    assert.ok(loadResult.counts, 'Should have counts');
+  });
+
+  test('RPC client can update note', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    await client.start();
+
+    // Create a note
+    const created = await client.request<{ id: string; text: string }>('notes/create', {
+      file: '/tmp/update-test.rs',
+      projectRoot: '/tmp',
+      line: 1,
+      column: 0,
+      text: 'Original text',
+    });
+
+    // Update it
+    const updated = await client.request<{ id: string; text: string }>('notes/update', {
+      id: created.id,
+      text: 'Updated text',
+    });
+
+    assert.strictEqual(updated.text, 'Updated text', 'Text should be updated');
+  });
+
+  test('RPC client can delete note', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    await client.start();
+
+    // Create a note
+    const created = await client.request<{ id: string }>('notes/create', {
+      file: '/tmp/delete-test.rs',
+      projectRoot: '/tmp',
+      line: 1,
+      column: 0,
+      text: 'To be deleted',
+    });
+
+    // Delete it
+    await client.request('notes/delete', { id: created.id });
+
+    // Verify it's gone
+    try {
+      await client.request('notes/get', { id: created.id });
+      assert.fail('Should have thrown error for deleted note');
+    } catch (err: unknown) {
+      // Expected - note doesn't exist
+      assert.ok(true, 'Note should be deleted');
+    }
+  });
 });

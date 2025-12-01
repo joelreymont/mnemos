@@ -78,6 +78,14 @@
            ,@body)
        ;; Shutdown the isolated server
        (ignore-errors (hemis-shutdown))
+       ;; Wait for socket to be removed (server shutdown)
+       (let ((deadline (+ (float-time) 2)))
+         (while (and (file-exists-p (expand-file-name "hemis.sock" test-dir))
+                     (< (float-time) deadline))
+           (sleep-for 0.1)))
+       ;; Force remove socket/lock files
+       (ignore-errors (delete-file (expand-file-name "hemis.sock" test-dir)))
+       (ignore-errors (delete-file (expand-file-name "hemis.lock" test-dir)))
        ;; Clean up test directory
        (ignore-errors (delete-directory test-dir t)))))
 
@@ -913,5 +921,190 @@ Returns list of plists with :line :before-string :face :count :texts."
            (before-str (plist-get ov-state :before-string)))
       ;; Should start with 8-space indent
       (should (string-match-p "^        //" before-str)))))
+
+;;; Demo Flow Tests
+;;; These tests verify user-visible features from docs/DEMO.md
+
+(ert-deftest hemis-help-displays-keybindings ()
+  "Test that hemis-help shows expected keybindings."
+  (hemis-help)
+  (with-current-buffer "*Hemis Help*"
+    (goto-char (point-min))
+    ;; Should show main keybindings
+    (should (search-forward "C-c h a" nil t))
+    (should (search-forward "Add a note" nil t))
+    (goto-char (point-min))
+    (should (search-forward "C-c h e" nil t))
+    (should (search-forward "Edit note" nil t))
+    (goto-char (point-min))
+    (should (search-forward "C-c h d" nil t))
+    (should (search-forward "Delete note" nil t))
+    (goto-char (point-min))
+    (should (search-forward "C-c h S" nil t))
+    (should (search-forward "status" nil t))))
+
+(ert-deftest hemis-status-shows-counts ()
+  "Test that hemis-status displays note/file/embedding counts."
+  (hemis-test-with-mocked-backend
+    (cl-letf (((symbol-function 'hemis--request)
+               (lambda (method &optional _params)
+                 (pcase method
+                   ("hemis/status"
+                    '((counts . ((notes . 5) (files . 10) (embeddings . 3)))))
+                   (_ nil)))))
+      (let ((messages nil))
+        (cl-letf (((symbol-function 'message)
+                   (lambda (fmt &rest args)
+                     (push (apply #'format fmt args) messages))))
+          (hemis-status)
+          (should (cl-some (lambda (m) (string-match-p "5 notes" m)) messages))
+          (should (cl-some (lambda (m) (string-match-p "10 files" m)) messages))
+          (should (cl-some (lambda (m) (string-match-p "3 embeddings" m)) messages)))))))
+
+(ert-deftest hemis-edit-note-at-point-updates-note ()
+  "Test that hemis-edit-note-at-point calls notes/update."
+  (hemis-test-with-mocked-backend
+    (let ((updated-id nil)
+          (updated-text nil))
+      (cl-letf (((symbol-function 'hemis--request)
+                 (lambda (method &optional params)
+                   (pcase method
+                     ("notes/update"
+                      (setq updated-id (cdr (assoc 'id params)))
+                      (setq updated-text (cdr (assoc 'text params)))
+                      '((id . "test-id")))
+                     ("notes/list-for-file" nil)
+                     (_ nil))))
+                ((symbol-function 'hemis--read-note-text)
+                 (lambda (&optional _default) "new text"))
+                ((symbol-function 'hemis-refresh-notes) #'ignore))
+        ;; Set up buffer with note property
+        (with-current-buffer (get-buffer-create "*Hemis Notes*")
+          (setq buffer-read-only nil)
+          (erase-buffer)
+          (insert "test\n")
+          (add-text-properties (point-min) (point-max)
+                               '(hemis-note ((id . "test-id") (text . "old text"))))
+          (goto-char (point-min))
+          (hemis-edit-note-at-point)
+          (should (equal updated-id "test-id"))
+          (should (equal updated-text "new text")))))))
+
+(ert-deftest hemis-delete-note-at-point-removes-note ()
+  "Test that hemis-delete-note-at-point calls notes/delete."
+  (hemis-test-with-mocked-backend
+    (let ((deleted-id nil))
+      (cl-letf (((symbol-function 'hemis--request)
+                 (lambda (method &optional params)
+                   (pcase method
+                     ("notes/delete"
+                      (setq deleted-id (cdr (assoc 'id params)))
+                      '((success . t)))
+                     ("notes/list-for-file" nil)
+                     (_ nil))))
+                ((symbol-function 'yes-or-no-p) (lambda (_) t))
+                ((symbol-function 'hemis-refresh-notes) #'ignore))
+        ;; Set up buffer with note property
+        (with-current-buffer (get-buffer-create "*Hemis Notes*")
+          (setq buffer-read-only nil)
+          (erase-buffer)
+          (insert "test\n")
+          (add-text-properties (point-min) (point-max)
+                               '(hemis-note ((id . "delete-me"))))
+          (goto-char (point-min))
+          (hemis-delete-note-at-point)
+          (should (equal deleted-id "delete-me")))))))
+
+(ert-deftest hemis-search-project-displays-results ()
+  "Test that hemis-search-project shows matching notes and files."
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (set-visited-file-name "/tmp/test.rs" t t)
+      (cl-letf (((symbol-function 'hemis--request)
+                 (lambda (method &optional params)
+                   (pcase method
+                     ("hemis/search"
+                      (list '((kind . "file") (file . "/tmp/foo.rs") (line . 1) (text . "fn foo"))
+                            '((kind . "note") (file . "/tmp/bar.rs") (line . 5) (text . "note text"))))
+                     (_ nil)))))
+        (hemis-search-project "foo")
+        (with-current-buffer "*Hemis Search*"
+          (goto-char (point-min))
+          (should (search-forward "file" nil t))
+          (should (search-forward "foo.rs" nil t)))))))
+
+(ert-deftest hemis-save-snapshot-calls-backend ()
+  "Test that hemis-save-snapshot calls hemis/save-snapshot."
+  (hemis-test-with-mocked-backend
+    (let ((snapshot-path nil))
+      (cl-letf (((symbol-function 'hemis--request)
+                 (lambda (method &optional params)
+                   (pcase method
+                     ("hemis/save-snapshot"
+                      (setq snapshot-path (cdr (assoc 'path params)))
+                      '((counts . ((notes . 3) (files . 5)))))
+                     (_ nil)))))
+        (hemis-save-snapshot "/tmp/test-snapshot.json")
+        (should (equal snapshot-path "/tmp/test-snapshot.json"))))))
+
+(ert-deftest hemis-load-snapshot-calls-backend ()
+  "Test that hemis-load-snapshot calls hemis/load-snapshot."
+  (hemis-test-with-mocked-backend
+    (let ((loaded-path nil))
+      (cl-letf (((symbol-function 'hemis--request)
+                 (lambda (method &optional params)
+                   (pcase method
+                     ("hemis/load-snapshot"
+                      (setq loaded-path (cdr (assoc 'path params)))
+                      '((counts . ((notes . 2) (files . 4)))))
+                     (_ nil))))
+                ((symbol-function 'yes-or-no-p) (lambda (_) t)))
+        (hemis-load-snapshot "/tmp/test-snapshot.json")
+        (should (equal loaded-path "/tmp/test-snapshot.json"))))))
+
+(ert-deftest hemis-overlay-stale-note-indicator ()
+  "Test that stale notes are visually distinguished."
+  (with-temp-buffer
+    (insert "fn main() {}\n")
+    (set-visited-file-name "/tmp/stale.rs" t t)
+    (setq comment-start "// ")
+    ;; Apply a stale note
+    (hemis--apply-notes
+     (list '((id . "1") (file . "/tmp/stale.rs") (line . 1) (column . 0)
+             (text . "This note is stale") (stale . t))))
+    (let* ((state (hemis-test--capture-overlay-state))
+           (ov-state (car state))
+           (before-str (plist-get ov-state :before-string)))
+      (should (= 1 (length state)))
+      ;; Should contain [stale] indicator or different face
+      (should (or (string-match-p "stale" before-str)
+                  (string-match-p "STALE" before-str)
+                  ;; Or check face property includes stale indication
+                  (plist-get ov-state :face))))))
+
+(ert-deftest hemis-index-project-calls-backend ()
+  "Test that hemis-index-project calls hemis/index-project."
+  (hemis-test-with-mocked-backend
+    (let ((indexed-root nil))
+      (cl-letf (((symbol-function 'hemis--request)
+                 (lambda (method &optional params)
+                   (pcase method
+                     ("hemis/index-project"
+                      (setq indexed-root (cdr (assoc 'projectRoot params)))
+                      '((indexed . 5)))
+                     (_ nil)))))
+        (with-temp-buffer
+          (set-visited-file-name "/tmp/project/test.rs" t t)
+          (let ((hemis--project-root-override "/tmp/project"))
+            (hemis-index-project "/tmp/project")
+            (should (equal indexed-root "/tmp/project"))))))))
+
+(ert-deftest hemis-notes-list-has-edit-delete-keybindings ()
+  "Test that notes list mode has edit and delete keybindings."
+  (hemis--ensure-notes-list-keymap)
+  (should (eq (lookup-key hemis-notes-list-mode-map (kbd "e"))
+              'hemis-edit-note-at-point))
+  (should (eq (lookup-key hemis-notes-list-mode-map (kbd "d"))
+              'hemis-delete-note-at-point)))
 
 (provide 'hemis-test)

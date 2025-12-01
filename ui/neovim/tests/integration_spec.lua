@@ -386,6 +386,141 @@ describe("hemis integration", function()
       assert.is_true(load_ok, "Load should succeed")
     end)
   end)
+
+  describe("hemis/search", function()
+    it("searches notes and files", function()
+      local env = get_test_env()
+      local done = false
+      local results = nil
+      local connect_ok = false
+
+      env.rpc.start(function(ok)
+        if not ok then
+          done = true
+          return
+        end
+        connect_ok = true
+
+        -- Create a note first
+        env.rpc.request("notes/create", {
+          file = env.file,
+          line = 1,
+          column = 0,
+          text = "Searchable note content",
+          projectRoot = env.dir,
+        }, function(err, res)
+          -- Search for it
+          env.rpc.request("hemis/search", {
+            query = "Searchable",
+            projectRoot = env.dir,
+          }, function(err2, res2)
+            results = res2
+            done = true
+          end)
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 5000)
+      env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
+      assert.is_not_nil(results, "Should return results")
+      assert.is_table(results)
+    end)
+  end)
+
+  describe("index/add-file", function()
+    it("indexes a file for search", function()
+      local env = get_test_env()
+      local done = false
+      local index_ok = false
+      local connect_ok = false
+
+      env.rpc.start(function(ok)
+        if not ok then
+          done = true
+          return
+        end
+        connect_ok = true
+
+        env.rpc.request("index/add-file", {
+          file = env.file,
+          projectRoot = env.dir,
+        }, function(err, res)
+          index_ok = not err
+          done = true
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 5000)
+      env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
+      assert.is_true(index_ok, "Index file should succeed")
+    end)
+  end)
+
+  describe("hemis/index-project", function()
+    it("indexes entire project", function()
+      local env = get_test_env()
+      local done = false
+      local result = nil
+      local connect_ok = false
+
+      env.rpc.start(function(ok)
+        if not ok then
+          done = true
+          return
+        end
+        connect_ok = true
+
+        env.rpc.request("hemis/index-project", {
+          projectRoot = env.dir,
+        }, function(err, res)
+          result = res
+          done = true
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 5000)
+      env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
+      assert.is_not_nil(result, "Should return result")
+      assert.is_not_nil(result.indexed, "Should have indexed count")
+    end)
+  end)
+
+  describe("hemis/explain-region", function()
+    it("returns code snippet for LLM context", function()
+      local env = get_test_env()
+      local done = false
+      local result = nil
+      local connect_ok = false
+
+      env.rpc.start(function(ok)
+        if not ok then
+          done = true
+          return
+        end
+        connect_ok = true
+
+        env.rpc.request("hemis/explain-region", {
+          file = env.file,
+          startLine = 1,
+          endLine = 3,
+          projectRoot = env.dir,
+        }, function(err, res)
+          result = res
+          done = true
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 5000)
+      env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
+      assert.is_not_nil(result, "Should return result")
+      -- Should contain the code content
+      assert.is_not_nil(result.content or result.explanation, "Should have content")
+    end)
+  end)
 end)
 
 describe("hemis display integration", function()

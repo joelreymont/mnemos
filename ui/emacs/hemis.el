@@ -996,6 +996,64 @@ NOTES is a list of note objects (alist/plist) from the backend."
   "Fetch a single Hemis note by ID."
   (hemis--request "notes/get" `((id . ,id))))
 
+(defun hemis-update-note (id text)
+  "Update note ID with new TEXT."
+  (hemis--request "notes/update" `((id . ,id) (text . ,text))))
+
+(defun hemis-delete-note (id)
+  "Delete note with ID."
+  (hemis--request "notes/delete" `((id . ,id))))
+
+(defun hemis-status ()
+  "Display Hemis backend status: note/file/embedding counts."
+  (interactive)
+  (let* ((resp (hemis--request "hemis/status" nil))
+         (counts (or (alist-get 'counts resp) resp))
+         (notes (or (alist-get 'notes counts) 0))
+         (files (or (alist-get 'files counts) 0))
+         (embeddings (or (alist-get 'embeddings counts) 0)))
+    (message "Hemis: %d notes, %d files, %d embeddings" notes files embeddings)))
+
+(defun hemis-edit-note-at-point ()
+  "Edit the note at point (overlay or notes list)."
+  (interactive)
+  (let* ((note (or (get-text-property (point) 'hemis-note)
+                   (hemis--note-at-overlay (point))))
+         (id (and note (hemis--note-get note 'id)))
+         (text (and note (hemis--note-text note))))
+    (unless id
+      (user-error "No note at point"))
+    (let ((new-text (hemis--read-note-text text)))
+      (when (and new-text (not (string= new-text text)))
+        (hemis-update-note id new-text)
+        (message "Note updated")
+        (hemis-refresh-notes)))))
+
+(defun hemis-delete-note-at-point ()
+  "Delete the note at point (overlay or notes list)."
+  (interactive)
+  (let* ((note (or (get-text-property (point) 'hemis-note)
+                   (hemis--note-at-overlay (point))))
+         (id (and note (hemis--note-get note 'id))))
+    (unless id
+      (user-error "No note at point"))
+    (when (yes-or-no-p "Delete this note? ")
+      (hemis-delete-note id)
+      (message "Note deleted")
+      (hemis-refresh-notes))))
+
+(defun hemis--note-at-overlay (pos)
+  "Return the hemis note at POS from overlays, if any."
+  (let ((result nil))
+    (dolist (ov hemis--overlays)
+      (when (and (overlay-get ov 'hemis-note-marker)
+                 (<= (overlay-start ov) pos)
+                 (< pos (overlay-end ov)))
+        (let ((notes (overlay-get ov 'hemis-notes)))
+          (when notes
+            (setq result (car notes))))))
+    result))
+
 (defun hemis-notes-for-node (node-path)
   "Return notes for NODE-PATH in the current file/project."
   (let* ((params (hemis--buffer-params))
@@ -1177,6 +1235,10 @@ Otherwise, prompt for a note ID."
     (define-key map (kbd "C-c h p") #'hemis-index-project)
     (define-key map (kbd "C-c h s") #'hemis-search-project)
     (define-key map (kbd "C-c h k") #'hemis-insert-note-link)
+    (define-key map (kbd "C-c h e") #'hemis-edit-note-at-point)
+    (define-key map (kbd "C-c h d") #'hemis-delete-note-at-point)
+    (define-key map (kbd "C-c h b") #'hemis-show-backlinks)
+    (define-key map (kbd "C-c h S") #'hemis-status)
     (define-key map (kbd "C-c h ?") #'hemis-help)
     map)
   "Keymap for `hemis-notes-mode'.")
@@ -1191,8 +1253,12 @@ Otherwise, prompt for a note ID."
     (define-key hemis-notes-mode-map (kbd "C-c h i") #'hemis-index-file)
     (define-key hemis-notes-mode-map (kbd "C-c h p") #'hemis-index-project)
     (define-key hemis-notes-mode-map (kbd "C-c h s") #'hemis-search-project)
-    (define-key hemis-notes-mode-map (kbd "C-c h ?") #'hemis-help)
-    (define-key hemis-notes-mode-map (kbd "C-c h k") #'hemis-insert-note-link)))
+    (define-key hemis-notes-mode-map (kbd "C-c h k") #'hemis-insert-note-link)
+    (define-key hemis-notes-mode-map (kbd "C-c h e") #'hemis-edit-note-at-point)
+    (define-key hemis-notes-mode-map (kbd "C-c h d") #'hemis-delete-note-at-point)
+    (define-key hemis-notes-mode-map (kbd "C-c h b") #'hemis-show-backlinks)
+    (define-key hemis-notes-mode-map (kbd "C-c h S") #'hemis-status)
+    (define-key hemis-notes-mode-map (kbd "C-c h ?") #'hemis-help)))
 
 ;; Ensure keymap is valid before defining the minor mode.
 (hemis--ensure-notes-mode-keymap)
@@ -1224,18 +1290,19 @@ Otherwise, prompt for a note ID."
 ;; This avoids unexpected backend connections and allows testing isolation.
 
 (defun hemis--ensure-notes-list-keymap ()
-  "Ensure `hemis-notes-list-mode-map` is a valid keymap."
+  "Ensure `hemis-notes-list-mode-map` is a valid keymap with all bindings."
   (unless (keymapp hemis-notes-list-mode-map)
-    (setq hemis-notes-list-mode-map
-          (let ((map (make-sparse-keymap)))
-            (set-keymap-parent map special-mode-map)
-            (define-key map (kbd "RET") #'hemis-notes-list-visit)
-            (define-key map (kbd "v")   #'hemis-view-note)
-            (define-key map (kbd "b")   #'hemis-show-backlinks)
-            (define-key map (kbd "n")   #'hemis-notes-list-next)
-            (define-key map (kbd "p")   #'hemis-notes-list-prev)
-            (define-key map (kbd "q")   #'quit-window)
-            map))))
+    (setq hemis-notes-list-mode-map (make-sparse-keymap))
+    (set-keymap-parent hemis-notes-list-mode-map special-mode-map))
+  ;; Always ensure all keybindings are present
+  (define-key hemis-notes-list-mode-map (kbd "RET") #'hemis-notes-list-visit)
+  (define-key hemis-notes-list-mode-map (kbd "v")   #'hemis-view-note)
+  (define-key hemis-notes-list-mode-map (kbd "b")   #'hemis-show-backlinks)
+  (define-key hemis-notes-list-mode-map (kbd "e")   #'hemis-edit-note-at-point)
+  (define-key hemis-notes-list-mode-map (kbd "d")   #'hemis-delete-note-at-point)
+  (define-key hemis-notes-list-mode-map (kbd "n")   #'hemis-notes-list-next)
+  (define-key hemis-notes-list-mode-map (kbd "p")   #'hemis-notes-list-prev)
+  (define-key hemis-notes-list-mode-map (kbd "q")   #'quit-window))
 
 (defun hemis-reset-keymaps-and-enable ()
   "Repair Hemis keymaps after reloads and ensure global mode is enabled."
@@ -1289,10 +1356,14 @@ Otherwise, prompt for a note ID."
   C-c h a    Add a note at point
   C-c h r    Refresh notes (reload from backend)
   C-c h l    List notes for current file
+  C-c h e    Edit note at point
+  C-c h d    Delete note at point
+  C-c h b    Show backlinks to note
   C-c h i    Index current file
   C-c h p    Index entire project
   C-c h s    Search project (files and notes)
   C-c h k    Insert a link to another note
+  C-c h S    Show status (note/file counts)
   C-c h ?    Show this help
 
 ")
@@ -1303,6 +1374,9 @@ Otherwise, prompt for a note ID."
   p, k       Previous note
   RET        Visit note in file (other window if split)
   v          View note text in separate buffer
+  b          Show backlinks
+  e          Edit note
+  d          Delete note
   q          Close notes list
 
 ")
