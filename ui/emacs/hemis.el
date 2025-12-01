@@ -193,12 +193,10 @@
           t)
       (error nil))))
 
-(defvar hemis--server-process nil
-  "The Emacs process object for the server (for managed startup).")
-
 (defun hemis--start-server ()
   "Start the Hemis server process in the background.
-Output is redirected to `hemis--log-path' via shell redirection (no filter overhead)."
+The server runs detached with output redirected to `hemis--log-path'.
+Use `hemis-shutdown' to stop it (sends shutdown RPC)."
   (let* ((exe (or hemis-backend (error "Set `hemis-backend' to the Rust backend binary")))
          (exe-abs (expand-file-name exe))
          (log (hemis--log-path))
@@ -214,7 +212,7 @@ Output is redirected to `hemis--log-path' via shell redirection (no filter overh
                       (shell-quote-argument log))))
     (make-directory hemis-dir t)
     (message "Hemis: starting server: %s --serve (log: %s)" exe-abs log)
-    ;; Run detached via shell - auto-cleanup, no filter overhead
+    ;; Run detached via shell - server stops via shutdown RPC
     (call-process-shell-command cmd nil 0)
     (message "Hemis: started backend server")))
 
@@ -324,17 +322,15 @@ Output is redirected to `hemis--log-path' via shell redirection (no filter overh
     (hemis--start-process)))
 
 (defun hemis-shutdown ()
-  "Shutdown the Hemis backend server."
+  "Shutdown the Hemis backend server.
+Sends shutdown RPC to stop the detached server process."
   (interactive)
   (when (and hemis--conn (jsonrpc-running-p hemis--conn))
     (ignore-errors (jsonrpc-request hemis--conn "shutdown" nil :timeout 1)))
   (when (and hemis--process (process-live-p hemis--process))
     (delete-process hemis--process))
-  (when (and hemis--server-process (process-live-p hemis--server-process))
-    (delete-process hemis--server-process))
   (setq hemis--process nil
-        hemis--conn nil
-        hemis--server-process nil)
+        hemis--conn nil)
   (message "Hemis backend stopped."))
 
 (defun hemis-disconnect ()
