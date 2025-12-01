@@ -206,7 +206,8 @@ describe("hemis display virt_lines details", function()
 
   it("virt_lines_above is true for full display style", function()
     local config = require("hemis.config")
-    config.options.display_style = "full"
+    -- Use config.setup to properly initialize config state
+    config.setup({ display_style = "full" })
     local display = require("hemis.display")
     local notes = {
       { id = "1", line = 2, column = 0, text = "Above note" },
@@ -222,7 +223,9 @@ describe("hemis display virt_lines details", function()
 
   it("minimal style uses virt_text at eol with [n:xxxx] format", function()
     local config = require("hemis.config")
-    config.options.display_style = "minimal"
+    -- Use config.setup to properly initialize, then restore at end
+    local original_style = config.get("display_style")
+    config.setup({ display_style = "minimal" })
     local display = require("hemis.display")
     local notes = {
       { id = "abcd1234-5678", line = 1, column = 0, text = "Minimal note" },
@@ -237,8 +240,8 @@ describe("hemis display virt_lines details", function()
     assert.equals("eol", mark.virt_text_pos)
     -- Should have [n:xxxx] format (first 8 chars of id)
     assert.truthy(string.find(mark.text, "%[n:abcd1234%]"), "Should have [n:id] format")
-    -- Reset config
-    config.options.display_style = "full"
+    -- Restore original config
+    config.setup({ display_style = original_style or "full" })
   end)
 
   it("multiple notes on same line combine with --- separator", function()

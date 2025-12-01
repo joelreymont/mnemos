@@ -190,24 +190,27 @@ function M.save_snapshot(name, content)
   f:close()
 end
 
--- Assert state matches snapshot (creates snapshot if missing)
--- Set HEMIS_UPDATE_SNAPSHOTS=1 to update existing snapshots
+-- Assert state matches snapshot
+-- Set HEMIS_UPDATE_SNAPSHOTS=1 to update/create snapshots
+-- Without this env var, missing snapshots FAIL (must be committed first)
 function M.assert_snapshot(name, state)
   local serialized = M.serialize_state(state)
   local existing = M.load_snapshot(name)
 
-  if existing == nil then
-    -- First run - create snapshot
+  if vim.env.HEMIS_UPDATE_SNAPSHOTS == "1" then
+    -- Update mode - create or overwrite snapshot
     M.save_snapshot(name, serialized)
-    print("Created snapshot: " .. name)
+    if existing == nil then
+      print("Created snapshot: " .. name)
+    else
+      print("Updated snapshot: " .. name)
+    end
     return true
   end
 
-  if vim.env.HEMIS_UPDATE_SNAPSHOTS == "1" then
-    -- Update mode - overwrite snapshot
-    M.save_snapshot(name, serialized)
-    print("Updated snapshot: " .. name)
-    return true
+  if existing == nil then
+    -- Snapshot missing and not in update mode - FAIL
+    error("Snapshot missing: " .. name .. "\nRun with HEMIS_UPDATE_SNAPSHOTS=1 to create it")
   end
 
   -- Compare
@@ -220,6 +223,8 @@ function M.assert_snapshot(name, state)
     table.insert(diff_lines, "")
     table.insert(diff_lines, "Actual:")
     table.insert(diff_lines, serialized)
+    table.insert(diff_lines, "")
+    table.insert(diff_lines, "Run with HEMIS_UPDATE_SNAPSHOTS=1 to update")
     error(table.concat(diff_lines, "\n"))
   end
 

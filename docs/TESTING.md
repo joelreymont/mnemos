@@ -61,45 +61,54 @@ DisplayState = {
 Uses ERT (Emacs Lisp Regression Testing). Run headless:
 
 ```bash
-emacs -batch -L ui/emacs -l tests/hemis-test.el -f ert-run-tests-batch-and-exit
+cd ui/emacs && emacs --batch -L . -L tests -l ert -l hemis.el -l hemis-test.el \
+  -f ert-run-tests-batch-and-exit
 ```
 
 ### Display State Capture
 
 ```elisp
-(defun hemis-test--capture-display-state ()
-  "Capture current display state for snapshot testing."
-  (list
-   :buffer (buffer-string)
-   :overlays (mapcar (lambda (ov)
-                       (list :line (line-number-at-pos (overlay-start ov))
-                             :text (overlay-get ov 'hemis-note-text)
-                             :stale (overlay-get ov 'hemis-note-stale)))
-                     hemis--overlays)
-   :point (point)
-   :message (current-message)))
+(defun hemis-test--capture-overlay-state ()
+  "Capture the display state of all hemis overlays in current buffer.
+Returns list of plists with :line :before-string :face :count :texts."
+  (let (result)
+    (dolist (ov hemis--overlays)
+      (when (overlay-get ov 'hemis-note-marker)
+        (push (list :line (line-number-at-pos (overlay-start ov))
+                    :before-string (overlay-get ov 'before-string)
+                    :face (get-text-property 0 'face (or (overlay-get ov 'before-string) ""))
+                    :count (overlay-get ov 'hemis-note-count)
+                    :texts (overlay-get ov 'hemis-note-texts))
+              result)))
+    (nreverse result)))
 ```
 
 ### Key Test Patterns
 
 ```elisp
-;; Verify overlay content
+;; Verify overlay content (uses before-string, not after-string)
 (ert-deftest hemis-note-overlay-shows-text ()
-  (hemis-test-with-mocked-backend
-    (with-temp-buffer
-      (insert "fn main() {}\n")
-      (set-visited-file-name "/tmp/test.rs" t t)
-      (hemis--apply-notes '(((id . "1") (line . 1) (text . "Test note"))))
-      (let ((ov (car hemis--overlays)))
-        (should (string-match "Test note" (overlay-get ov 'after-string)))))))
+  (with-temp-buffer
+    (insert "fn main() {}\n")
+    (set-visited-file-name "/tmp/test.rs" t t)
+    (setq comment-start "// ")
+    (hemis--apply-notes '(((id . "1") (file . "/tmp/test.rs") (line . 1) (column . 0)
+                           (text . "Test note"))))
+    (let* ((state (hemis-test--capture-overlay-state))
+           (ov-state (car state))
+           (before-str (plist-get ov-state :before-string)))
+      (should (string-match-p "Test note" before-str)))))
 
-;; Verify list buffer content
-(ert-deftest hemis-list-shows-notes ()
-  (hemis-test-with-backend
-    (hemis-add-note "First note")
-    (hemis-list-notes)
-    (with-current-buffer "*Hemis Notes*"
-      (should (search-forward "First note" nil t)))))
+;; Verify face color
+(ert-deftest hemis-overlay-has-steel-blue-face ()
+  (with-temp-buffer
+    (insert "fn main() {}\n")
+    (set-visited-file-name "/tmp/face.rs" t t)
+    (hemis--apply-notes '(((id . "1") (file . "/tmp/face.rs") (line . 1) (column . 0)
+                           (text . "Blue note"))))
+    (let* ((state (hemis-test--capture-overlay-state))
+           (face (plist-get (car state) :face)))
+      (should (equal (plist-get face :foreground) "SteelBlue")))))
 ```
 
 ## Neovim Testing
@@ -107,13 +116,13 @@ emacs -batch -L ui/emacs -l tests/hemis-test.el -f ert-run-tests-batch-and-exit
 Uses headless mode with custom test runner.
 
 ```bash
-nvim --headless -c "luafile tests/run.lua" -c "qa!"
+cd ui/neovim && nvim --headless -u NONE -c "set rtp+=." -c "lua require('tests.run')"
 ```
 
 ### Test Infrastructure
 
 ```lua
--- tests/hemis_spec.lua
+-- tests/display_spec.lua
 local helpers = require("tests.helpers")
 
 describe("hemis display", function()
@@ -298,12 +307,11 @@ make test-vscode
 
 ```makefile
 test-emacs:
-	emacs -batch -L ui/emacs -l ui/emacs/tests/hemis-test.el \
+	cd ui/emacs && emacs --batch -L . -L tests -l ert -l hemis.el -l hemis-test.el \
 		-f ert-run-tests-batch-and-exit
 
 test-neovim:
-	nvim --headless -u ui/neovim/tests/minimal_init.lua \
-		-c "PlenaryBustedDirectory ui/neovim/tests/ {minimal_init = 'tests/minimal_init.lua'}"
+	cd ui/neovim && nvim --headless -u NONE -c "set rtp+=." -c "lua require('tests.run')"
 
 test-vscode:
 	cd ui/vscode && npm test
@@ -313,15 +321,17 @@ test-vscode:
 
 | Feature | Emacs | Neovim | VS Code |
 |---------|-------|--------|---------|
-| Note overlay at correct line | [x] | [ ] | [ ] |
-| Note overlay shows text | [x] | [ ] | [ ] |
-| Stale indicator displayed | [x] | [ ] | [ ] |
-| List buffer shows notes | [x] | [ ] | [ ] |
+| Note overlay at correct line | [x] | [x] | [x] |
+| Note overlay shows text | [x] | [x] | [x] |
+| Comment prefix per language | [x] | [x] | [x] |
+| Stale indicator displayed | [x] | [x] | [x] |
+| Multiline note formatting | [x] | [x] | [x] |
+| Multiple notes same line | [x] | [x] | [ ] |
+| List buffer shows notes | [x] | [x] | [ ] |
 | List navigation (n/p) | [x] | [ ] | [ ] |
 | List visit (RET) | [x] | [ ] | [ ] |
-| Search results displayed | [ ] | [ ] | [ ] |
-| Backlinks buffer | [ ] | [ ] | [ ] |
-| Help content | [ ] | [ ] | [ ] |
+| Status command | [ ] | [x] | [ ] |
+| Help content | [ ] | [x] | [ ] |
 
 ## Best Practices
 
