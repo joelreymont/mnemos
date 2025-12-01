@@ -105,6 +105,11 @@ export async function getStatus(): Promise<Status> {
   return client.request<Status>('hemis/status', {});
 }
 
+export async function getBacklinks(id: string): Promise<Note[]> {
+  const client = getRpcClient();
+  return client.request<Note[]>('notes/backlinks', { id });
+}
+
 // Helper to get project root from workspace
 export function getProjectRoot(): string | null {
   const workspaceFolders = vscode.workspace.workspaceFolders;

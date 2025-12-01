@@ -9,6 +9,7 @@ import {
   indexProject,
   search,
   getStatus,
+  getBacklinks,
   getNoteAtCursor,
   getProjectRoot,
   Note,
@@ -351,6 +352,88 @@ export async function statusCommand(): Promise<void> {
   }
 }
 
+export async function backlinksCommand(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    vscode.window.showErrorMessage('No active editor');
+    return;
+  }
+
+  const note = await getNoteAtCursor(editor);
+  if (!note) {
+    vscode.window.showInformationMessage('No note at cursor position');
+    return;
+  }
+
+  try {
+    const backlinks = await getBacklinks(note.id);
+
+    if (backlinks.length === 0) {
+      vscode.window.showInformationMessage('No backlinks found');
+      return;
+    }
+
+    const items = backlinks.map((n) => ({
+      label: n.text.split('\n')[0].substring(0, 50),
+      description: path.basename(n.file),
+      detail: `Line ${n.line}`,
+      note: n,
+    }));
+
+    const selected = await vscode.window.showQuickPick(items, {
+      placeHolder: 'Select a note that links here',
+    });
+
+    if (selected) {
+      const uri = vscode.Uri.file(selected.note.file);
+      const document = await vscode.workspace.openTextDocument(uri);
+      const openedEditor = await vscode.window.showTextDocument(document);
+
+      const line = Math.max(0, selected.note.line - 1);
+      const position = new vscode.Position(line, selected.note.column);
+      openedEditor.selection = new vscode.Selection(position, position);
+      openedEditor.revealRange(new vscode.Range(position, position));
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`Failed to get backlinks: ${message}`);
+  }
+}
+
+export async function viewNoteCommand(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    vscode.window.showErrorMessage('No active editor');
+    return;
+  }
+
+  const note = await getNoteAtCursor(editor);
+  if (!note) {
+    vscode.window.showInformationMessage('No note at cursor position');
+    return;
+  }
+
+  // Create a virtual document to show the note
+  const content = [
+    `# Note`,
+    ``,
+    `**File:** ${note.file}:${note.line}`,
+    `**Created:** ${new Date(Number(note.createdAt) * 1000).toLocaleString()}`,
+    `**Updated:** ${new Date(Number(note.updatedAt) * 1000).toLocaleString()}`,
+    note.stale ? `**Status:** STALE` : '',
+    ``,
+    `---`,
+    ``,
+    note.text,
+  ].filter(Boolean).join('\n');
+
+  const doc = await vscode.workspace.openTextDocument({
+    content,
+    language: 'markdown',
+  });
+  await vscode.window.showTextDocument(doc, { preview: true });
+}
+
 export function registerCommands(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('hemis.addNote', addNoteCommand),
@@ -362,6 +445,8 @@ export function registerCommands(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('hemis.indexProject', indexProjectCommand),
     vscode.commands.registerCommand('hemis.search', searchCommand),
     vscode.commands.registerCommand('hemis.insertLink', insertLinkCommand),
-    vscode.commands.registerCommand('hemis.status', statusCommand)
+    vscode.commands.registerCommand('hemis.status', statusCommand),
+    vscode.commands.registerCommand('hemis.backlinks', backlinksCommand),
+    vscode.commands.registerCommand('hemis.viewNote', viewNoteCommand)
   );
 }

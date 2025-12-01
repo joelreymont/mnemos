@@ -61,6 +61,14 @@
       {
         "command": "hemis.status",
         "title": "Hemis: Show Status"
+      },
+      {
+        "command": "hemis.backlinks",
+        "title": "Hemis: Show Backlinks"
+      },
+      {
+        "command": "hemis.viewNote",
+        "title": "Hemis: View Note"
       }
     ],
     "configuration": {
@@ -155,6 +163,18 @@
         "command": "hemis.insertLink",
         "key": "ctrl+shift+h k",
         "mac": "cmd+shift+h k",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "hemis.backlinks",
+        "key": "ctrl+shift+h b",
+        "mac": "cmd+shift+h b",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "hemis.viewNote",
+        "key": "ctrl+shift+h v",
+        "mac": "cmd+shift+h v",
         "when": "editorTextFocus"
       }
     ]
