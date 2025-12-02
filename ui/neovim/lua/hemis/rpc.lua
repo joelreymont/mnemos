@@ -116,15 +116,19 @@ local function on_data(data)
     M.buffer = remaining
 
     -- Find and call the callback
+    -- Must use vim.schedule() because we're in a libuv callback (fast event context)
+    -- and the callbacks may call vim APIs that require the main loop
     local id = response.id
     if id and M.pending[id] then
       local callback = M.pending[id]
       M.pending[id] = nil
-      if response.error then
-        callback(response.error, nil)
-      else
-        callback(nil, response.result)
-      end
+      vim.schedule(function()
+        if response.error then
+          callback(response.error, nil)
+        else
+          callback(nil, response.result)
+        end
+      end)
     end
   end
 end
@@ -136,9 +140,11 @@ local function on_close()
   M.socket = nil
   M.buffer = ""
 
-  -- Fail any pending requests
+  -- Fail any pending requests (must use vim.schedule for same reason as on_data)
   for id, callback in pairs(M.pending) do
-    callback({ code = -1, message = "Socket closed" }, nil)
+    vim.schedule(function()
+      callback({ code = -1, message = "Socket closed" }, nil)
+    end)
     M.pending[id] = nil
   end
 end
@@ -200,18 +206,23 @@ local function start_server()
   -- Ensure hemis directory exists
   vim.fn.mkdir(hemis_dir, "p")
 
-  -- Build environment - always set HEMIS_DIR and HEMIS_DB_PATH
+  -- Build environment - HEMIS_DIR and HEMIS_DB_PATH
+  -- Priority: shell env > config backend_env > default
+  local env_config = config.get("backend_env") or {}
+  local db_path = vim.env.HEMIS_DB_PATH
+    or env_config.HEMIS_DB_PATH
+    or (hemis_dir .. "/hemis.db")
+
   local env_parts = {
     "HEMIS_DIR=" .. vim.fn.shellescape(hemis_dir),
-    "HEMIS_DB_PATH=" .. vim.fn.shellescape(hemis_dir .. "/hemis.db"),
+    "HEMIS_DB_PATH=" .. vim.fn.shellescape(db_path),
   }
 
-  -- Add any additional env from config
-  local env_config = config.get("backend_env") or {}
+  -- Add any additional env from config (skip HEMIS_DB_PATH, already handled)
   for k, v in pairs(env_config) do
     if type(k) == "number" then
       table.insert(env_parts, v)
-    else
+    elseif k ~= "HEMIS_DB_PATH" then
       table.insert(env_parts, k .. "=" .. v)
     end
   end
@@ -239,8 +250,13 @@ local function wait_for_socket(timeout_ms, callback)
   local check_interval = 100
 
   local timer = uv.new_timer()
+  local done = false
   local function check()
+    if done then
+      return
+    end
     if vim.fn.filereadable(socket_path) == 1 then
+      done = true
       timer:stop()
       timer:close()
       callback(true)
@@ -248,6 +264,7 @@ local function wait_for_socket(timeout_ms, callback)
     end
 
     if (uv.now() - start) >= timeout_ms then
+      done = true
       timer:stop()
       timer:close()
       callback(false)

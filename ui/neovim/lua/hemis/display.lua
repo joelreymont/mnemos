@@ -55,12 +55,10 @@ local function format_note_lines(note, prefix)
   local hl = note.stale and "HemisNoteStale" or "HemisNote"
 
   for line in text:gmatch("[^\n]+") do
-    table.insert(lines, { { prefix .. line, hl } })
-  end
-
-  -- Add empty line after note block
-  if #lines > 0 then
-    table.insert(lines, { { "", "Normal" } })
+    -- Skip lines that are only whitespace (prevents extra blank virtual lines)
+    if not line:match("^%s*$") then
+      table.insert(lines, { { prefix .. line, hl } })
+    end
   end
 
   return lines
@@ -70,6 +68,17 @@ end
 function M.clear(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   vim.api.nvim_buf_clear_namespace(bufnr, M.ns_id, 0, -1)
+end
+
+-- Get the indentation of a line in a buffer
+local function get_line_indent(bufnr, line_nr)
+  local lines = vim.api.nvim_buf_get_lines(bufnr, line_nr, line_nr + 1, false)
+  if #lines == 0 then
+    return ""
+  end
+  local line_text = lines[1]
+  local indent = line_text:match("^(%s*)") or ""
+  return indent
 end
 
 -- Render a single note
@@ -86,8 +95,11 @@ function M.render_note(bufnr, note)
     line = max_lines - 1
   end
 
+  -- Get indentation to align note with code
+  local indent = get_line_indent(bufnr, line)
+
   local prefix = get_comment_prefix()
-  local virt_lines = format_note_lines(note, prefix)
+  local virt_lines = format_note_lines(note, indent .. prefix)
 
   if #virt_lines == 0 then
     return nil

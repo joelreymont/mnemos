@@ -7,7 +7,10 @@ expression: redacted
     "id": 1,
     "jsonrpc": "2.0",
     "result": [
-      "<root>/foo.txt"
+      {
+        "file": "<root>/foo.txt",
+        "size": 5
+      }
     ]
   }
 ]

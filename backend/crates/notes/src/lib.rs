@@ -173,9 +173,14 @@ fn stale(
     commit: Option<&str>,
     blob: Option<&str>,
 ) -> bool {
-    match (note_commit, note_blob, commit, blob) {
-        (Some(nc), _, Some(c), _) if nc != c => true,
-        (_, Some(nb), _, Some(b)) if nb != b => true,
+    // Blob SHA is the most reliable indicator - if file content matches, not stale
+    // Only fall back to commit comparison if we don't have blob info
+    match (note_blob, blob, note_commit, commit) {
+        // Both have blob SHA - compare blobs (content-based)
+        (Some(nb), Some(b), _, _) => nb != b,
+        // No blob info, fall back to commit comparison
+        (_, _, Some(nc), Some(c)) => nc != c,
+        // Not enough info to determine staleness
         _ => false,
     }
 }

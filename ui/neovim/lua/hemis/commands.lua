@@ -25,12 +25,29 @@ end
 
 -- Add note at cursor
 function M.add_note()
+  -- Capture position BEFORE opening input UI (which changes buffer context)
+  local ts = require("hemis.treesitter")
+  local anchor = ts.get_anchor_position()
+  local node_path = ts.get_node_path()
+  local source_buf = vim.api.nvim_get_current_buf()
+
   vim.ui.input({ prompt = "Note: " }, function(text)
     if not text or text == "" then
       return
     end
 
-    notes.create(text, {}, function(err, _)
+    -- Trim whitespace from input
+    text = text:gsub("^%s+", ""):gsub("%s+$", "")
+    if text == "" then
+      return
+    end
+
+    -- Pass captured position to create
+    notes.create(text, {
+      anchor = anchor,
+      node_path = node_path,
+      source_buf = source_buf,
+    }, function(err, _)
       if not err then
         M.refresh()
       end
@@ -40,6 +57,12 @@ end
 
 -- Add multi-line note
 function M.add_note_multiline()
+  -- Capture position BEFORE opening input UI (which changes buffer context)
+  local ts = require("hemis.treesitter")
+  local anchor = ts.get_anchor_position()
+  local node_path = ts.get_node_path()
+  local source_buf = vim.api.nvim_get_current_buf()
+
   -- Create a scratch buffer for note input
   local buf = vim.api.nvim_create_buf(false, true)
   local width = math.floor(vim.o.columns * 0.6)
@@ -68,7 +91,12 @@ function M.add_note_multiline()
     vim.api.nvim_win_close(win, true)
 
     if text ~= "" then
-      notes.create(text, {}, function(err, _)
+      -- Pass captured position to create
+      notes.create(text, {
+        anchor = anchor,
+        node_path = node_path,
+        source_buf = source_buf,
+      }, function(err, _)
         if not err then
           M.refresh()
         end
@@ -638,6 +666,8 @@ function M.setup_keymaps()
     { "f", M.list_files, "List files" },
     { "S", M.save_snapshot, "Save snapshot" },
     { "L", M.load_snapshot, "Load snapshot" },
+    { "t", M.status, "Status" },
+    { "q", M.shutdown, "Shutdown backend" },
     { "?", M.help, "Help" },
   }
 

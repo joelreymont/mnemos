@@ -89,6 +89,97 @@ describe("hemis integration", function()
       assert.is_not_nil(result, "Should return result")
       assert.is_not_nil(result.id, "Should have note id")
     end)
+
+    it("creates note at specified line and returns correct line", function()
+      -- Verify note is created at the exact line specified, not line 1
+      local env = get_test_env()
+      local done = false
+      local result = nil
+      local connect_ok = false
+      local target_line = 5
+
+      env.rpc.start(function(ok)
+        if not ok then
+          done = true
+          return
+        end
+        connect_ok = true
+
+        env.rpc.request("notes/create", {
+          file = env.file,
+          line = target_line,
+          column = 0,
+          text = "Note at line 5",
+          projectRoot = env.dir,
+        }, function(err, res)
+          result = res
+          done = true
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 5000)
+      env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
+      assert.is_not_nil(result, "Should return result")
+      assert.equals(target_line, result.line, "Note should be at line " .. target_line)
+    end)
+
+    it("lists notes with correct line positions", function()
+      -- Create notes at different lines and verify list returns correct lines
+      local env = get_test_env()
+      local done = false
+      local list_result = nil
+      local connect_ok = false
+
+      env.rpc.start(function(ok)
+        if not ok then
+          done = true
+          return
+        end
+        connect_ok = true
+
+        -- Create note at line 2
+        env.rpc.request("notes/create", {
+          file = env.file,
+          line = 2,
+          column = 0,
+          text = "Note at line 2",
+          projectRoot = env.dir,
+        }, function(err1, res1)
+          -- Create note at line 5
+          env.rpc.request("notes/create", {
+            file = env.file,
+            line = 5,
+            column = 0,
+            text = "Note at line 5",
+            projectRoot = env.dir,
+          }, function(err2, res2)
+            -- List notes
+            env.rpc.request("notes/list-for-file", {
+              file = env.file,
+              projectRoot = env.dir,
+            }, function(err3, res3)
+              list_result = res3
+              done = true
+            end)
+          end)
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 5000)
+      env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
+      assert.is_not_nil(list_result, "Should return list")
+      assert.equals(2, #list_result, "Should have 2 notes")
+
+      -- Find notes by line
+      local lines = {}
+      for _, note in ipairs(list_result) do
+        lines[note.line] = note.text
+      end
+      assert.equals("Note at line 2", lines[2], "Line 2 note should exist")
+      assert.equals("Note at line 5", lines[5], "Line 5 note should exist")
+    end)
   end)
 
   describe("notes/list-for-file", function()

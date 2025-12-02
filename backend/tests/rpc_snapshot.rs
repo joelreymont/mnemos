@@ -444,10 +444,12 @@ fn snapshot_list_files() -> anyhow::Result<()> {
         .map(|mut v| {
             if let Some(arr) = v.get_mut("result").and_then(|r| r.as_array_mut()) {
                 for item in arr.iter_mut() {
-                    if let Some(path) = item.as_str() {
-                        *item = serde_json::Value::String(
-                            path.replace(root.path().to_string_lossy().as_ref(), "<root>"),
-                        );
+                    if let Some(obj) = item.as_object_mut() {
+                        if let Some(file) = obj.get_mut("file").and_then(|f| f.as_str().map(String::from)) {
+                            obj.insert("file".to_string(), serde_json::Value::String(
+                                file.replace(root.path().to_string_lossy().as_ref(), "<root>"),
+                            ));
+                        }
                     }
                 }
             }

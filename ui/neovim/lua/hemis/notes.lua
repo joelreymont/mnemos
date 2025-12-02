@@ -53,8 +53,9 @@ end
 function M.create(text, opts, callback)
   opts = opts or {}
 
-  local anchor = ts.get_anchor_position()
-  local node_path = ts.get_node_path()
+  -- Use pre-captured position if provided, otherwise capture now
+  local anchor = opts.anchor or ts.get_anchor_position()
+  local node_path = opts.node_path or ts.get_node_path()
   local params = buffer_params()
 
   params.line = anchor.line

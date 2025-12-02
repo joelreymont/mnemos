@@ -4,6 +4,6 @@ fn main() {
 }
 
 === Extmarks ===
-[1] Line 1: // This is a multiline note:\n// - Point one\n// - Point two\n// - Point three\n\n
+[1] Line 1: // This is a multiline note:\n// - Point one\n// - Point two\n// - Point three\n
 
 === Cursor: 1,0 ===

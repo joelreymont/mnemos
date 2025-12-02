@@ -3,9 +3,16 @@ use index as idx;
 use notes::{self, NoteFilters};
 use rpc::{Request, Response, INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, PARSE_ERROR};
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
 use std::path::Path;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileInfo {
+    pub file: String,
+    pub size: u64,
+}
 
 pub mod preload;
 pub mod server;
@@ -26,7 +33,7 @@ const IGNORE_DIRS: &[&str] = &[
     "build",
 ];
 
-fn list_files(root: &Path) -> anyhow::Result<Vec<String>> {
+fn list_files(root: &Path) -> anyhow::Result<Vec<FileInfo>> {
     let mut stack = vec![root.to_path_buf()];
     let mut files = Vec::new();
     while let Some(dir) = stack.pop() {
@@ -40,11 +47,15 @@ fn list_files(root: &Path) -> anyhow::Result<Vec<String>> {
                 }
                 stack.push(path);
             } else if entry.file_type()?.is_file() {
-                files.push(path.to_string_lossy().to_string());
+                let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                files.push(FileInfo {
+                    file: path.to_string_lossy().to_string(),
+                    size,
+                });
             }
         }
     }
-    files.sort();
+    files.sort_by(|a, b| a.file.cmp(&b.file));
     Ok(files)
 }
 
@@ -185,9 +196,9 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                 match list_files(Path::new(root)) {
                     Ok(files) => {
                         for f in files {
-                            if let Ok(content) = fs::read_to_string(&f) {
-                                if let Err(e) = idx::add_file(db, &f, root, &content) {
-                                    eprintln!("index failed for {}: {}", f, e);
+                            if let Ok(content) = fs::read_to_string(&f.file) {
+                                if let Err(e) = idx::add_file(db, &f.file, root, &content) {
+                                    eprintln!("index failed for {}: {}", f.file, e);
                                 } else {
                                     indexed += 1;
                                 }

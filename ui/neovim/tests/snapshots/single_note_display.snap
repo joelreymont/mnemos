@@ -4,6 +4,6 @@ fn main() {
 }
 
 === Extmarks ===
-[1] Line 2: // Remember to add error handling\n\n
+[1] Line 2:     // Remember to add error handling\n
 
 === Cursor: 1,0 ===

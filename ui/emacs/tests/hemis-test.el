@@ -419,13 +419,15 @@
     (cl-letf* (((symbol-function 'hemis--request)
                 (lambda (method &rest _)
                   (pcase method
-                    ("hemis/list-files" (list "/tmp/a" "/tmp/b"))
+                    ("hemis/list-files" (list '((file . "/tmp/a") (size . 10))
+                                              '((file . "/tmp/b") (size . 20))))
                     ("hemis/get-file" '((content . "hello")))
                     (_ (error "unexpected %s" method))))))
       (hemis-list-files "/tmp")
       (with-current-buffer "*Hemis Files*"
         (goto-char (point-min))
-        (should (search-forward "/tmp/a" nil t)))
+        (should (search-forward "/tmp/a" nil t))
+        (should (search-forward "10 bytes" nil t)))
       (hemis-view-file "/tmp/a")
       (with-current-buffer "*Hemis File*"
         (goto-char (point-min))

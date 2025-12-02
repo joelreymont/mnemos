@@ -505,10 +505,12 @@ fn lists_and_reads_files() -> anyhow::Result<()> {
         .cloned()
         .unwrap_or_default();
     assert_eq!(files.len(), 1);
+    let file_obj = files[0].as_object().unwrap();
     assert_eq!(
-        files[0].as_str().unwrap(),
+        file_obj.get("file").and_then(|v| v.as_str()).unwrap(),
         file_path.to_string_lossy().to_string()
     );
+    assert!(file_obj.get("size").and_then(|v| v.as_u64()).is_some());
     let get_resp: Response = serde_json::from_slice(&bodies[1])?;
     let obj = get_resp
         .result
