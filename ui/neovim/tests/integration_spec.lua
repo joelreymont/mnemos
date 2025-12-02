@@ -570,6 +570,48 @@ describe("hemis integration", function()
       assert.is_not_nil(results, "Should return results")
       assert.is_table(results)
     end)
+
+    it("searches case-insensitively", function()
+      -- Searching "config" should find "Config struct improvements"
+      local env = get_test_env()
+      local done = false
+      local results = nil
+      local connect_ok = false
+
+      env.rpc.start(function(ok)
+        if not ok then
+          done = true
+          return
+        end
+        connect_ok = true
+
+        -- Create a note with uppercase text
+        env.rpc.request("notes/create", {
+          file = env.file,
+          line = 1,
+          column = 0,
+          text = "Config struct improvements",
+          projectRoot = env.dir,
+        }, function(err, res)
+          -- Search with lowercase
+          env.rpc.request("hemis/search", {
+            query = "config",
+            projectRoot = env.dir,
+          }, function(err2, res2)
+            results = res2
+            done = true
+          end)
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 5000)
+      env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
+      assert.is_not_nil(results, "Should return results")
+      assert.is_table(results)
+      assert.truthy(#results >= 1, "Should find note with lowercase search")
+      assert.truthy(results[1].text:find("Config"), "Should find the Config note")
+    end)
   end)
 
   describe("index/add-file", function()

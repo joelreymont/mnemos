@@ -154,7 +154,7 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                 .params
                 .get("includeNotes")
                 .and_then(|v| v.as_bool())
-                .unwrap_or(false);
+                .unwrap_or(true);
             let query_vec: Option<Vec<f32>> = req
                 .params
                 .get("vector")

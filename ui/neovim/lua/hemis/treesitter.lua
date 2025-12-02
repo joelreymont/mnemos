@@ -118,7 +118,71 @@ function M.get_node_text_hash()
   return vim.fn.sha256(text)
 end
 
+-- Node types that are too small/generic to hash uniquely
+-- These are identifiers that likely appear multiple times in a file
+local IDENTIFIER_TYPES = {
+  identifier = true,
+  type_identifier = true,
+  field_identifier = true,
+  property_identifier = true,
+  shorthand_property_identifier = true,
+  shorthand_property_identifier_pattern = true,
+  -- Common in various languages
+  name = true,
+  variable_name = true,
+  simple_identifier = true,
+}
+
+-- Node types that are too large to be useful for tracking
+-- (changes to unrelated code would mark notes as stale)
+local TOO_LARGE_TYPES = {
+  source_file = true,
+  program = true,
+  module = true,
+  chunk = true, -- Lua
+}
+
+-- Walk up from a node to find a semantically meaningful parent
+-- Returns the first ancestor that is neither too small (identifier) nor too large (file)
+local function find_significant_node(node)
+  if not node then
+    return nil
+  end
+
+  local current = node
+  local original_line = node:start()
+
+  while current do
+    local node_type = current:type()
+    local start_row = current:start()
+
+    -- Stop if we've gone too far up (different line)
+    if start_row ~= original_line then
+      -- Return the last node that was on our line
+      return node
+    end
+
+    -- If this node type is too large, return previous node
+    if TOO_LARGE_TYPES[node_type] then
+      return node
+    end
+
+    -- If this is not an identifier type, it's significant
+    if not IDENTIFIER_TYPES[node_type] then
+      return current
+    end
+
+    -- Keep track of last valid node and continue up
+    node = current
+    current = current:parent()
+  end
+
+  -- If we reach root without finding significant node, return original
+  return node
+end
+
 -- Get node at specific line/column position
+-- Returns a semantically meaningful node (not just an identifier)
 function M.get_node_at_position(buf, line, column)
   buf = buf or vim.api.nvim_get_current_buf()
   local lang = vim.treesitter.language.get_lang(vim.bo[buf].filetype)
@@ -140,7 +204,9 @@ function M.get_node_at_position(buf, line, column)
   local row = line - 1
   local col = column or 0
   local node = tree:root():named_descendant_for_range(row, col, row, col)
-  return node
+
+  -- Walk up to find a significant node (not just an identifier)
+  return find_significant_node(node)
 end
 
 -- Get text of node at specific position

@@ -453,3 +453,225 @@ describe("hemis commands", function()
     end)
   end)
 end)
+
+-- Tests using the demo sample source code
+-- These tests verify note position tracking and stale detection
+describe("hemis display with demo source", function()
+  -- Demo source code from demo.json
+  local DEMO_SOURCE = [[
+fn main() {
+    let config = load_config();
+    let server = Server::new(config);
+    server.start();
+}
+
+fn load_config() -> Config {
+    Config::default()
+}
+
+struct Server {
+    config: Config,
+}
+
+impl Server {
+    fn new(config: Config) -> Self {
+        Self { config }
+    }
+
+    fn start(&self) {
+        println!("Starting server...");
+    }
+}
+
+struct Config {
+    port: u16,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { port: 8080 }
+    }
+}
+]]
+
+  local buf
+
+  before_each(function()
+    -- Split preserving empty lines (unlike [^\n]+ which skips them)
+    local lines = {}
+    for line in (DEMO_SOURCE .. "\n"):gmatch("(.-)\n") do
+      table.insert(lines, line)
+    end
+    -- Remove first empty line if DEMO_SOURCE starts with newline
+    if lines[1] == "" then
+      table.remove(lines, 1)
+    end
+    buf = helpers.setup_test_buffer(lines)
+    vim.bo[buf].filetype = "rust"
+  end)
+
+  after_each(function()
+    helpers.cleanup()
+  end)
+
+  describe("note position tracking", function()
+    it("displays note at stored line when no hash available", function()
+      -- Notes without nodeTextHash display at their stored line
+      local display = require("hemis.display")
+      local notes = {
+        { id = "note-1", line = 16, column = 4, text = "Factory method for Server" },
+      }
+
+      display.render_notes(buf, notes)
+      helpers.wait()
+
+      local state = helpers.capture_display_state(buf)
+      assert.equals(1, #state.extmarks)
+      assert.equals(16, state.extmarks[1].line)
+    end)
+
+    it("displays note as fresh when hash matches stored line", function()
+      -- Note with matching hash at stored position should be fresh
+      local display = require("hemis.display")
+      local ts = require("hemis.treesitter")
+
+      -- Get the actual hash at line 16 (fn new)
+      local hash = ts.get_hash_at_position(buf, 16, 4)
+
+      local notes = {
+        { id = "note-1", line = 16, column = 4, text = "Factory method", nodeTextHash = hash },
+      }
+
+      display.render_notes(buf, notes)
+      helpers.wait()
+
+      local state = helpers.capture_display_state(buf)
+      assert.equals(1, #state.extmarks)
+      -- Should NOT use HemisNoteStale since hash matches
+      local has_stale = false
+      for _, hl in ipairs(state.extmarks[1].hl_groups) do
+        if hl == "HemisNoteStale" then
+          has_stale = true
+        end
+      end
+      assert.is_false(has_stale, "Note should be fresh when hash matches")
+    end)
+
+    it("finds note at new position when code moves down", function()
+      -- Simulate inserting lines above the note's original position
+      -- Note was at line 16 (fn new), but code moved to line 18 after inserting 2 lines above
+      local display = require("hemis.display")
+      local ts = require("hemis.treesitter")
+
+      -- Get the hash of "fn new" at line 16 (inside impl Server block)
+      local hash = ts.get_hash_at_position(buf, 16, 4)
+      assert.is_not_nil(hash, "Should get hash at line 16")
+
+      -- Insert 2 comment lines after line 15 (impl Server {), before fn new
+      -- Line 15 = "impl Server {"
+      -- Line 16 = "    fn new(...)"
+      vim.api.nvim_buf_set_lines(buf, 15, 15, false, {
+        "    // Added comment line 1",
+        "    // Added comment line 2",
+      })
+      helpers.wait()
+
+      -- Now fn new is at line 18, but note still has line = 16
+      local notes = {
+        { id = "note-1", line = 16, column = 4, text = "Factory method", nodeTextHash = hash },
+      }
+
+      display.render_notes(buf, notes)
+      helpers.wait()
+
+      local state = helpers.capture_display_state(buf)
+      assert.equals(1, #state.extmarks)
+      -- Note should display at line 18 (where the code actually is now)
+      assert.equals(18, state.extmarks[1].line, "Note should follow code to new position")
+      -- Should still be fresh since hash was found
+      local has_stale = false
+      for _, hl in ipairs(state.extmarks[1].hl_groups) do
+        if hl == "HemisNoteStale" then
+          has_stale = true
+        end
+      end
+      assert.is_false(has_stale, "Note should be fresh when code just moved")
+    end)
+
+    it("marks note as stale when tree-sitter node content changes", function()
+      -- Changing "Self { config }" to "Server { config }" changes the hash
+      -- Line 17 = "        Self { config }"
+      local display = require("hemis.display")
+      local ts = require("hemis.treesitter")
+
+      -- Get the original hash at line 17 (Self { config })
+      local original_hash = ts.get_hash_at_position(buf, 17, 8)
+      assert.is_not_nil(original_hash, "Should get hash at line 17")
+
+      -- Modify line 17: change Self to Server
+      local line_content = vim.api.nvim_buf_get_lines(buf, 16, 17, false)[1]
+      assert.truthy(line_content:find("Self"), "Line 17 should contain Self")
+      local modified_content = line_content:gsub("Self", "Server")
+      vim.api.nvim_buf_set_lines(buf, 16, 17, false, { modified_content })
+      helpers.wait()
+
+      -- Note still has the old hash
+      local notes = {
+        { id = "note-1", line = 17, column = 8, text = "Constructor body", nodeTextHash = original_hash },
+      }
+
+      display.render_notes(buf, notes)
+      helpers.wait()
+
+      local state = helpers.capture_display_state(buf)
+      assert.equals(1, #state.extmarks)
+      -- Should be marked stale since hash no longer matches
+      local has_stale = false
+      for _, hl in ipairs(state.extmarks[1].hl_groups) do
+        if hl == "HemisNoteStale" then
+          has_stale = true
+        end
+      end
+      assert.truthy(has_stale, "Note should be stale when node content changes")
+    end)
+  end)
+
+  describe("get_note_at_cursor with position tracking", function()
+    it("finds note at display position, not stored position", function()
+      -- When code moves, get_note_at_cursor should use display position
+      local display = require("hemis.display")
+      local ts = require("hemis.treesitter")
+
+      -- Get hash at line 16 (fn new)
+      local hash = ts.get_hash_at_position(buf, 16, 4)
+      assert.is_not_nil(hash, "Should get hash at line 16")
+
+      -- Insert lines after line 15 (impl Server {) to move code down
+      vim.api.nvim_buf_set_lines(buf, 15, 15, false, {
+        "    // Comment 1",
+        "    // Comment 2",
+      })
+      helpers.wait()
+
+      -- Note stored at line 16, but code is now at line 18
+      local notes = {
+        { id = "note-1", line = 16, column = 4, text = "Factory method", nodeTextHash = hash },
+      }
+
+      display.render_notes(buf, notes)
+      helpers.wait()
+
+      -- Set cursor to line 18 (where code actually is)
+      vim.api.nvim_win_set_cursor(0, { 18, 4 })
+
+      local note = display.get_note_at_cursor(notes)
+      assert.is_not_nil(note, "Should find note at display position")
+      assert.equals("note-1", note.id)
+
+      -- Setting cursor to line 16 (stored position) should NOT find note
+      vim.api.nvim_win_set_cursor(0, { 16, 4 })
+      local no_note = display.get_note_at_cursor(notes)
+      assert.is_nil(no_note, "Should not find note at old stored position")
+    end)
+  end)
+end)

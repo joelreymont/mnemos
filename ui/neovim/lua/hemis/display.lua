@@ -127,6 +127,80 @@ function M.render_note(bufnr, note)
   end
 end
 
+-- Node types that are too small/generic to hash uniquely (mirrors treesitter.lua)
+local IDENTIFIER_TYPES = {
+  identifier = true,
+  type_identifier = true,
+  field_identifier = true,
+  property_identifier = true,
+  shorthand_property_identifier = true,
+  shorthand_property_identifier_pattern = true,
+  name = true,
+  variable_name = true,
+  simple_identifier = true,
+}
+
+-- Check if a node type is a significant (hashable) type
+local function is_significant_type(node_type)
+  return not IDENTIFIER_TYPES[node_type]
+end
+
+-- Search the tree-sitter tree for a node with matching hash within a line range
+-- This traverses ALL nodes, not just nodes at specific positions, making it
+-- robust to indentation changes and code reformatting
+-- Only checks "significant" nodes (not bare identifiers) to match what we hash
+-- Returns: line number (1-indexed) if found, nil otherwise
+local function find_node_with_hash_in_range(bufnr, target_hash, min_line, max_line)
+  local lang = vim.treesitter.language.get_lang(vim.bo[bufnr].filetype)
+  if not lang then
+    return nil
+  end
+
+  local ok, parser = pcall(vim.treesitter.get_parser, bufnr, lang)
+  if not ok or not parser then
+    return nil
+  end
+
+  local tree = parser:parse()[1]
+  if not tree then
+    return nil
+  end
+
+  -- Traverse tree looking for matching node
+  -- We search depth-first and return as soon as we find a match
+  local function search_node(node)
+    local start_row = node:start()
+    local line = start_row + 1 -- Convert to 1-indexed
+
+    -- Only check significant named nodes within the search range
+    -- This matches the logic in treesitter.lua's find_significant_node
+    if line >= min_line and line <= max_line and node:named() then
+      local node_type = node:type()
+      if is_significant_type(node_type) then
+        local text = vim.treesitter.get_node_text(node, bufnr)
+        if text then
+          local hash = vim.fn.sha256(text)
+          if hash == target_hash then
+            return line
+          end
+        end
+      end
+    end
+
+    -- Recurse into children
+    for child in node:iter_children() do
+      local result = search_node(child)
+      if result then
+        return result
+      end
+    end
+
+    return nil
+  end
+
+  return search_node(tree:root())
+end
+
 -- Find the display position for a note by searching for its code
 -- When code moves (e.g., line inserted above), the note should follow it
 -- Returns: display_line, is_stale
@@ -143,28 +217,16 @@ local function find_note_position(bufnr, note)
   end
 
   -- Hash doesn't match at stored position - code may have moved
-  -- Search nearby lines for matching hash
+  -- Search ALL tree-sitter nodes within ±search_radius lines
+  -- This is robust to indentation changes since we check every node, not specific columns
   local search_radius = 20
   local line_count = vim.api.nvim_buf_line_count(bufnr)
+  local min_line = math.max(1, note.line - search_radius)
+  local max_line = math.min(line_count, note.line + search_radius)
 
-  for offset = 1, search_radius do
-    -- Check below first (most common case: lines inserted above)
-    local line_below = note.line + offset
-    if line_below <= line_count then
-      local hash = ts.get_hash_at_position(bufnr, line_below, 0)
-      if hash == note.nodeTextHash then
-        return line_below, false -- Found it, moved down, not stale
-      end
-    end
-
-    -- Check above
-    local line_above = note.line - offset
-    if line_above >= 1 then
-      local hash = ts.get_hash_at_position(bufnr, line_above, 0)
-      if hash == note.nodeTextHash then
-        return line_above, false -- Found it, moved up, not stale
-      end
-    end
+  local found_line = find_node_with_hash_in_range(bufnr, note.nodeTextHash, min_line, max_line)
+  if found_line then
+    return found_line, false -- Found it, not stale
   end
 
   -- Can't find matching hash anywhere nearby - content truly changed
