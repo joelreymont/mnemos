@@ -140,48 +140,61 @@ local IDENTIFIER_TYPES = {
   simple_identifier = true,
 }
 
+-- Node types that are too large (root-level nodes that always exist)
+local TOO_LARGE_TYPES = {
+  source_file = true,
+  program = true,
+  module = true,
+  chunk = true, -- Lua
+}
+
 -- Check if a node type is a significant (hashable) type
+-- Must be not too small (identifiers) and not too large (root nodes)
 local function is_significant_type(node_type)
-  return not IDENTIFIER_TYPES[node_type]
+  return not IDENTIFIER_TYPES[node_type] and not TOO_LARGE_TYPES[node_type]
 end
 
--- Search the tree-sitter tree for a node with matching hash within a line range
--- This traverses ALL nodes, not just nodes at specific positions, making it
--- robust to indentation changes and code reformatting
--- Only checks "significant" nodes (not bare identifiers) to match what we hash
--- Returns: line number (1-indexed) if found, nil otherwise
-local function find_node_with_hash_in_range(bufnr, target_hash, min_line, max_line)
+-- Search the tree-sitter tree within a line range for:
+-- 1. A node with exact matching hash (returns its line)
+-- 2. Any significant node (tracks existence)
+--
+-- Returns: exact_match_line (or nil), any_node_exists (boolean)
+-- Single traversal for efficiency - only called when node not at stored position
+local function find_node_in_range(bufnr, target_hash, min_line, max_line)
   local lang = vim.treesitter.language.get_lang(vim.bo[bufnr].filetype)
   if not lang then
-    return nil
+    return nil, false
   end
 
   local ok, parser = pcall(vim.treesitter.get_parser, bufnr, lang)
   if not ok or not parser then
-    return nil
+    return nil, false
   end
 
   local tree = parser:parse()[1]
   if not tree then
-    return nil
+    return nil, false
   end
 
+  local any_node_found = false
+
   -- Traverse tree looking for matching node
-  -- We search depth-first and return as soon as we find a match
+  -- Track any significant node, return immediately on exact hash match
   local function search_node(node)
     local start_row = node:start()
     local line = start_row + 1 -- Convert to 1-indexed
 
     -- Only check significant named nodes within the search range
-    -- This matches the logic in treesitter.lua's find_significant_node
     if line >= min_line and line <= max_line and node:named() then
       local node_type = node:type()
       if is_significant_type(node_type) then
+        any_node_found = true -- Track that we found at least one node
+
         local text = vim.treesitter.get_node_text(node, bufnr)
         if text then
           local hash = vim.fn.sha256(text)
           if hash == target_hash then
-            return line
+            return line -- Exact match - return immediately
           end
         end
       end
@@ -191,46 +204,67 @@ local function find_node_with_hash_in_range(bufnr, target_hash, min_line, max_li
     for child in node:iter_children() do
       local result = search_node(child)
       if result then
-        return result
+        return result -- Propagate exact match
       end
     end
 
     return nil
   end
 
-  return search_node(tree:root())
+  local exact_match = search_node(tree:root())
+  return exact_match, any_node_found
 end
 
 -- Find the display position for a note by searching for its code
 -- When code moves (e.g., line inserted above), the note should follow it
 -- Returns: display_line, is_stale
+--
+-- Staleness logic (optimized for efficiency):
+-- 1. Exact hash at stored position → stay at stored position (fresh)
+-- 2. Exact hash found elsewhere → FOLLOW to new position (fresh) - code moved unchanged
+-- 3. No exact hash, but node at stored position → stay (fresh) - code modified in place
+-- 4. No exact hash, no node at stored, but nodes in range → stay (fresh)
+-- 5. No nodes in range → stale (code was deleted)
+--
+-- Performance: O(1) in common case (hash matches at stored position)
 local function find_note_position(bufnr, note)
   -- If note has no stored hash, use stored position and backend's stale flag
   if not note.nodeTextHash then
     return note.line, note.stale
   end
 
-  -- Check stored position first (fast path - code hasn't moved)
+  -- Fast path: check stored position first (O(1) - no tree traversal)
   local stored_hash = ts.get_hash_at_position(bufnr, note.line, note.column or 0)
   if stored_hash == note.nodeTextHash then
-    return note.line, false -- Still at stored position, not stale
+    return note.line, false -- Exact match at stored position
   end
 
-  -- Hash doesn't match at stored position - code may have moved
-  -- Search ALL tree-sitter nodes within ±search_radius lines
-  -- This is robust to indentation changes since we check every node, not specific columns
+  -- Hash doesn't match at stored position (or no node there)
+  -- Search for exact hash elsewhere - note should FOLLOW its code when it moves
   local search_radius = 20
   local line_count = vim.api.nvim_buf_line_count(bufnr)
   local min_line = math.max(1, note.line - search_radius)
   local max_line = math.min(line_count, note.line + search_radius)
 
-  local found_line = find_node_with_hash_in_range(bufnr, note.nodeTextHash, min_line, max_line)
-  if found_line then
-    return found_line, false -- Found it, not stale
+  local exact_match_line, any_node_exists = find_node_in_range(bufnr, note.nodeTextHash, min_line, max_line)
+
+  if exact_match_line then
+    return exact_match_line, false -- Exact hash found elsewhere - follow the code
   end
 
-  -- Can't find matching hash anywhere nearby - content truly changed
-  return note.line, true
+  -- No exact hash found anywhere
+  -- If there's still a node at stored position, stay there (code was modified)
+  if stored_hash then
+    return note.line, false -- Node exists but was modified, stay fresh
+  end
+
+  -- No node at stored position either
+  -- But if there are any nodes in range, stay fresh (code exists nearby)
+  if any_node_exists then
+    return note.line, false -- Code exists nearby, stays fresh at stored position
+  end
+
+  return note.line, true -- No code in range, truly stale
 end
 
 -- Render all notes for buffer

@@ -600,6 +600,7 @@ impl Default for Config {
 
     it("marks note as stale when tree-sitter node content changes", function()
       -- Changing "Self { config }" to "Server { config }" changes the hash
+      -- But the tree-sitter node still exists, so note stays fresh
       -- Line 17 = "        Self { config }"
       local display = require("hemis.display")
       local ts = require("hemis.treesitter")
@@ -625,14 +626,78 @@ impl Default for Config {
 
       local state = helpers.capture_display_state(buf)
       assert.equals(1, #state.extmarks)
-      -- Should be marked stale since hash no longer matches
+      -- Note should NOT be stale - there's still a tree-sitter node at the position
+      -- The hash changed but the code still exists, so it's still relevant
       local has_stale = false
       for _, hl in ipairs(state.extmarks[1].hl_groups) do
         if hl == "HemisNoteStale" then
           has_stale = true
         end
       end
-      assert.truthy(has_stale, "Note should be stale when node content changes")
+      assert.is_false(has_stale, "Note should be fresh when node still exists (even if modified)")
+    end)
+
+    it("keeps note fresh when node removed but other code exists nearby", function()
+      -- Delete the line entirely - but there's still other code in range
+      local display = require("hemis.display")
+      local ts = require("hemis.treesitter")
+
+      -- Get the original hash at line 17
+      local original_hash = ts.get_hash_at_position(buf, 17, 8)
+      assert.is_not_nil(original_hash, "Should get hash at line 17")
+
+      -- Delete line 17 entirely
+      vim.api.nvim_buf_set_lines(buf, 16, 17, false, {})
+      helpers.wait()
+
+      -- Note still references line 17 with old hash
+      local notes = {
+        { id = "note-1", line = 17, column = 8, text = "Constructor body", nodeTextHash = original_hash },
+      }
+
+      display.render_notes(buf, notes)
+      helpers.wait()
+
+      local state = helpers.capture_display_state(buf)
+      assert.equals(1, #state.extmarks)
+      -- Should NOT be stale - there's still other code in the search range
+      local has_stale = false
+      for _, hl in ipairs(state.extmarks[1].hl_groups) do
+        if hl == "HemisNoteStale" then
+          has_stale = true
+        end
+      end
+      assert.is_false(has_stale, "Note should be fresh when other code exists in range")
+    end)
+
+    it("marks note as stale when all code in range is removed", function()
+      -- Use a buffer without tree-sitter support (plain text)
+      local display = require("hemis.display")
+
+      local plain_buf = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_buf_set_lines(plain_buf, 0, -1, false, { "just some text", "no tree-sitter" })
+      vim.bo[plain_buf].filetype = "text" -- No tree-sitter parser for plain text
+      helpers.wait()
+
+      -- Note references line 1 with a hash - but no tree-sitter, so no nodes to find
+      local notes = {
+        { id = "note-1", line = 1, column = 0, text = "Note on deleted code", nodeTextHash = "abc123nonexistent" },
+      }
+
+      display.render_notes(plain_buf, notes)
+      helpers.wait()
+
+      local state = helpers.capture_display_state(plain_buf)
+      assert.equals(1, #state.extmarks)
+      -- Should be stale since there's no tree-sitter parser
+      local has_stale = false
+      for _, hl in ipairs(state.extmarks[1].hl_groups) do
+        if hl == "HemisNoteStale" then
+          has_stale = true
+        end
+      end
+      assert.truthy(has_stale, "Note should be stale when no tree-sitter available")
+      vim.api.nvim_buf_delete(plain_buf, { force = true })
     end)
   end)
 

@@ -95,29 +95,6 @@ function M.get_anchor_position()
   return { line = cursor_line, column = 0 }
 end
 
--- Get the source text of the node at cursor
-function M.get_node_text()
-  local node = M.get_named_node_at_cursor()
-  if not node then
-    return nil
-  end
-
-  local buf = vim.api.nvim_get_current_buf()
-  local text = vim.treesitter.get_node_text(node, buf)
-  return text
-end
-
--- Compute SHA256 hash of node's source text
-function M.get_node_text_hash()
-  local text = M.get_node_text()
-  if not text then
-    return nil
-  end
-
-  -- Use vim.fn.sha256 to compute hash
-  return vim.fn.sha256(text)
-end
-
 -- Node types that are too small/generic to hash uniquely
 -- These are identifiers that likely appear multiple times in a file
 local IDENTIFIER_TYPES = {
@@ -179,6 +156,37 @@ local function find_significant_node(node)
 
   -- If we reach root without finding significant node, return original
   return node
+end
+
+-- Get the source text of the significant node at cursor
+-- Walks up from identifiers to meaningful parent nodes for consistent hashing
+function M.get_node_text()
+  local node = M.get_named_node_at_cursor()
+  if not node then
+    return nil
+  end
+
+  -- Walk up to find a significant node (matches get_node_at_position behavior)
+  node = find_significant_node(node)
+  if not node then
+    return nil
+  end
+
+  local buf = vim.api.nvim_get_current_buf()
+  local text = vim.treesitter.get_node_text(node, buf)
+  return text
+end
+
+-- Compute SHA256 hash of significant node's source text
+-- This hash is used for note position tracking and stale detection
+function M.get_node_text_hash()
+  local text = M.get_node_text()
+  if not text then
+    return nil
+  end
+
+  -- Use vim.fn.sha256 to compute hash
+  return vim.fn.sha256(text)
 end
 
 -- Get node at specific line/column position

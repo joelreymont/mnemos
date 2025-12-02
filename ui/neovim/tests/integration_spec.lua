@@ -371,6 +371,78 @@ describe("hemis integration", function()
       assert.is_not_nil(backlinks, "Should return backlinks")
       assert.is_table(backlinks)
     end)
+
+    it("finds backlinks after update adds link", function()
+      -- Test update path: create A, create B (no link), update B to link to A, check backlinks
+      local env = get_test_env()
+      local done = false
+      local backlinks = nil
+      local connect_ok = false
+      local target_id = nil
+      local linking_id = nil
+
+      env.rpc.start(function(ok)
+        if not ok then
+          done = true
+          return
+        end
+        connect_ok = true
+
+        -- Create target note A
+        env.rpc.request("notes/create", {
+          file = env.file,
+          line = 1,
+          column = 0,
+          text = "Target note A",
+          projectRoot = env.dir,
+        }, function(err, target)
+          if not target then
+            done = true
+            return
+          end
+          target_id = target.id
+
+          -- Create linking note B (no link yet)
+          env.rpc.request("notes/create", {
+            file = env.file,
+            line = 2,
+            column = 0,
+            text = "Note B - no link",
+            projectRoot = env.dir,
+          }, function(err2, linking)
+            if not linking then
+              done = true
+              return
+            end
+            linking_id = linking.id
+
+            -- Update B to add link to A
+            env.rpc.request("notes/update", {
+              id = linking.id,
+              text = "Note B - see [[A][" .. target.id .. "]]",
+            }, function(err3, updated)
+              -- Get backlinks for A
+              env.rpc.request("notes/backlinks", {
+                id = target.id,
+              }, function(err4, res)
+                backlinks = res
+                done = true
+              end)
+            end)
+          end)
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 5000)
+      env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
+      assert.is_not_nil(target_id, "Target note should be created")
+      assert.is_not_nil(linking_id, "Linking note should be created")
+      assert.is_not_nil(backlinks, "Should return backlinks")
+      assert.is_table(backlinks)
+      assert.equals(1, #backlinks, "Should have exactly one backlink after update")
+      assert.equals(linking_id, backlinks[1].id, "Backlink should be the linking note")
+    end)
   end)
 
   describe("notes/reattach", function()

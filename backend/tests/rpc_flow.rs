@@ -644,6 +644,151 @@ fn backlinks_returns_linking_notes() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Verify that updating a note to add a link creates the edge for backlinks.
+#[test]
+fn backlinks_found_after_update_adds_link() -> anyhow::Result<()> {
+    // Test: create note A (target), create note B (no link), update B to link to A, query backlinks.
+    let db = NamedTempFile::new()?;
+
+    // Create note A (target)
+    let req_create_a = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 1,
+            "column": 0,
+            "text": "Note A - the target",
+            "tags": []
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create_a.len(), req_create_a);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("create A response");
+    let resp_a: Response = serde_json::from_slice(&body)?;
+    let note_a_id = resp_a
+        .result
+        .as_ref()
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .expect("note A id")
+        .to_string();
+
+    // Create note B without any link
+    let req_create_b = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 10,
+            "column": 0,
+            "text": "Note B - no links yet",
+            "tags": []
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create_b.len(), req_create_b);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("create B response");
+    let resp_b: Response = serde_json::from_slice(&body)?;
+    let note_b_id = resp_b
+        .result
+        .as_ref()
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .expect("note B id")
+        .to_string();
+
+    // Update note B to add link to A
+    let link_text = format!("Note B - see [[target][{}]]", note_a_id);
+    let req_update = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "notes/update",
+        "params": {
+            "id": note_b_id,
+            "text": link_text
+        }
+    })
+    .to_string();
+
+    // Query backlinks for note A
+    let req_backlinks = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "notes/backlinks",
+        "params": { "id": note_a_id }
+    })
+    .to_string();
+
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        req_update.len(),
+        req_update,
+        req_backlinks.len(),
+        req_backlinks
+    );
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    assert_eq!(bodies.len(), 2, "expected update and backlinks responses");
+
+    let backlinks_resp: Response = serde_json::from_slice(&bodies[1])?;
+    let backlinks = backlinks_resp
+        .result
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    assert_eq!(
+        backlinks.len(),
+        1,
+        "note A should have one backlink after update"
+    );
+    let linking_note = &backlinks[0];
+    assert_eq!(
+        linking_note.get("id").and_then(|v| v.as_str()).unwrap(),
+        note_b_id,
+        "backlink should be note B"
+    );
+    assert!(
+        linking_note
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap()
+            .contains("Note B - see"),
+        "backlink text should contain updated text"
+    );
+
+    Ok(())
+}
+
 /// Verify that deleting a note removes its edges (both outgoing and incoming).
 #[test]
 fn delete_note_removes_edges() -> anyhow::Result<()> {
