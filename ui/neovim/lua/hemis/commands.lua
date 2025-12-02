@@ -437,9 +437,26 @@ function M.show_backlinks()
   end)
 end
 
+-- Resolve <leader> in prefix to human-readable key name
+local function resolve_prefix(prefix)
+  if not prefix:find("<leader>") then
+    return prefix
+  end
+  local leader = vim.g.mapleader or "\\"
+  local leader_name
+  if leader == " " then
+    leader_name = "SPC "
+  elseif leader == "\\" then
+    leader_name = "\\"
+  else
+    leader_name = leader
+  end
+  return prefix:gsub("<leader>", leader_name)
+end
+
 -- Show help
 function M.help()
-  local prefix = config.get("keymap_prefix") or "<leader>h"
+  local prefix = resolve_prefix(config.get("keymap_prefix") or "<leader>h")
   local help = {
     "Hemis Keybindings",
     "",
