@@ -407,7 +407,7 @@
       (cl-letf (((symbol-function 'hemis--request)
                  (lambda (method &optional _params)
                    (setq hemis-test-last-method method)
-                   '((explanation . "stub")))))
+                   '((content . "stub")))))
         (hemis-explain-region (point-min) (point-max))
         (should (equal hemis-test-last-method "hemis/explain-region"))
         (with-current-buffer "*Hemis Explain*"

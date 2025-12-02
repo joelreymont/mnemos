@@ -913,7 +913,7 @@ NOTES is a list of note objects (alist/plist) from the backend."
                                `((file . ,file)
                                  (start . ((line . ,start-line) (column . 0)))
                                  (end . ((line . ,end-line) (column . 0))))))
-         (text (alist-get 'explanation resp)))
+         (text (alist-get 'content resp)))
     (with-current-buffer (get-buffer-create "*Hemis Explain*")
       (setq buffer-read-only nil)
       (erase-buffer)
