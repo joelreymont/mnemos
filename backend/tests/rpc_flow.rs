@@ -1085,6 +1085,169 @@ fn update_note_updates_edges() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Verify reattach updates note position and refreshes git SHAs.
+#[test]
+fn reattach_updates_note_position() -> anyhow::Result<()> {
+    // Test: create a note, then reattach it to a new position.
+    let db = NamedTempFile::new()?;
+    let repo = tempfile::tempdir()?;
+    let file = repo.path().join("main.rs");
+    fs::write(&file, "fn main() {}\nfn other() {}\n")?;
+    git(repo.path(), &["init"])?;
+    git(repo.path(), &["config", "user.email", "test@example.com"])?;
+    git(repo.path(), &["config", "user.name", "test"])?;
+    git(repo.path(), &["add", "main.rs"])?;
+    git(repo.path(), &["commit", "-m", "init"])?;
+
+    let file_str = file.to_string_lossy().to_string();
+    let root_str = repo.path().to_string_lossy().to_string();
+
+    // Create note at line 1
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str,
+            "line": 1,
+            "column": 0,
+            "text": "Note on main",
+            "tags": []
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("create response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let note_id = resp
+        .result
+        .as_ref()
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .expect("note id")
+        .to_string();
+    let orig_line = resp
+        .result
+        .as_ref()
+        .and_then(|v| v.get("line"))
+        .and_then(|v| v.as_i64())
+        .expect("orig line");
+    assert_eq!(orig_line, 1, "note should start at line 1");
+
+    // Reattach note to line 2, column 5
+    let req_reattach = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/reattach",
+        "params": {
+            "id": note_id,
+            "file": file_str,
+            "line": 2,
+            "column": 5,
+            "nodePath": ["fn", "other"]
+        }
+    })
+    .to_string();
+
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}",
+        req_reattach.len(),
+        req_reattach
+    );
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("reattach response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    assert!(resp.error.is_none(), "reattach should succeed");
+
+    let updated_note = resp.result.expect("reattach result");
+    assert_eq!(
+        updated_note.get("line").and_then(|v| v.as_i64()).unwrap(),
+        2,
+        "line should be updated to 2"
+    );
+    assert_eq!(
+        updated_note.get("column").and_then(|v| v.as_i64()).unwrap(),
+        5,
+        "column should be updated to 5"
+    );
+    let node_path = updated_note
+        .get("nodePath")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(node_path.len(), 2, "nodePath should have 2 elements");
+    assert_eq!(
+        updated_note.get("stale").and_then(|v| v.as_bool()).unwrap(),
+        false,
+        "reattached note should not be stale"
+    );
+    // Verify commit/blob SHAs are set (from git info)
+    assert!(
+        updated_note.get("commitSha").and_then(|v| v.as_str()).is_some(),
+        "reattached note should have commitSha"
+    );
+    assert!(
+        updated_note.get("blobSha").and_then(|v| v.as_str()).is_some(),
+        "reattached note should have blobSha"
+    );
+
+    Ok(())
+}
+
+/// Verify reattach returns error for non-existent note.
+#[test]
+fn reattach_fails_for_missing_note() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/reattach",
+        "params": {
+            "id": "00000000-0000-0000-0000-000000000000",
+            "line": 1,
+            "column": 0
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("reattach response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    assert!(
+        resp.error.is_some(),
+        "reattach should fail for non-existent note"
+    );
+    assert!(
+        resp.error
+            .as_ref()
+            .unwrap()
+            .message
+            .contains("not found"),
+        "error should mention note not found"
+    );
+
+    Ok(())
+}
+
 /// Verify pagination works for notes/list-project.
 #[test]
 fn pagination_works_for_list_project() -> anyhow::Result<()> {

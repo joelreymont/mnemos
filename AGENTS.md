@@ -66,9 +66,9 @@ Custom commands in `.claude/commands/` for common workflows.
 | `/backend-status` | Quick health check before debugging |
 
 ## Test Counts (keep updated)
-- Rust backend: 40 tests (including 12 RPC flow + 13 snapshot tests)
+- Rust backend: 42 tests (including 14 RPC flow + 13 snapshot tests)
 - Emacs UI: 47 tests (37 unit + 10 demo flow)
-- Neovim UI: 36 tests (21 display + 15 integration)
+- Neovim UI: 39 tests (21 display + 18 integration)
 - VS Code UI: 22 tests (10 decoration + 12 integration)
 
 ### Common Debugging Patterns
@@ -88,8 +88,26 @@ Custom commands in `.claude/commands/` for common workflows.
 - Reset module cache: `package.loaded["hemis.rpc"] = nil`
 - Always call `rpc.stop()` in test cleanup
 
-### Context and Compaction
+### Session Management
 
-- Before compaction, append the current session history in markdown to HISTORY.md and snapshot current context to CONTEXT.md
-- After compaction, re-read AGENTS.md and CONTEXT.md to restore instructions and context
-- Use `hooks/pre-compaction.sh` (stdin or file args) to perform the pre-compaction writes and `hooks/post-compaction.sh` to reload instructions after compaction
+1. **CONTEXT.md** - The primary context file for session progress
+   - This is THE ONLY file to update with session progress and current state
+   - Current development phase and active tasks
+   - Recent changes and bug fixes (this session)
+   - Known issues and workarounds
+   - Test status and results
+   - Update after each major step or milestone
+   - DO NOT use SESSION.md (deprecated)
+
+2. **SESSION.md** - Deprecated
+   - DO NOT read or update this file
+   - Use CONTEXT.md instead
+
+3. **After compaction** - Always re-read these files:
+   - Read AGENTS.md for development guidelines and instructions
+   - Read CONTEXT.md for current state and progress
+   - This ensures continuity across context window resets
+
+4. **Hooks**:
+   - `hooks/pre-compaction.sh` - Updates CONTEXT.md before compaction
+   - `hooks/post-compaction.sh` - Reloads AGENTS.md and CONTEXT.md after compaction

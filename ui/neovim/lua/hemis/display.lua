@@ -1,5 +1,6 @@
 -- Note display module for Hemis
 local config = require("hemis.config")
+local ts = require("hemis.treesitter")
 
 local M = {}
 
@@ -126,6 +127,26 @@ function M.render_note(bufnr, note)
   end
 end
 
+-- Check if a note is stale using tree-sitter based comparison
+-- Returns true if the node's text hash has changed since the note was created
+local function is_note_stale(bufnr, note)
+  -- If note has no stored hash, fall back to backend's stale flag
+  if not note.nodeTextHash then
+    return note.stale
+  end
+
+  -- Compute current hash at the note's position
+  local current_hash = ts.get_hash_at_position(bufnr, note.line, note.column)
+
+  -- If we can't get current hash (no parser, invalid position), use backend's flag
+  if not current_hash then
+    return note.stale
+  end
+
+  -- Compare stored hash with current hash
+  return note.nodeTextHash ~= current_hash
+end
+
 -- Render all notes for buffer
 function M.render_notes(bufnr, notes)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
@@ -154,7 +175,8 @@ function M.render_notes(bufnr, notes)
     for _, note in ipairs(line_notes) do
       local text = note.text or note.summary or ""
       table.insert(combined_text, text)
-      if note.stale then
+      -- Use tree-sitter based staleness check
+      if is_note_stale(bufnr, note) then
         is_stale = true
       end
     end

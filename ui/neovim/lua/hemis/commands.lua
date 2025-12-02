@@ -193,6 +193,10 @@ function M.edit_note()
   vim.keymap.set({ "n", "i" }, "<C-c><C-c>", save, { buffer = buf })
   vim.keymap.set({ "n", "i" }, "<C-c><C-k>", cancel, { buffer = buf })
   vim.keymap.set("n", "<CR>", save, { buffer = buf })
+
+  -- Add insert-link keymap for the edit buffer (uses same prefix as main keymaps)
+  local prefix = config.get("keymap_prefix") or "<leader>h"
+  vim.keymap.set({ "n", "i" }, prefix .. "k", M.insert_link, { buffer = buf, desc = "Hemis: Insert link" })
 end
 
 -- List notes in a buffer
@@ -381,6 +385,49 @@ function M.status()
   end)
 end
 
+-- Reattach stale note at cursor to current position
+function M.reattach_note()
+  local note = display.get_note_at_cursor(M.buffer_notes)
+  if not note then
+    vim.notify("No note at cursor", vim.log.levels.WARN)
+    return
+  end
+
+  -- Check staleness using tree-sitter hash comparison (same logic as display)
+  local ts = require("hemis.treesitter")
+  local is_stale = note.stale -- Backend flag
+  if note.nodeTextHash then
+    -- Use tree-sitter based staleness
+    local bufnr = vim.api.nvim_get_current_buf()
+    local current_hash = ts.get_hash_at_position(bufnr, note.line, note.column)
+    if current_hash then
+      is_stale = note.nodeTextHash ~= current_hash
+    end
+  end
+
+  if not is_stale then
+    vim.notify("Note is not stale", vim.log.levels.INFO)
+    return
+  end
+
+  -- Capture position before any async operations
+  local anchor = ts.get_anchor_position()
+  local node_path = ts.get_node_path()
+
+  vim.ui.select({ "Yes", "No" }, { prompt = "Reattach note to current position?" }, function(choice)
+    if choice == "Yes" then
+      notes.reattach(note.id, {
+        anchor = anchor,
+        node_path = node_path,
+      }, function(err, _)
+        if not err then
+          M.refresh()
+        end
+      end)
+    end
+  end)
+end
+
 -- Show backlinks for note at cursor
 function M.show_backlinks()
   local note = display.get_note_at_cursor(M.buffer_notes)
@@ -464,6 +511,7 @@ function M.help()
     prefix .. "A  - Add multi-line note",
     prefix .. "l  - List notes for file",
     prefix .. "r  - Refresh notes display",
+    prefix .. "R  - Reattach stale note",
     prefix .. "d  - Delete note at cursor",
     prefix .. "e  - Edit note at cursor",
     prefix .. "s  - Search notes/files",
@@ -650,6 +698,7 @@ function M.setup_commands()
   vim.api.nvim_create_user_command("HemisIndexProject", M.index_project, {})
   vim.api.nvim_create_user_command("HemisInsertLink", M.insert_link, {})
   vim.api.nvim_create_user_command("HemisBacklinks", M.show_backlinks, {})
+  vim.api.nvim_create_user_command("HemisReattachNote", M.reattach_note, {})
   vim.api.nvim_create_user_command("HemisStatus", M.status, {})
   vim.api.nvim_create_user_command("HemisHelp", M.help, {})
   vim.api.nvim_create_user_command("HemisShutdown", M.shutdown, {})
@@ -673,6 +722,7 @@ function M.setup_keymaps()
     { "A", M.add_note_multiline, "Add note (multiline)" },
     { "l", M.list_notes, "List notes" },
     { "r", M.refresh, "Refresh notes" },
+    { "R", M.reattach_note, "Reattach note" },
     { "d", M.delete_note, "Delete note" },
     { "e", M.edit_note, "Edit note" },
     { "s", M.search, "Search" },

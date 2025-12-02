@@ -373,6 +373,59 @@ describe("hemis integration", function()
     end)
   end)
 
+  describe("notes/reattach", function()
+    it("reattaches note to new position", function()
+      local env = get_test_env()
+      local done = false
+      local reattached = nil
+      local connect_ok = false
+      local create_ok = false
+
+      env.rpc.start(function(ok)
+        if not ok then
+          done = true
+          return
+        end
+        connect_ok = true
+
+        -- Create note at line 1
+        env.rpc.request("notes/create", {
+          file = env.file,
+          line = 1,
+          column = 0,
+          text = "Note to reattach",
+          projectRoot = env.dir,
+        }, function(err, res)
+          if not res then
+            done = true
+            return
+          end
+          create_ok = true
+          -- Reattach to line 3, column 4
+          env.rpc.request("notes/reattach", {
+            id = res.id,
+            file = env.file,
+            line = 3,
+            column = 4,
+            nodePath = {"fn", "main"},
+          }, function(err2, res2)
+            reattached = res2
+            done = true
+          end)
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 5000)
+      env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
+      assert.truthy(create_ok, "Note creation failed")
+      assert.is_not_nil(reattached, "Should return reattached note")
+      assert.equals(3, reattached.line, "Line should be updated to 3")
+      assert.equals(4, reattached.column, "Column should be updated to 4")
+      assert.is_false(reattached.stale, "Reattached note should not be stale")
+    end)
+  end)
+
   describe("hemis/status", function()
     it("returns note and file counts", function()
       local env = get_test_env()

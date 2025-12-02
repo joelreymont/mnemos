@@ -32,6 +32,8 @@ pub struct Note {
     pub commit_sha: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blob_sha: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_text_hash: Option<String>,
     #[serde(default)]
     pub stale: bool,
     pub created_at: i64,
@@ -111,6 +113,7 @@ pub fn create(
     tags: serde_json::Value,
     text: &str,
     git: Option<GitInfo>,
+    node_text_hash: Option<String>,
 ) -> Result<Note> {
     let id = Uuid::new_v4().to_string();
     let ts = now_unix();
@@ -122,8 +125,8 @@ pub fn create(
     let node_path_str = node_path
         .as_ref()
         .map(|v| serde_json::to_string(v).unwrap());
-    exec(conn, "INSERT INTO notes (id,file,project_root,line,column,node_path,tags,text,summary,commit_sha,blob_sha,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-         &[&id, &file, &project_root, &line, &column, &node_path_str, &tags_str, &text, &summary, &commit, &blob, &ts, &ts])?;
+    exec(conn, "INSERT INTO notes (id,file,project_root,line,column,node_path,tags,text,summary,commit_sha,blob_sha,node_text_hash,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+         &[&id, &file, &project_root, &line, &column, &node_path_str, &tags_str, &text, &summary, &commit, &blob, &node_text_hash, &ts, &ts])?;
     // Parse and store links to other notes
     update_edges(conn, &id, project_root, text)?;
     Ok(Note {
@@ -138,6 +141,7 @@ pub fn create(
         summary,
         commit_sha: commit,
         blob_sha: blob,
+        node_text_hash,
         stale: false,
         created_at: ts,
         updated_at: ts,
@@ -161,6 +165,7 @@ fn map_note(row: &rusqlite::Row<'_>, stale: bool) -> Result<Note> {
         summary: row.get("summary")?,
         commit_sha: row.get("commit_sha").ok(),
         blob_sha: row.get("blob_sha").ok(),
+        node_text_hash: row.get("node_text_hash").ok(),
         stale,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
@@ -303,4 +308,38 @@ pub fn backlinks(conn: &Connection, note_id: &str) -> Result<Vec<Note>> {
         ORDER BY n.updated_at DESC;
     "#;
     query_all(conn, sql, &[&note_id], |row| map_note(row, false))
+}
+
+/// Reattach a note to a new position, updating commit/blob SHAs and node_text_hash.
+pub fn reattach(
+    conn: &Connection,
+    id: &str,
+    line: i64,
+    column: i64,
+    node_path: Option<serde_json::Value>,
+    git: Option<GitInfo>,
+    node_text_hash: Option<String>,
+) -> Result<Note> {
+    let mut note = get(conn, id)?;
+    let now = now_unix();
+    let (commit, blob) = git
+        .map(|g| (Some(g.commit), g.blob))
+        .unwrap_or((None, None));
+    let node_path_str = node_path
+        .as_ref()
+        .map(|v| serde_json::to_string(v).unwrap());
+    exec(
+        conn,
+        "UPDATE notes SET line = ?, column = ?, node_path = ?, commit_sha = ?, blob_sha = ?, node_text_hash = ?, updated_at = ? WHERE id = ?;",
+        &[&line, &column, &node_path_str, &commit, &blob, &node_text_hash, &now, &id],
+    )?;
+    note.line = line;
+    note.column = column;
+    note.node_path = node_path;
+    note.commit_sha = commit;
+    note.blob_sha = blob;
+    note.node_text_hash = node_text_hash;
+    note.stale = false;
+    note.updated_at = now;
+    Ok(note)
 }

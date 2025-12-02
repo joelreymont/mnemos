@@ -63,6 +63,7 @@ fn migrate(conn: &Connection) -> Result<()> {
     for (table, col, ty) in [
         ("notes", "commit_sha", "TEXT"),
         ("notes", "blob_sha", "TEXT"),
+        ("notes", "node_text_hash", "TEXT"),
     ] {
         ensure_column(conn, table, col, ty)?;
     }

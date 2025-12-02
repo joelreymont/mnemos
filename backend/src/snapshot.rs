@@ -88,6 +88,7 @@ fn note_from_row(row: &rusqlite::Row) -> rusqlite::Result<serde_json::Value> {
         "summary": row.get::<_, String>("summary")?,
         "commitSha": row.get::<_, Option<String>>("commit_sha")?,
         "blobSha": row.get::<_, Option<String>>("blob_sha")?,
+        "nodeTextHash": row.get::<_, Option<String>>("node_text_hash")?,
         "createdAt": row.get::<_, i64>("created_at")?,
         "updatedAt": row.get::<_, i64>("updated_at")?
     }))
@@ -142,6 +143,7 @@ pub fn restore(conn: &Connection, snapshot: &serde_json::Value) -> Result<serde_
                 let summary = n.get("summary").and_then(|v| v.as_str()).unwrap_or("");
                 let commit = n.get("commitSha").and_then(|v| v.as_str());
                 let blob = n.get("blobSha").and_then(|v| v.as_str());
+                let node_text_hash = n.get("nodeTextHash").and_then(|v| v.as_str());
                 let created_at = n
                     .get("createdAt")
                     .and_then(|v| v.as_i64())
@@ -151,8 +153,8 @@ pub fn restore(conn: &Connection, snapshot: &serde_json::Value) -> Result<serde_
                     .and_then(|v| v.as_i64())
                     .unwrap_or(created_at);
                 exec(conn,
-                     "INSERT INTO notes (id,file,project_root,line,column,node_path,tags,text,summary,commit_sha,blob_sha,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?);",
-                     &[&id, &file, &proj, &line, &column, &node_path, &tags, &text, &summary, &commit, &blob, &created_at, &updated_at])?;
+                     "INSERT INTO notes (id,file,project_root,line,column,node_path,tags,text,summary,commit_sha,blob_sha,node_text_hash,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?);",
+                     &[&id, &file, &proj, &line, &column, &node_path, &tags, &text, &summary, &commit, &blob, &node_text_hash, &created_at, &updated_at])?;
             }
         }
         if let Some(files) = snapshot.get("files").and_then(|v| v.as_array()) {

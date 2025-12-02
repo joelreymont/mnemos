@@ -56,6 +56,7 @@ function M.create(text, opts, callback)
   -- Use pre-captured position if provided, otherwise capture now
   local anchor = opts.anchor or ts.get_anchor_position()
   local node_path = opts.node_path or ts.get_node_path()
+  local node_text_hash = opts.node_text_hash or ts.get_node_text_hash()
   local params = buffer_params()
 
   params.line = anchor.line
@@ -63,6 +64,7 @@ function M.create(text, opts, callback)
   params.text = text
   params.tags = opts.tags
   params.nodePath = node_path
+  params.nodeTextHash = node_text_hash
 
   rpc.request("notes/create", params, function(err, result)
     if callback then
@@ -225,6 +227,38 @@ end
 -- Load snapshot
 function M.load_snapshot(path, callback)
   rpc.request("hemis/load-snapshot", { path = path }, callback)
+end
+
+-- Reattach a stale note to a new position
+function M.reattach(id, opts, callback)
+  opts = opts or {}
+
+  -- Use pre-captured position if provided, otherwise capture now
+  local ts = require("hemis.treesitter")
+  local anchor = opts.anchor or ts.get_anchor_position()
+  local node_path = opts.node_path or ts.get_node_path()
+  local node_text_hash = opts.node_text_hash or ts.get_node_text_hash()
+  local file = vim.fn.expand("%:p")
+
+  local params = {
+    id = id,
+    file = file,
+    line = anchor.line,
+    column = anchor.column,
+    nodePath = node_path,
+    nodeTextHash = node_text_hash,
+  }
+
+  rpc.request("notes/reattach", params, function(err, result)
+    if callback then
+      callback(err, result)
+    end
+    if not err then
+      vim.notify("Note reattached", vim.log.levels.INFO)
+    else
+      vim.notify("Failed to reattach note: " .. (err.message or "unknown error"), vim.log.levels.ERROR)
+    end
+  end)
 end
 
 return M

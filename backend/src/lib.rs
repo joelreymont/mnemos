@@ -131,9 +131,9 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                             .collect::<Vec<_>>()
                             .join("\n");
                         let resp = if snippet.is_empty() {
-                            json!({"explanation": "No content in range", "references": []})
+                            json!({"content": "", "references": []})
                         } else {
-                            json!({"explanation": snippet, "references": []})
+                            json!({"content": snippet, "references": []})
                         };
                         Response::result(id, resp)
                     }
@@ -379,8 +379,13 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     .get("text")
                     .and_then(|v| v.as_str())
                     .unwrap_or_default();
+                let node_text_hash = req
+                    .params
+                    .get("nodeTextHash")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
                 let git = info_for_file(file);
-                match notes::create(db, file, proj, line, column, node_path, tags, text, git) {
+                match notes::create(db, file, proj, line, column, node_path, tags, text, git, node_text_hash) {
                     Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
@@ -423,6 +428,31 @@ pub fn handle(req: Request, db: &Connection) -> Response {
         "notes/backlinks" => {
             if let Some(note_id) = req.params.get("id").and_then(|v| v.as_str()) {
                 match notes::backlinks(db, note_id) {
+                    Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
+                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                }
+            } else {
+                Response::error(id, INVALID_PARAMS, "missing id")
+            }
+        }
+        "notes/reattach" => {
+            let note_id = req.params.get("id").and_then(|v| v.as_str());
+            let file = req.params.get("file").and_then(|v| v.as_str());
+            if let Some(note_id) = note_id {
+                let line = req.params.get("line").and_then(|v| v.as_i64()).unwrap_or(1);
+                let column = req
+                    .params
+                    .get("column")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                let node_path = req.params.get("nodePath").cloned();
+                let node_text_hash = req
+                    .params
+                    .get("nodeTextHash")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let git = file.and_then(|f| info_for_file(f));
+                match notes::reattach(db, note_id, line, column, node_path, git, node_text_hash) {
                     Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }

@@ -22,6 +22,7 @@ fn create_and_filter_stale() {
         serde_json::json!([]),
         "hello",
         Some(git),
+        None, // node_text_hash
     )
     .unwrap();
     let filters = NoteFilters {

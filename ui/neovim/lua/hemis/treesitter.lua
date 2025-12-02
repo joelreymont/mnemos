@@ -95,4 +95,72 @@ function M.get_anchor_position()
   return { line = cursor_line, column = 0 }
 end
 
+-- Get the source text of the node at cursor
+function M.get_node_text()
+  local node = M.get_named_node_at_cursor()
+  if not node then
+    return nil
+  end
+
+  local buf = vim.api.nvim_get_current_buf()
+  local text = vim.treesitter.get_node_text(node, buf)
+  return text
+end
+
+-- Compute SHA256 hash of node's source text
+function M.get_node_text_hash()
+  local text = M.get_node_text()
+  if not text then
+    return nil
+  end
+
+  -- Use vim.fn.sha256 to compute hash
+  return vim.fn.sha256(text)
+end
+
+-- Get node at specific line/column position
+function M.get_node_at_position(buf, line, column)
+  buf = buf or vim.api.nvim_get_current_buf()
+  local lang = vim.treesitter.language.get_lang(vim.bo[buf].filetype)
+  if not lang then
+    return nil
+  end
+
+  local ok, parser = pcall(vim.treesitter.get_parser, buf, lang)
+  if not ok or not parser then
+    return nil
+  end
+
+  local tree = parser:parse()[1]
+  if not tree then
+    return nil
+  end
+
+  -- Tree-sitter uses 0-indexed line/column
+  local row = line - 1
+  local col = column or 0
+  local node = tree:root():named_descendant_for_range(row, col, row, col)
+  return node
+end
+
+-- Get text of node at specific position
+function M.get_text_at_position(buf, line, column)
+  local node = M.get_node_at_position(buf, line, column)
+  if not node then
+    return nil
+  end
+
+  buf = buf or vim.api.nvim_get_current_buf()
+  return vim.treesitter.get_node_text(node, buf)
+end
+
+-- Compute hash of node at specific position
+function M.get_hash_at_position(buf, line, column)
+  local text = M.get_text_at_position(buf, line, column)
+  if not text then
+    return nil
+  end
+  return vim.fn.sha256(text)
+end
+
 return M
