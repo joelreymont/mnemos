@@ -139,6 +139,19 @@ function M.delete_note()
   end)
 end
 
+-- Get project root from current buffer's file path
+local function get_project_root()
+  local file = vim.fn.expand("%:p")
+  local dir = vim.fn.fnamemodify(file, ":h")
+
+  local result = vim.fn.systemlist({ "git", "-C", dir, "rev-parse", "--show-toplevel" })
+  if result[1] and not result[1]:match("^fatal") then
+    return result[1]
+  end
+
+  return vim.fn.getcwd()
+end
+
 -- Edit note at cursor
 function M.edit_note()
   local note = display.get_note_at_cursor(M.buffer_notes)
@@ -146,6 +159,9 @@ function M.edit_note()
     vim.notify("No note at cursor", vim.log.levels.WARN)
     return
   end
+
+  -- Capture project root before creating edit buffer (edit buffer has no file)
+  local project_root = get_project_root()
 
   -- Create scratch buffer with existing text
   local buf = vim.api.nvim_create_buf(false, true)
@@ -195,8 +211,11 @@ function M.edit_note()
   vim.keymap.set("n", "<CR>", save, { buffer = buf })
 
   -- Add insert-link keymap for the edit buffer (uses same prefix as main keymaps)
+  -- Pass captured project_root since edit buffer has no associated file
   local prefix = config.get("keymap_prefix") or "<leader>h"
-  vim.keymap.set({ "n", "i" }, prefix .. "k", M.insert_link, { buffer = buf, desc = "Hemis: Insert link" })
+  vim.keymap.set({ "n", "i" }, prefix .. "k", function()
+    M.insert_link({ project_root = project_root })
+  end, { buffer = buf, desc = "Hemis: Insert link" })
 end
 
 -- List notes in a buffer
@@ -325,13 +344,15 @@ function M.search()
 end
 
 -- Insert note link
-function M.insert_link()
+-- opts.project_root can override the auto-detected project root (useful from edit buffers)
+function M.insert_link(opts)
+  opts = opts or {}
   vim.ui.input({ prompt = "Search notes: " }, function(query)
     if not query or query == "" then
       return
     end
 
-    notes.search(query, function(err, result)
+    notes.search(query, { project_root = opts.project_root }, function(err, result)
       if err or not result or #result == 0 then
         vim.notify("No notes found", vim.log.levels.WARN)
         return

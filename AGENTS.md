@@ -40,6 +40,11 @@ Author: `Joel Reymont <18791+joelreymont@users.noreply.github.com>`
 ### Docs
 - See `docs/ARCHITECTURE.md` for the current backend/frontend architecture and stale-note behavior.
 
+### Demo Driver
+- Located in sibling directory `../hemis-demo/` (NOT in this repo)
+- MUST run from hemis-demo directory: `cd ../hemis-demo && swift run hemis_demo neovim --show-labels`
+- Common options: `--prepare-only`, `--skip-setup`, `--countdown N`, `--record`
+
 ## Slash Commands
 
 Custom commands in `.claude/commands/` for common workflows.

@@ -127,10 +127,17 @@ function M.delete(id, callback)
 end
 
 -- Search notes
-function M.search(query, callback)
+-- opts.project_root can override the auto-detected project root
+function M.search(query, opts, callback)
+  -- Support old signature: M.search(query, callback)
+  if type(opts) == "function" then
+    callback = opts
+    opts = {}
+  end
+  opts = opts or {}
   local params = {
     query = query,
-    projectRoot = get_project_root(),
+    projectRoot = opts.project_root or get_project_root(),
   }
   rpc.request("notes/search", params, callback)
 end
