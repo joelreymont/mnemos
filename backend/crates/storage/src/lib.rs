@@ -134,3 +134,55 @@ where
         }
     }
 }
+
+/// Get counts of notes, files, embeddings, and edges efficiently using COUNT(*).
+/// If project_root is provided, counts are filtered to that project.
+#[derive(Debug, Clone)]
+pub struct Counts {
+    pub notes: i64,
+    pub files: i64,
+    pub embeddings: i64,
+    pub edges: i64,
+}
+
+pub fn counts(conn: &Connection, project_root: Option<&str>) -> Result<Counts> {
+    let (notes, files, embeddings, edges) = if let Some(proj) = project_root {
+        let notes: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM notes WHERE project_root = ?",
+            [proj],
+            |row| row.get(0),
+        )?;
+        let files: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM files WHERE project_root = ?",
+            [proj],
+            |row| row.get(0),
+        )?;
+        let embeddings: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM embeddings WHERE project_root = ?",
+            [proj],
+            |row| row.get(0),
+        )?;
+        let edges: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM edges WHERE project_root = ?",
+            [proj],
+            |row| row.get(0),
+        )?;
+        (notes, files, embeddings, edges)
+    } else {
+        let notes: i64 =
+            conn.query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0))?;
+        let files: i64 =
+            conn.query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))?;
+        let embeddings: i64 =
+            conn.query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))?;
+        let edges: i64 =
+            conn.query_row("SELECT COUNT(*) FROM edges", [], |row| row.get(0))?;
+        (notes, files, embeddings, edges)
+    };
+    Ok(Counts {
+        notes,
+        files,
+        embeddings,
+        edges,
+    })
+}

@@ -102,17 +102,20 @@ pub fn handle(req: Request, db: &Connection) -> Response {
         }
         "hemis/explain-region" => {
             let file = req.params.get("file").and_then(|v| v.as_str());
+            // Accept both nested format (start.line) and flat format (startLine)
             let start_line = req
                 .params
                 .get("start")
                 .and_then(|s| s.get("line"))
                 .and_then(|v| v.as_u64())
+                .or_else(|| req.params.get("startLine").and_then(|v| v.as_u64()))
                 .unwrap_or(1) as usize;
             let end_line = req
                 .params
                 .get("end")
                 .and_then(|s| s.get("line"))
                 .and_then(|v| v.as_u64())
+                .or_else(|| req.params.get("endLine").and_then(|v| v.as_u64()))
                 .unwrap_or(start_line as u64) as usize;
             if let Some(file) = file {
                 match fs::read_to_string(file) {
@@ -161,6 +164,10 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                         .filter_map(|x| x.as_f64().map(|f| f as f32))
                         .collect::<Vec<f32>>()
                 });
+            // Reject empty queries to avoid returning all indexed content
+            if query.trim().is_empty() && query_vec.is_none() {
+                return Response::result(id, json!([]));
+            }
             match idx::search(db, query, proj) {
                 Ok(mut results) => {
                     // If a query vector is provided, blend semantic hits.
@@ -251,18 +258,20 @@ pub fn handle(req: Request, db: &Connection) -> Response {
         }
         "hemis/status" => {
             let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
-            match snapshot::create(db, proj) {
-                Ok(payload) => {
-                    let counts = payload.get("counts").cloned().unwrap_or_default();
-                    Response::result(
-                        id,
-                        json!({
-                            "ok": true,
-                            "projectRoot": proj,
-                            "counts": counts
-                        }),
-                    )
-                }
+            match storage::counts(db, proj) {
+                Ok(c) => Response::result(
+                    id,
+                    json!({
+                        "ok": true,
+                        "projectRoot": proj,
+                        "counts": {
+                            "notes": c.notes,
+                            "files": c.files,
+                            "embeddings": c.embeddings,
+                            "edges": c.edges
+                        }
+                    }),
+                ),
                 Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
             }
         }
