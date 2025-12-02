@@ -279,11 +279,12 @@ pub fn update(
 }
 
 pub fn search(conn: &Connection, query: &str, project_root: Option<&str>) -> Result<Vec<Note>> {
-    let pattern = format!("%{}%", query);
+    // Lowercase pattern for case-insensitive search
+    let pattern = format!("%{}%", query.to_lowercase());
     let sql = if project_root.is_some() {
-        "SELECT * FROM notes WHERE project_root = ? AND (text LIKE ? OR summary LIKE ? OR file LIKE ?) ORDER BY updated_at DESC;"
+        "SELECT * FROM notes WHERE project_root = ? AND (LOWER(text) LIKE ? OR LOWER(summary) LIKE ? OR LOWER(file) LIKE ?) ORDER BY updated_at DESC;"
     } else {
-        "SELECT * FROM notes WHERE (text LIKE ? OR summary LIKE ? OR file LIKE ?) ORDER BY updated_at DESC;"
+        "SELECT * FROM notes WHERE (LOWER(text) LIKE ? OR LOWER(summary) LIKE ? OR LOWER(file) LIKE ?) ORDER BY updated_at DESC;"
     };
     let pattern_b = pattern.clone();
     let rows = if let Some(proj) = project_root {

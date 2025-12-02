@@ -393,17 +393,9 @@ function M.reattach_note()
     return
   end
 
-  -- Check staleness using tree-sitter hash comparison (same logic as display)
-  local ts = require("hemis.treesitter")
-  local is_stale = note.stale -- Backend flag
-  if note.nodeTextHash then
-    -- Use tree-sitter based staleness
-    local bufnr = vim.api.nvim_get_current_buf()
-    local current_hash = ts.get_hash_at_position(bufnr, note.line, note.column)
-    if current_hash then
-      is_stale = note.nodeTextHash ~= current_hash
-    end
-  end
+  -- Use display's find_note_position for staleness (single source of truth)
+  local bufnr = vim.api.nvim_get_current_buf()
+  local _, is_stale = display.find_note_position(bufnr, note)
 
   if not is_stale then
     vim.notify("Note is not stale", vim.log.levels.INFO)
@@ -411,6 +403,7 @@ function M.reattach_note()
   end
 
   -- Capture position before any async operations
+  local ts = require("hemis.treesitter")
   local anchor = ts.get_anchor_position()
   local node_path = ts.get_node_path()
 

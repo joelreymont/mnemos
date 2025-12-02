@@ -127,24 +127,48 @@ function M.render_note(bufnr, note)
   end
 end
 
--- Check if a note is stale using tree-sitter based comparison
--- Returns true if the node's text hash has changed since the note was created
-local function is_note_stale(bufnr, note)
-  -- If note has no stored hash, fall back to backend's stale flag
+-- Find the display position for a note by searching for its code
+-- When code moves (e.g., line inserted above), the note should follow it
+-- Returns: display_line, is_stale
+local function find_note_position(bufnr, note)
+  -- If note has no stored hash, use stored position and backend's stale flag
   if not note.nodeTextHash then
-    return note.stale
+    return note.line, note.stale
   end
 
-  -- Compute current hash at the note's position
-  local current_hash = ts.get_hash_at_position(bufnr, note.line, note.column)
-
-  -- If we can't get current hash (no parser, invalid position), use backend's flag
-  if not current_hash then
-    return note.stale
+  -- Check stored position first (fast path - code hasn't moved)
+  local stored_hash = ts.get_hash_at_position(bufnr, note.line, note.column or 0)
+  if stored_hash == note.nodeTextHash then
+    return note.line, false -- Still at stored position, not stale
   end
 
-  -- Compare stored hash with current hash
-  return note.nodeTextHash ~= current_hash
+  -- Hash doesn't match at stored position - code may have moved
+  -- Search nearby lines for matching hash
+  local search_radius = 20
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
+
+  for offset = 1, search_radius do
+    -- Check below first (most common case: lines inserted above)
+    local line_below = note.line + offset
+    if line_below <= line_count then
+      local hash = ts.get_hash_at_position(bufnr, line_below, 0)
+      if hash == note.nodeTextHash then
+        return line_below, false -- Found it, moved down, not stale
+      end
+    end
+
+    -- Check above
+    local line_above = note.line - offset
+    if line_above >= 1 then
+      local hash = ts.get_hash_at_position(bufnr, line_above, 0)
+      if hash == note.nodeTextHash then
+        return line_above, false -- Found it, moved up, not stale
+      end
+    end
+  end
+
+  -- Can't find matching hash anywhere nearby - content truly changed
+  return note.line, true
 end
 
 -- Render all notes for buffer
@@ -158,25 +182,36 @@ function M.render_notes(bufnr, notes)
     return
   end
 
-  -- Group notes by line
-  local by_line = {}
+  -- Compute display position and staleness for each note
+  -- Notes follow their code when it moves (hash-based tracking)
+  local display_notes = {}
   for _, note in ipairs(notes) do
-    local line = note.line or 1
+    local display_line, is_stale = find_note_position(bufnr, note)
+    table.insert(display_notes, {
+      note = note,
+      display_line = display_line,
+      is_stale = is_stale,
+    })
+  end
+
+  -- Group by display line (not stored line)
+  local by_line = {}
+  for _, dn in ipairs(display_notes) do
+    local line = dn.display_line
     by_line[line] = by_line[line] or {}
-    table.insert(by_line[line], note)
+    table.insert(by_line[line], dn)
   end
 
   -- Render grouped notes
-  for line, line_notes in pairs(by_line) do
-    -- Combine all notes at this line
+  for line, line_dns in pairs(by_line) do
+    -- Combine all notes at this display line
     local combined_text = {}
     local is_stale = false
 
-    for _, note in ipairs(line_notes) do
-      local text = note.text or note.summary or ""
+    for _, dn in ipairs(line_dns) do
+      local text = dn.note.text or dn.note.summary or ""
       table.insert(combined_text, text)
-      -- Use tree-sitter based staleness check
-      if is_note_stale(bufnr, note) then
+      if dn.is_stale then
         is_stale = true
       end
     end
@@ -185,7 +220,7 @@ function M.render_notes(bufnr, notes)
       line = line,
       text = table.concat(combined_text, "\n---\n"),
       stale = is_stale,
-      id = line_notes[1].id,
+      id = line_dns[1].note.id,
     }
 
     M.render_note(bufnr, combined_note)
@@ -193,22 +228,28 @@ function M.render_notes(bufnr, notes)
 end
 
 -- Get note at cursor position (if any)
-function M.get_note_at_cursor(notes)
+-- Uses display position (where note is rendered) not stored position
+function M.get_note_at_cursor(notes, bufnr)
   if not notes or #notes == 0 then
     return nil
   end
 
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
   local cursor = vim.api.nvim_win_get_cursor(0)
   local cursor_line = cursor[1]
 
-  -- Find note closest to cursor line
+  -- Find note whose display position matches cursor
   for _, note in ipairs(notes) do
-    if note.line == cursor_line then
+    local display_line, _ = find_note_position(bufnr, note)
+    if display_line == cursor_line then
       return note
     end
   end
 
   return nil
 end
+
+-- Export find_note_position for use by commands (e.g., reattach)
+M.find_note_position = find_note_position
 
 return M
