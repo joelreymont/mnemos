@@ -428,9 +428,8 @@ function M.reattach_note()
     return
   end
 
-  -- Use display's find_note_position for staleness (single source of truth)
-  local bufnr = vim.api.nvim_get_current_buf()
-  local _, is_stale = display.find_note_position(bufnr, note)
+  -- Check staleness from server-computed value or stored stale flag
+  local is_stale = note.computedStale or note.stale or false
 
   if not is_stale then
     vim.notify("Note is not stale", vim.log.levels.INFO)
