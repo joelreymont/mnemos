@@ -298,6 +298,127 @@ pub fn default_config() -> LanguageConfig {
                     "block".to_string(),
                 ],
             },
+            LanguageSettings {
+                name: "ruby".to_string(),
+                file_types: vec!["rb".to_string(), "rake".to_string(), "gemspec".to_string()],
+                skip_nodes: vec![
+                    "identifier".to_string(),
+                    "constant".to_string(),
+                    "comment".to_string(),
+                ],
+                container_nodes: vec![
+                    "program".to_string(),
+                    "class".to_string(),
+                    "module".to_string(),
+                    "block".to_string(),
+                    "do_block".to_string(),
+                ],
+            },
+            LanguageSettings {
+                name: "bash".to_string(),
+                file_types: vec!["sh".to_string(), "bash".to_string(), "zsh".to_string()],
+                skip_nodes: vec![
+                    "variable_name".to_string(),
+                    "word".to_string(),
+                    "comment".to_string(),
+                ],
+                container_nodes: vec![
+                    "program".to_string(),
+                    "compound_statement".to_string(),
+                    "subshell".to_string(),
+                ],
+            },
+            LanguageSettings {
+                name: "yaml".to_string(),
+                file_types: vec!["yaml".to_string(), "yml".to_string()],
+                skip_nodes: vec![
+                    "plain_scalar".to_string(),
+                    "string_scalar".to_string(),
+                    "comment".to_string(),
+                ],
+                container_nodes: vec![
+                    "stream".to_string(),
+                    "document".to_string(),
+                    "block_mapping".to_string(),
+                    "block_sequence".to_string(),
+                ],
+            },
+            LanguageSettings {
+                name: "json".to_string(),
+                file_types: vec!["json".to_string()],
+                skip_nodes: vec![
+                    "string".to_string(),
+                    "number".to_string(),
+                    "true".to_string(),
+                    "false".to_string(),
+                    "null".to_string(),
+                ],
+                container_nodes: vec![
+                    "document".to_string(),
+                    "object".to_string(),
+                    "array".to_string(),
+                ],
+            },
+            LanguageSettings {
+                name: "toml".to_string(),
+                file_types: vec!["toml".to_string()],
+                skip_nodes: vec![
+                    "string".to_string(),
+                    "integer".to_string(),
+                    "float".to_string(),
+                    "boolean".to_string(),
+                    "comment".to_string(),
+                ],
+                container_nodes: vec![
+                    "document".to_string(),
+                    "table".to_string(),
+                    "array".to_string(),
+                ],
+            },
+            LanguageSettings {
+                name: "html".to_string(),
+                file_types: vec!["html".to_string(), "htm".to_string()],
+                skip_nodes: vec![
+                    "tag_name".to_string(),
+                    "attribute_name".to_string(),
+                    "attribute_value".to_string(),
+                    "text".to_string(),
+                    "comment".to_string(),
+                ],
+                container_nodes: vec![
+                    "document".to_string(),
+                    "element".to_string(),
+                ],
+            },
+            LanguageSettings {
+                name: "css".to_string(),
+                file_types: vec!["css".to_string()],
+                skip_nodes: vec![
+                    "property_name".to_string(),
+                    "plain_value".to_string(),
+                    "string_value".to_string(),
+                    "integer_value".to_string(),
+                    "float_value".to_string(),
+                    "comment".to_string(),
+                ],
+                container_nodes: vec![
+                    "stylesheet".to_string(),
+                    "rule_set".to_string(),
+                    "block".to_string(),
+                ],
+            },
+            LanguageSettings {
+                name: "markdown".to_string(),
+                file_types: vec!["md".to_string(), "markdown".to_string()],
+                skip_nodes: vec![
+                    "text".to_string(),
+                    "inline".to_string(),
+                ],
+                container_nodes: vec![
+                    "document".to_string(),
+                    "section".to_string(),
+                ],
+            },
         ],
         grammars: Vec::new(),
     }
@@ -321,7 +442,31 @@ mod tests {
         assert_eq!(config.language_for_extension("rs"), Some("rust"));
         assert_eq!(config.language_for_extension("py"), Some("python"));
         assert_eq!(config.language_for_extension("js"), Some("javascript"));
+        assert_eq!(config.language_for_extension("rb"), Some("ruby"));
+        assert_eq!(config.language_for_extension("sh"), Some("bash"));
+        assert_eq!(config.language_for_extension("yaml"), Some("yaml"));
+        assert_eq!(config.language_for_extension("json"), Some("json"));
+        assert_eq!(config.language_for_extension("toml"), Some("toml"));
+        assert_eq!(config.language_for_extension("html"), Some("html"));
+        assert_eq!(config.language_for_extension("css"), Some("css"));
+        assert_eq!(config.language_for_extension("md"), Some("markdown"));
         assert_eq!(config.language_for_extension("unknown"), None);
+    }
+
+    #[test]
+    fn test_default_config_has_all_languages() {
+        let config = default_config();
+        let expected = vec![
+            "rust", "python", "javascript", "typescript", "go", "lua", "c", "cpp", "java",
+            "ruby", "bash", "yaml", "json", "toml", "html", "css", "markdown",
+        ];
+        for lang in expected {
+            assert!(
+                config.get_language(lang).is_some(),
+                "Missing language config for: {}",
+                lang
+            );
+        }
     }
 
     #[test]
