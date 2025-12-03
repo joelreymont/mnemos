@@ -538,6 +538,11 @@ pub fn semantic_search(
 
         // Passed filters - compute exact dot product
         let vector_str: String = row.get("vector")?;
+        // Skip oversized vector strings to prevent memory exhaustion
+        const MAX_VECTOR_STR_LEN: usize = 1024 * 1024; // 1MB
+        if vector_str.len() > MAX_VECTOR_STR_LEN {
+            continue;
+        }
         let vector: Vec<f32> = match serde_json::from_str(&vector_str) {
             Ok(v) => v,
             Err(_) => continue, // Skip malformed vectors

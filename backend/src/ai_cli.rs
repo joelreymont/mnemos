@@ -44,13 +44,21 @@ fn check_rate_limit() -> Result<()> {
     let window = Duration::from_secs(60);
 
     match state.as_mut() {
-        Some(s) if now.duration_since(s.window_start) < window => {
-            if s.call_count >= MAX_CALLS_PER_MINUTE {
-                return Err(anyhow!("rate limit exceeded (max {} calls per minute)", MAX_CALLS_PER_MINUTE));
+        Some(s) => {
+            // Use checked_duration_since to handle clock skew gracefully
+            let elapsed = now.checked_duration_since(s.window_start).unwrap_or(window);
+            if elapsed < window {
+                if s.call_count >= MAX_CALLS_PER_MINUTE {
+                    return Err(anyhow!("rate limit exceeded (max {} calls per minute)", MAX_CALLS_PER_MINUTE));
+                }
+                s.call_count += 1;
+            } else {
+                // Window expired, reset
+                s.window_start = now;
+                s.call_count = 1;
             }
-            s.call_count += 1;
         }
-        _ => {
+        None => {
             *state = Some(RateLimitState {
                 window_start: now,
                 call_count: 1,
@@ -186,7 +194,7 @@ fn is_available(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Ensure `<project_root>/.hemis` exists and return its path.
+/// Ensure `<project_root>/.hemis` exists with secure permissions and return its path.
 fn ensure_hemis_dir(project_root: &Path) -> Result<PathBuf> {
     let hemis = project_root.join(".hemis");
     fs::create_dir_all(&hemis).with_context(|| {
@@ -195,6 +203,13 @@ fn ensure_hemis_dir(project_root: &Path) -> Result<PathBuf> {
             hemis.display()
         )
     })?;
+    // Set secure permissions (owner-only) on Unix
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o700);
+        fs::set_permissions(&hemis, perms).ok(); // Best-effort, don't fail if already set
+    }
     Ok(hemis)
 }
 

@@ -165,10 +165,13 @@ impl GrammarRegistry {
             });
 
             if let Some(name) = name {
-                match self.load_grammar_from_path(&name, &path) {
+                // Normalize name: hyphens -> underscores to prevent collisions
+                // (e.g., "my-lib" and "my_lib" would both resolve to same symbol)
+                let canonical_name = name.replace('-', "_");
+                match self.load_grammar_from_path(&canonical_name, &path) {
                     Ok(lang) => {
                         // User grammars override bundled ones
-                        self.grammars.insert(name, lang);
+                        self.grammars.insert(canonical_name, lang);
                     }
                     Err(e) => {
                         eprintln!("Warning: Failed to load grammar from {:?}: {}", path, e);
@@ -261,10 +264,11 @@ impl GrammarRegistry {
         }
 
         // Validate grammar name (must be alphanumeric/underscore for safe symbol lookup)
-        if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        // Name should already be normalized (hyphens replaced with underscores by caller)
+        if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
             return Err(TreeSitterError::GrammarLoadFailed {
                 path: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
-                reason: format!("invalid grammar name '{}' (must be alphanumeric, underscore, or hyphen)", name),
+                reason: format!("invalid grammar name '{}' (must be alphanumeric or underscore)", name),
             });
         }
 
@@ -279,9 +283,7 @@ impl GrammarRegistry {
             })?;
 
             // Tree-sitter grammars export a function named tree_sitter_<name>
-            // For names with hyphens, the symbol uses underscores
-            let symbol_name = name.replace('-', "_");
-            let func_name = format!("tree_sitter_{}", symbol_name);
+            let func_name = format!("tree_sitter_{}", name);
             let func: libloading::Symbol<unsafe extern "C" fn() -> tree_sitter::Language> =
                 lib.get(func_name.as_bytes()).map_err(|e| {
                     TreeSitterError::GrammarLoadFailed {

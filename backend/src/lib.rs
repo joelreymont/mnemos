@@ -124,7 +124,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             if let Some(root) = req.params.get("projectRoot").and_then(|v| v.as_str()) {
                 match list_files(Path::new(root)) {
                     Ok(files) => Response::result_from(id, files),
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing projectRoot")
@@ -157,11 +157,12 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                     });
                                     Response::result(id, resp)
                                 }
-                                Err(e) => Response::error(id, INTERNAL_ERROR, format!("failed to read file: {}", e)),
+                                Err(_) => Response::error(id, INTERNAL_ERROR, "failed to read file"),
                             }
                         }
-                        (Err(e), _) => Response::error(id, INVALID_PARAMS, format!("invalid file path: {}", e)),
-                        (_, Err(e)) => Response::error(id, INVALID_PARAMS, format!("invalid projectRoot: {}", e)),
+                        // Don't leak path details in error messages
+                        (Err(_), _) => Response::error(id, INVALID_PARAMS, "invalid file path"),
+                        (_, Err(_)) => Response::error(id, INVALID_PARAMS, "invalid projectRoot"),
                     }
                 }
                 (None, _) => Response::error(id, INVALID_PARAMS, "missing file"),
@@ -308,7 +309,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                             Response::result(id, json!({"content": snippet, "references": []}))
                         }
                     }
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing file")
@@ -373,7 +374,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     }
                     Response::result_from(id, results)
                 }
-                Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
             }
         }
         "hemis/index-project" => {
@@ -435,7 +436,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         }
                         Response::result(id, result)
                     }
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing projectRoot")
@@ -455,7 +456,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         id,
                         json!({"ok": true, "path": path, "counts": payload.get("counts")}),
                     ),
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing path")
@@ -514,7 +515,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         }
                     }),
                 ),
-                Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
             }
         }
         "hemis/project-meta" => {
@@ -558,7 +559,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                             "currentCommit": current_commit
                         }))
                     }
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing projectRoot")
@@ -607,7 +608,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         }
                         Response::result_from(id, notes_list)
                     }
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing file/projectRoot")
@@ -627,7 +628,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .unwrap_or(0) as usize;
                 match notes::list_project(db, proj, limit, offset) {
                     Ok(n) => Response::result_from(id, n),
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing projectRoot")
@@ -652,7 +653,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 .unwrap_or(0) as usize;
             match notes::search(db, query, proj, limit, offset) {
                 Ok(n) => Response::result_from(id, n),
-                Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
             }
         }
         "notes/list-by-node" => {
@@ -677,7 +678,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 };
                 match notes::list_by_node(db, filters) {
                     Ok(n) => Response::result_from(id, n),
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing file/projectRoot")
@@ -738,7 +739,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     node_text_hash,
                 ) {
                     Ok(n) => Response::result_from(id, n),
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing file/projectRoot")
@@ -748,7 +749,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             if let Some(note_id) = req.params.get("id").and_then(|v| v.as_str()) {
                 match notes::delete(db, note_id) {
                     Ok(ok) => Response::result(id, json!({"ok": ok})),
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing id")
@@ -760,7 +761,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 let tags = req.params.get("tags").cloned();
                 match notes::update(db, note_id, text, tags) {
                     Ok(n) => Response::result_from(id, n),
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing id")
@@ -770,7 +771,11 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             if let Some(note_id) = req.params.get("id").and_then(|v| v.as_str()) {
                 match notes::get(db, note_id) {
                     Ok(n) => Response::result_from(id, n),
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                    // "not found" is safe to expose (no sensitive details)
+                    Err(e) if e.to_string().contains("not found") => {
+                        Response::error(id, INVALID_PARAMS, "note not found")
+                    }
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing id")
@@ -780,7 +785,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             if let Some(note_id) = req.params.get("id").and_then(|v| v.as_str()) {
                 match notes::backlinks(db, note_id) {
                     Ok(n) => Response::result_from(id, n),
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing id")
@@ -823,7 +828,11 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 let git = file.and_then(info_for_file);
                 match notes::reattach(db, note_id, line, column, node_path, git, node_text_hash) {
                     Ok(n) => Response::result_from(id, n),
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                    // "not found" is safe to expose (no sensitive details)
+                    Err(e) if e.to_string().contains("not found") => {
+                        Response::error(id, INVALID_PARAMS, "note not found")
+                    }
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing id")
@@ -864,7 +873,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         }
                         Response::result_from(id, notes_list)
                     }
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing file/content")
@@ -881,7 +890,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             if let (Some(file), Some(proj)) = (file, proj) {
                 match idx::add_file(db, file, proj, content) {
                     Ok(info) => Response::result_from(id, info),
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing file/projectRoot")
@@ -896,7 +905,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
             match idx::search(db, query, proj) {
                 Ok(results) => Response::result_from(id, results),
-                Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
             }
         }
         "shutdown" => Response::result(id, json!("shutting down")),

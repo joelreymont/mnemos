@@ -76,7 +76,19 @@ fn cmd(dir: &Path, args: &[&str]) -> Result<String> {
         .current_dir(dir)
         .output()?;
     if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        // Validate UTF-8 explicitly instead of using lossy conversion
+        let output = String::from_utf8(out.stdout.clone())
+            .map_err(|_| anyhow::anyhow!("git output is not valid UTF-8"))?
+            .trim()
+            .to_string();
+        // Basic validation: output should be non-empty and reasonable length
+        // Git SHAs are 40 hex chars (SHA1) or 64 hex chars (SHA256)
+        // Paths can be longer, so just cap at reasonable limit
+        const MAX_OUTPUT_LEN: usize = 4096;
+        if output.len() > MAX_OUTPUT_LEN {
+            anyhow::bail!("git output too long");
+        }
+        Ok(output)
     } else {
         anyhow::bail!("git failed")
     }
