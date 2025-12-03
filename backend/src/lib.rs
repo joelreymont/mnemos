@@ -177,7 +177,7 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                         }
                     }
                     if include_notes {
-                        if let Ok(notes) = notes::search(db, query, proj) {
+                        if let Ok(notes) = notes::search(db, query, proj, None, 0) {
                             for n in notes {
                                 results.push(idx::SearchHit {
                                     file: n.file.clone(),
@@ -306,11 +306,8 @@ pub fn handle(req: Request, db: &Connection) -> Response {
             if let Some(proj) = req.params.get("projectRoot").and_then(|v| v.as_str()) {
                 let limit = req.params.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
                 let offset = req.params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                match notes::list_project(db, proj) {
-                    Ok(n) => {
-                        let paginated: Vec<_> = n.into_iter().skip(offset).take(limit.unwrap_or(usize::MAX)).collect();
-                        Response::result(id, serde_json::to_value(paginated).unwrap())
-                    }
+                match notes::list_project(db, proj, limit, offset) {
+                    Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
@@ -326,11 +323,8 @@ pub fn handle(req: Request, db: &Connection) -> Response {
             let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
             let limit = req.params.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
             let offset = req.params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-            match notes::search(db, query, proj) {
-                Ok(n) => {
-                    let paginated: Vec<_> = n.into_iter().skip(offset).take(limit.unwrap_or(usize::MAX)).collect();
-                    Response::result(id, serde_json::to_value(paginated).unwrap())
-                }
+            match notes::search(db, query, proj, limit, offset) {
+                Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
                 Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
             }
         }

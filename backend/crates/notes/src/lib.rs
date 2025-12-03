@@ -231,13 +231,23 @@ pub fn get(conn: &Connection, id: &str) -> Result<Note> {
         .ok_or_else(|| anyhow::anyhow!("note not found"))
 }
 
-pub fn list_project(conn: &Connection, project_root: &str) -> Result<Vec<Note>> {
-    query_all(
-        conn,
-        "SELECT * FROM notes WHERE project_root = ? ORDER BY updated_at DESC;",
-        &[&project_root],
-        |row| map_note(row, false),
-    )
+pub fn list_project(
+    conn: &Connection,
+    project_root: &str,
+    limit: Option<usize>,
+    offset: usize,
+) -> Result<Vec<Note>> {
+    let sql = match limit {
+        Some(lim) => format!(
+            "SELECT * FROM notes WHERE project_root = ? ORDER BY updated_at DESC LIMIT {} OFFSET {};",
+            lim, offset
+        ),
+        None => format!(
+            "SELECT * FROM notes WHERE project_root = ? ORDER BY updated_at DESC LIMIT -1 OFFSET {};",
+            offset
+        ),
+    };
+    query_all(conn, &sql, &[&project_root], |row| map_note(row, false))
 }
 
 pub fn delete(conn: &Connection, id: &str) -> Result<bool> {
@@ -278,21 +288,36 @@ pub fn update(
     Ok(note)
 }
 
-pub fn search(conn: &Connection, query: &str, project_root: Option<&str>) -> Result<Vec<Note>> {
+pub fn search(
+    conn: &Connection,
+    query: &str,
+    project_root: Option<&str>,
+    limit: Option<usize>,
+    offset: usize,
+) -> Result<Vec<Note>> {
     // Lowercase pattern for case-insensitive search
     let pattern = format!("%{}%", query.to_lowercase());
-    let sql = if project_root.is_some() {
-        "SELECT * FROM notes WHERE project_root = ? AND (LOWER(text) LIKE ? OR LOWER(summary) LIKE ? OR LOWER(file) LIKE ?) ORDER BY updated_at DESC;"
-    } else {
-        "SELECT * FROM notes WHERE (LOWER(text) LIKE ? OR LOWER(summary) LIKE ? OR LOWER(file) LIKE ?) ORDER BY updated_at DESC;"
+    let pagination = match limit {
+        Some(lim) => format!("LIMIT {} OFFSET {}", lim, offset),
+        None => format!("LIMIT -1 OFFSET {}", offset),
     };
-    let pattern_b = pattern.clone();
+    let sql = if project_root.is_some() {
+        format!(
+            "SELECT * FROM notes WHERE project_root = ? AND (LOWER(text) LIKE ? OR LOWER(summary) LIKE ? OR LOWER(file) LIKE ?) ORDER BY updated_at DESC {};",
+            pagination
+        )
+    } else {
+        format!(
+            "SELECT * FROM notes WHERE (LOWER(text) LIKE ? OR LOWER(summary) LIKE ? OR LOWER(file) LIKE ?) ORDER BY updated_at DESC {};",
+            pagination
+        )
+    };
     let rows = if let Some(proj) = project_root {
-        query_all(conn, sql, &[&proj, &pattern, &pattern, &pattern_b], |row| {
+        query_all(conn, &sql, &[&proj, &pattern, &pattern, &pattern], |row| {
             map_note(row, false)
         })?
     } else {
-        query_all(conn, sql, &[&pattern, &pattern, &pattern_b], |row| {
+        query_all(conn, &sql, &[&pattern, &pattern, &pattern], |row| {
             map_note(row, false)
         })?
     };

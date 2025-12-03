@@ -36,6 +36,7 @@ Author: `Joel Reymont <18791+joelreymont@users.noreply.github.com>`
 - State assumptions briefly and continue
 - Update CONTEXT.md after each major step (not checked into git)
 - Do NOT read or update SESSION.md (deprecated, use CONTEXT.md instead)
+- Commit after completing major changes (don't batch unrelated work)
 
 ### Docs
 - See `docs/ARCHITECTURE.md` for the current backend/frontend architecture and stale-note behavior.
