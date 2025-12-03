@@ -34,21 +34,20 @@ Author: `Joel Reymont <18791+joelreymont@users.noreply.github.com>`
 - Prioritize optimal/performant solutions even if harder to implement
 - Break work into small steps; execute end-to-end
 - State assumptions briefly and continue
-- Update CONTEXT.md after each major step (not checked into git)
-- Do NOT read or update SESSION.md (deprecated, use CONTEXT.md instead)
+- Update CONTEXT.md after major steps (stable knowledge only, not session history)
+- Use `bd` (beads) for work item tracking
 - Commit after completing major changes (don't batch unrelated work)
 
 ### Docs
-- See `docs/ARCHITECTURE.md` for the current backend/frontend architecture and stale-note behavior.
+- See `docs/ARCHITECTURE.md` for backend/frontend architecture and stale-note behavior.
 
 ### Demo Driver
 - Swift-based demo automation in sibling directory `../hemis-demo/` (NOT in this repo)
-- MUST run from hemis-demo directory: `cd ../hemis-demo && swift run hemis_demo neovim --show-labels`
-- Options: `--prepare-only` (setup only), `--skip-setup`, `--countdown N`, `--record`
-- Aborts if target app loses focus (prevents typing in wrong window)
-- Aborts if target window is occluded by another window (>30% overlap)
-- Demo modifies code (Self -> Server) to trigger stale detection
-- Scenario config in `scenarios/demo.json`
+- MUST run from hemis-demo directory: `cd ../hemis-demo && swift run hemis-demo <script> --show-labels`
+- Scripts: `neovim` (full demo), `reattach` (stale note detection and reattach flow)
+- Options: `--prepare-only`, `--skip-setup`, `--countdown N`, `--record`, `--list-scripts`
+- Aborts if target app loses focus or window occluded (>30% overlap)
+- Script config in `scripts/demo.json`
 
 ## Slash Commands
 
@@ -75,18 +74,7 @@ Custom commands in `.claude/commands/` for common workflows.
 | `/rpc-debug` | Connection refused, socket closed, env var issues |
 | `/backend-status` | Quick health check before debugging |
 
-## Test Counts (keep updated)
-- Rust backend: 42 tests (including 14 RPC flow + 13 snapshot tests)
-- Emacs UI: 47 tests (37 unit + 10 demo flow)
-- Neovim UI: 39 tests (21 display + 18 integration)
-- VS Code UI: 22 tests (10 decoration + 12 integration)
-
-### Common Debugging Patterns
-
-**RPC Connection Issues:**
-1. Check socket: `ls -la ~/.hemis/hemis.sock`
-2. Check process: `pgrep -fl 'hemis.*--serve'`
-3. Clean restart: `pkill -f 'hemis --serve' && rm -f ~/.hemis/hemis.{sock,lock}`
+## Debugging Patterns
 
 **Emacs Process Environment:**
 - Use `make-process` with `process-environment`, NOT `call-process-shell-command` with shell exports
@@ -98,26 +86,8 @@ Custom commands in `.claude/commands/` for common workflows.
 - Reset module cache: `package.loaded["hemis.rpc"] = nil`
 - Always call `rpc.stop()` in test cleanup
 
-### Session Management
+## Context Files
 
-1. **CONTEXT.md** - The primary context file for session progress
-   - This is THE ONLY file to update with session progress and current state
-   - Current development phase and active tasks
-   - Recent changes and bug fixes (this session)
-   - Known issues and workarounds
-   - Test status and results
-   - Update after each major step or milestone
-   - DO NOT use SESSION.md (deprecated)
-
-2. **SESSION.md** - Deprecated
-   - DO NOT read or update this file
-   - Use CONTEXT.md instead
-
-3. **After compaction** - Always re-read these files:
-   - Read AGENTS.md for development guidelines and instructions
-   - Read CONTEXT.md for current state and progress
-   - This ensures continuity across context window resets
-
-4. **Hooks**:
-   - `hooks/pre-compaction.sh` - Updates CONTEXT.md before compaction
-   - `hooks/post-compaction.sh` - Reloads AGENTS.md and CONTEXT.md after compaction
+- **CONTEXT.md** - Quick reference (test counts, RPC methods, conventions, debugging)
+- **docs/ARCHITECTURE.md** - System design, diagrams, architectural decisions
+- **beads (`bd`)** - Work item tracking; run `bd ready` to see available work
