@@ -3,10 +3,17 @@
 use anyhow::{anyhow, Result};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::env;
-use storage::{exec, now_unix, query_all};
+use storage::{exec, now_unix};
+
+fn content_hash(content: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -140,27 +147,43 @@ pub fn upsert_embedding_for_file(
     upsert_embedding(conn, file, project_root, &vector, content)
 }
 
+/// Add or update a file in the index. Returns None if content unchanged.
 pub fn add_file(
     conn: &Connection,
     file: &str,
     project_root: &str,
     content: &str,
-) -> Result<IndexedFile> {
+) -> Result<Option<IndexedFile>> {
+    let hash = content_hash(content);
+
+    // Check if file exists with same content hash
+    let existing_hash: Option<String> = conn
+        .query_row(
+            "SELECT content_hash FROM files WHERE file = ?;",
+            [file],
+            |row| row.get(0),
+        )
+        .ok();
+
+    if existing_hash.as_ref() == Some(&hash) {
+        return Ok(None); // Content unchanged, skip re-indexing
+    }
+
     let updated = now_unix();
     exec(
         conn,
-        "INSERT OR REPLACE INTO files (file, project_root, content, updated_at) VALUES (?,?,?,?);",
-        &[&file, &project_root, &content, &updated],
+        "INSERT OR REPLACE INTO files (file, project_root, content, content_hash, updated_at) VALUES (?,?,?,?,?);",
+        &[&file, &project_root, &content, &hash.as_str(), &updated],
     )?;
     upsert_embedding_for_file(conn, file, project_root, content)?;
-    Ok(IndexedFile {
+    Ok(Some(IndexedFile {
         file: file.to_string(),
         project_root: project_root.to_string(),
         content: content.to_string(),
         updated_at: updated,
         bytes: content.len(),
         lines: content.lines().count(),
-    })
+    }))
 }
 
 pub fn search(

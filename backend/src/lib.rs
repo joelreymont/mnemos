@@ -200,20 +200,21 @@ pub fn handle(req: Request, db: &Connection) -> Response {
         "hemis/index-project" => {
             if let Some(root) = req.params.get("projectRoot").and_then(|v| v.as_str()) {
                 let mut indexed = 0;
+                let mut skipped = 0;
                 match list_files(Path::new(root)) {
                     Ok(files) => {
                         for f in files {
                             if let Ok(content) = fs::read_to_string(&f.file) {
-                                if let Err(e) = idx::add_file(db, &f.file, root, &content) {
-                                    eprintln!("index failed for {}: {}", f.file, e);
-                                } else {
-                                    indexed += 1;
+                                match idx::add_file(db, &f.file, root, &content) {
+                                    Ok(Some(_)) => indexed += 1,
+                                    Ok(None) => skipped += 1, // unchanged
+                                    Err(e) => eprintln!("index failed for {}: {}", f.file, e),
                                 }
                             }
                         }
                         Response::result(
                             id,
-                            json!({"ok": true, "indexed": indexed, "projectRoot": root}),
+                            json!({"ok": true, "indexed": indexed, "skipped": skipped, "projectRoot": root}),
                         )
                     }
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),

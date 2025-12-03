@@ -84,6 +84,7 @@ fn migrate(conn: &Connection) -> Result<()> {
         ("notes", "commit_sha", "TEXT"),
         ("notes", "blob_sha", "TEXT"),
         ("notes", "node_text_hash", "TEXT"),
+        ("files", "content_hash", "TEXT"),
     ] {
         ensure_column(conn, table, col, ty)?;
     }
