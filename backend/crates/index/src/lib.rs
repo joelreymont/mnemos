@@ -9,8 +9,18 @@ use std::collections::BinaryHeap;
 use std::env;
 use storage::{exec, now_unix};
 
-/// Validate that a vector contains only finite values (no NaN or Infinity).
+/// Maximum vector dimension (covers most embedding models: OpenAI 3072, Cohere 4096)
+const MAX_VECTOR_DIM: usize = 4096;
+
+/// Validate that a vector contains only finite values and reasonable dimensions.
 fn validate_vector(v: &[f32]) -> Result<()> {
+    if v.len() > MAX_VECTOR_DIM {
+        return Err(anyhow!(
+            "vector dimension {} exceeds maximum {}",
+            v.len(),
+            MAX_VECTOR_DIM
+        ));
+    }
     for (i, &val) in v.iter().enumerate() {
         if !val.is_finite() {
             return Err(anyhow!("vector contains non-finite value at index {}: {}", i, val));
@@ -70,6 +80,27 @@ fn embedding_input(content: &str) -> String {
     content.lines().take(64).collect::<Vec<_>>().join("\n")
 }
 
+/// Check if an IP address is in a private/internal range
+fn is_private_ip(ip: &std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(ipv4) => {
+            ipv4.is_loopback()           // 127.0.0.0/8
+                || ipv4.is_private()      // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+                || ipv4.is_link_local()   // 169.254.0.0/16
+                || ipv4.is_broadcast()
+                || ipv4.is_unspecified()
+                || ipv4.octets()[0] == 100 && (ipv4.octets()[1] & 0xC0) == 64 // 100.64.0.0/10 (CGNAT)
+        }
+        std::net::IpAddr::V6(ipv6) => {
+            ipv6.is_loopback() || ipv6.is_unspecified()
+                // IPv4-mapped addresses
+                || ipv6.to_ipv4_mapped().map(|v4| {
+                    v4.is_loopback() || v4.is_private() || v4.is_link_local()
+                }).unwrap_or(false)
+        }
+    }
+}
+
 /// Validate embedder URL to prevent SSRF attacks
 fn validate_embedder_url(url: &str) -> Result<()> {
     // Must be HTTPS for security (unless localhost for development)
@@ -93,19 +124,18 @@ fn validate_embedder_url(url: &str) -> Result<()> {
             return Err(anyhow!("embedder URL points to blocked internal host"));
         }
 
-        // Block private IP ranges (basic check - proper check would resolve DNS)
-        if host.starts_with("10.")
-            || host.starts_with("192.168.")
-            || host.starts_with("172.16.")
-            || host.starts_with("172.17.")
-            || host.starts_with("172.18.")
-            || host.starts_with("172.19.")
-            || host.starts_with("172.2")
-            || host.starts_with("172.30.")
-            || host.starts_with("172.31.")
-        {
-            return Err(anyhow!("embedder URL points to private IP range"));
+        // Resolve DNS and check if IP is private (prevents DNS rebinding)
+        let port = parsed.port().unwrap_or(if scheme == "https" { 443 } else { 80 });
+        let socket_addr = format!("{}:{}", host, port);
+        if let Ok(addrs) = std::net::ToSocketAddrs::to_socket_addrs(&socket_addr.as_str()) {
+            for addr in addrs {
+                if is_private_ip(&addr.ip()) {
+                    return Err(anyhow!("embedder URL resolves to private IP address"));
+                }
+            }
         }
+        // Note: If DNS resolution fails, we let the request proceed and fail naturally
+        // This avoids blocking legitimate URLs due to temporary DNS issues
     }
 
     Ok(())
@@ -280,7 +310,11 @@ pub fn add_file(
 }
 
 /// Escape special FTS5 characters and format query for matching
+/// Escape a literal string for use in FTS5 column filter (e.g., project_root:"value")
+/// FTS5 requires escaping double quotes within quoted strings
 fn escape_fts_literal(value: &str) -> String {
+    // In FTS5 double-quoted strings, double quotes are escaped by doubling them
+    // Other special chars (* ^ etc.) are treated literally inside quotes
     value.replace('"', "\"\"")
 }
 
@@ -332,10 +366,10 @@ pub fn search(
     };
 
     // Limits to prevent DoS via expensive searches
-    const MAX_FILE_SIZE: usize = 10 * 1024 * 1024; // 10MB
-    const MAX_LINES_PER_FILE: usize = 100_000;
-    const MAX_TOTAL_HITS: usize = 1_000;
-    const MAX_FILES_TO_SCAN: usize = 1_000;
+    const MAX_FILE_SIZE: usize = 1 * 1024 * 1024; // 1MB (reduced from 10MB)
+    const MAX_LINES_PER_FILE: usize = 10_000; // Reduced from 100K
+    const MAX_TOTAL_HITS: usize = 500; // Reduced from 1K
+    const MAX_FILES_TO_SCAN: usize = 500; // Reduced from 1K
 
     // FTS5 gives us matching files, then we scan those files for line positions
     let mut stmt;

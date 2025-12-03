@@ -141,11 +141,22 @@ pub fn restore(conn: &Connection, snapshot: &serde_json::Value) -> Result<serde_
                     .ok_or_else(|| anyhow::anyhow!("snapshot note[{}] missing required field: file", i))?;
                 let proj = n.get("projectRoot").and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("snapshot note[{}] missing required field: projectRoot", i))?;
-                if id.is_empty() {
-                    return Err(anyhow::anyhow!("snapshot note[{}] has empty id", i));
+                // Validate id format (should be UUID-like)
+                if id.is_empty() || id.len() > 64 {
+                    return Err(anyhow::anyhow!("snapshot note[{}] has invalid id length", i));
                 }
+                if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+                    return Err(anyhow::anyhow!("snapshot note[{}] has invalid id format", i));
+                }
+                // Validate line/column ranges
                 let line = n.get("line").and_then(|v| v.as_i64()).unwrap_or(1);
+                if line < 1 || line > 10_000_000 {
+                    return Err(anyhow::anyhow!("snapshot note[{}] has invalid line number: {}", i, line));
+                }
                 let column = n.get("column").and_then(|v| v.as_i64()).unwrap_or(0);
+                if column < 0 || column > 100_000 {
+                    return Err(anyhow::anyhow!("snapshot note[{}] has invalid column number: {}", i, column));
+                }
                 let node_path = n.get("nodePath").and_then(|v| v.as_str());
                 let tags = n.get("tags").and_then(|v| v.as_str()).unwrap_or("[]");
                 let text = n.get("text").and_then(|v| v.as_str()).unwrap_or("");

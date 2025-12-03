@@ -177,7 +177,36 @@ impl GrammarRegistry {
     }
 
     /// Load a grammar from a shared library
+    ///
+    /// # Security Warning
+    /// Loading shared libraries is inherently unsafe. A malicious library can
+    /// execute arbitrary code. Only load libraries you trust.
     fn load_grammar_from_path(&self, name: &str, path: &Path) -> Result<Language> {
+        // Security: Check file permissions - warn if world-writable
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if let Ok(meta) = path.metadata() {
+                let mode = meta.mode();
+                // Check if world-writable (o+w = 0o002)
+                if mode & 0o002 != 0 {
+                    eprintln!(
+                        "Security warning: Grammar library {:?} is world-writable. \
+                         This is a security risk. Run: chmod o-w {:?}",
+                        path, path
+                    );
+                }
+                // Check if group-writable (g+w = 0o020)
+                if mode & 0o020 != 0 {
+                    eprintln!(
+                        "Security warning: Grammar library {:?} is group-writable. \
+                         Consider restricting permissions.",
+                        path
+                    );
+                }
+            }
+        }
+
         // Safety: Loading shared libraries is inherently unsafe
         // We trust that grammars in the user's config directory are safe
         unsafe {

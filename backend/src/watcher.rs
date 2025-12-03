@@ -6,6 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -35,10 +36,12 @@ pub type ChangeCallback = Arc<dyn Fn(FileChange) + Send + Sync>;
 pub struct FileWatcher {
     watcher: RecommendedWatcher,
     watched_dirs: Arc<Mutex<HashSet<PathBuf>>>,
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Used by processor thread via Arc clone
     pending_changes: Arc<Mutex<HashMap<PathBuf, (FileChangeKind, Instant)>>>,
     callbacks: Arc<Mutex<Vec<ChangeCallback>>>,
-    _processor_handle: std::thread::JoinHandle<()>,
+    /// Signal for graceful shutdown
+    shutdown: Arc<AtomicBool>,
+    processor_handle: Option<std::thread::JoinHandle<()>>,
 }
 
 impl FileWatcher {
@@ -47,6 +50,7 @@ impl FileWatcher {
         let pending_changes: Arc<Mutex<HashMap<PathBuf, (FileChangeKind, Instant)>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let callbacks: Arc<Mutex<Vec<ChangeCallback>>> = Arc::new(Mutex::new(Vec::new()));
+        let shutdown = Arc::new(AtomicBool::new(false));
 
         let pending_for_handler = pending_changes.clone();
 
@@ -82,9 +86,10 @@ impl FileWatcher {
         // Spawn processor thread that handles debouncing
         let pending_for_processor = pending_changes.clone();
         let callbacks_for_processor = callbacks.clone();
+        let shutdown_for_processor = shutdown.clone();
 
         let processor_handle = std::thread::spawn(move || {
-            loop {
+            while !shutdown_for_processor.load(Ordering::Relaxed) {
                 std::thread::sleep(Duration::from_millis(50));
 
                 let now = Instant::now();
@@ -141,7 +146,8 @@ impl FileWatcher {
             watched_dirs: Arc::new(Mutex::new(HashSet::new())),
             pending_changes,
             callbacks,
-            _processor_handle: processor_handle,
+            shutdown,
+            processor_handle: Some(processor_handle),
         })
     }
 
@@ -192,6 +198,17 @@ impl FileWatcher {
             Err(poisoned) => poisoned.into_inner(),
         };
         watched.iter().cloned().collect()
+    }
+}
+
+impl Drop for FileWatcher {
+    fn drop(&mut self) {
+        // Signal shutdown and wait for processor thread to finish
+        self.shutdown.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.processor_handle.take() {
+            // Give thread time to finish (max 100ms)
+            let _ = handle.join();
+        }
     }
 }
 

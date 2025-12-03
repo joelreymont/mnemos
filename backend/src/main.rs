@@ -55,6 +55,10 @@ fn validate_git_ref(ref_name: &str) -> Result<()> {
     if ref_name.is_empty() || ref_name.len() > 256 {
         return Err(anyhow!("Git ref must be 1-256 characters"));
     }
+    // Prevent path traversal sequences
+    if ref_name.contains("..") || ref_name.contains("//") {
+        return Err(anyhow!("Git ref cannot contain '..' or '//'"));
+    }
     Ok(())
 }
 

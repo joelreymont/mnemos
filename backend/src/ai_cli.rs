@@ -14,6 +14,36 @@ use anyhow::{anyhow, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Maximum concurrent AI CLI processes (prevents resource exhaustion)
+const MAX_CONCURRENT_AI_CALLS: usize = 2;
+
+/// Global counter for active AI CLI processes
+static ACTIVE_AI_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+/// RAII guard to track active AI calls
+struct AiCallGuard;
+
+impl AiCallGuard {
+    fn try_acquire() -> Result<Self> {
+        let current = ACTIVE_AI_CALLS.fetch_add(1, Ordering::SeqCst);
+        if current >= MAX_CONCURRENT_AI_CALLS {
+            ACTIVE_AI_CALLS.fetch_sub(1, Ordering::SeqCst);
+            return Err(anyhow!(
+                "too many concurrent AI requests (max {})",
+                MAX_CONCURRENT_AI_CALLS
+            ));
+        }
+        Ok(AiCallGuard)
+    }
+}
+
+impl Drop for AiCallGuard {
+    fn drop(&mut self) {
+        ACTIVE_AI_CALLS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 /// Which CLI to use for AI calls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -255,6 +285,9 @@ impl Drop for TempFileGuard {
 
 /// Helper: run Codex CLI with a prompt in the given project root.
 fn run_codex(project_root: &Path, prompt: &str) -> Result<String> {
+    // Acquire concurrency guard (limits parallel AI calls)
+    let _concurrency_guard = AiCallGuard::try_acquire()?;
+
     // Create unique temp file for output since codex prints progress/diagnostics to stdout
     let tmp_dir = std::env::temp_dir();
     let output_path = tmp_dir.join(format!("hemis-codex-{}.txt", uuid::Uuid::new_v4()));
@@ -311,6 +344,9 @@ fn run_codex(project_root: &Path, prompt: &str) -> Result<String> {
 
 /// Helper: run Claude Code CLI with a prompt in the given project root.
 fn run_claude(project_root: &Path, prompt: &str) -> Result<String> {
+    // Acquire concurrency guard (limits parallel AI calls)
+    let _concurrency_guard = AiCallGuard::try_acquire()?;
+
     use std::io::Read;
     use std::sync::mpsc;
 

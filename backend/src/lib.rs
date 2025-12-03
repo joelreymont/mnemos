@@ -409,8 +409,8 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             }
         }
         "hemis/load-snapshot" => {
-            // Size limit for snapshot files (100MB)
-            const MAX_SNAPSHOT_SIZE: u64 = 100 * 1024 * 1024;
+            // Size limit for snapshot files (10MB - reduced from 100MB to limit memory usage)
+            const MAX_SNAPSHOT_SIZE: u64 = 10 * 1024 * 1024;
 
             if let Some(path) = req.params.get("path").and_then(|v| v.as_str()) {
                 // Check file size before reading
@@ -422,20 +422,24 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                             format!("snapshot file too large: {} bytes (max {})", meta.len(), MAX_SNAPSHOT_SIZE),
                         );
                     }
-                    Err(e) => {
-                        return Response::error(id, INTERNAL_ERROR, format!("failed to stat snapshot file: {}", e));
+                    Err(_) => {
+                        return Response::error(id, INTERNAL_ERROR, "failed to read snapshot file");
                     }
                     _ => {}
                 }
-                match fs::read_to_string(path) {
-                    Ok(contents) => match serde_json::from_str::<serde_json::Value>(&contents) {
-                        Ok(val) => match snapshot::restore(db, &val) {
-                            Ok(status) => Response::result(id, status),
-                            Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
-                        },
-                        Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
-                    },
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                // Use streaming reader to avoid loading entire file into memory twice
+                match std::fs::File::open(path) {
+                    Ok(file) => {
+                        let reader = std::io::BufReader::new(file);
+                        match serde_json::from_reader::<_, serde_json::Value>(reader) {
+                            Ok(val) => match snapshot::restore(db, &val) {
+                                Ok(status) => Response::result(id, status),
+                                Err(_) => Response::error(id, INTERNAL_ERROR, "snapshot restore failed"),
+                            },
+                            Err(_) => Response::error(id, INTERNAL_ERROR, "invalid snapshot JSON"),
+                        }
+                    }
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "failed to open snapshot file"),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing path")

@@ -239,7 +239,8 @@ pub fn list_project(
 ) -> Result<Vec<Note>> {
     // Cap limit to prevent DoS via excessive memory allocation
     const MAX_LIMIT: i64 = 10000;
-    let limit_val: i64 = limit.map(|l| (l as i64).min(MAX_LIMIT)).unwrap_or(-1);
+    const DEFAULT_LIMIT: i64 = 100; // Default limit when none specified
+    let limit_val: i64 = limit.map(|l| (l as i64).min(MAX_LIMIT)).unwrap_or(DEFAULT_LIMIT);
     let offset_val = offset as i64;
 
     // Use parameterized query to prevent SQL injection
@@ -369,7 +370,11 @@ fn escape_fts_query(query: &str) -> Option<String> {
     }
 }
 
+/// Escape a literal string for use in FTS5 column filter (e.g., project_root:"value")
+/// FTS5 requires escaping double quotes within quoted strings
 fn escape_fts_literal(value: &str) -> String {
+    // In FTS5 double-quoted strings, double quotes are escaped by doubling them
+    // Other special chars (* ^ etc.) are treated literally inside quotes
     value.replace('"', "\"\"")
 }
 
