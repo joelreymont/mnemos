@@ -124,7 +124,7 @@ pub fn create(
     let tags_str = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
     let node_path_str = node_path
         .as_ref()
-        .map(|v| serde_json::to_string(v).unwrap());
+        .and_then(|v| serde_json::to_string(v).ok());
     exec(conn, "INSERT INTO notes (id,file,project_root,line,column,node_path,tags,text,summary,commit_sha,blob_sha,node_text_hash,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
          &[&id, &file, &project_root, &line, &column, &node_path_str, &tags_str, &text, &summary, &commit, &blob, &node_text_hash, &ts, &ts])?;
     // Parse and store links to other notes
@@ -209,7 +209,7 @@ pub fn list_by_node(conn: &Connection, filters: NoteFilters<'_>) -> Result<Vec<N
     let np = filters
         .node_path
         .as_ref()
-        .map(|v| serde_json::to_string(v).unwrap());
+        .and_then(|v| serde_json::to_string(v).ok());
     let rows = query_all(conn,
         "SELECT * FROM notes WHERE file = ? AND project_root = ? AND node_path = ? ORDER BY updated_at DESC;",
         &[&filters.file, &filters.project_root, &np],
@@ -407,7 +407,7 @@ pub fn reattach(
         .unwrap_or((None, None));
     let node_path_str = node_path
         .as_ref()
-        .map(|v| serde_json::to_string(v).unwrap());
+        .and_then(|v| serde_json::to_string(v).ok());
     exec(
         conn,
         "UPDATE notes SET line = ?, column = ?, node_path = ?, commit_sha = ?, blob_sha = ?, node_text_hash = ?, updated_at = ? WHERE id = ?;",

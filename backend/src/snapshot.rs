@@ -124,7 +124,35 @@ fn edge_from_row(row: &rusqlite::Row) -> rusqlite::Result<serde_json::Value> {
     }))
 }
 
+/// Maximum records per collection in a snapshot (prevents DoS via huge snapshots)
+const MAX_SNAPSHOT_NOTES: usize = 100_000;
+const MAX_SNAPSHOT_FILES: usize = 100_000;
+const MAX_SNAPSHOT_EMBEDDINGS: usize = 100_000;
+const MAX_SNAPSHOT_EDGES: usize = 500_000;
+
 pub fn restore(conn: &Connection, snapshot: &serde_json::Value) -> Result<serde_json::Value> {
+    // Validate record counts before processing
+    if let Some(notes) = snapshot.get("notes").and_then(|v| v.as_array()) {
+        if notes.len() > MAX_SNAPSHOT_NOTES {
+            return Err(anyhow::anyhow!("snapshot has too many notes: {} (max {})", notes.len(), MAX_SNAPSHOT_NOTES));
+        }
+    }
+    if let Some(files) = snapshot.get("files").and_then(|v| v.as_array()) {
+        if files.len() > MAX_SNAPSHOT_FILES {
+            return Err(anyhow::anyhow!("snapshot has too many files: {} (max {})", files.len(), MAX_SNAPSHOT_FILES));
+        }
+    }
+    if let Some(embeddings) = snapshot.get("embeddings").and_then(|v| v.as_array()) {
+        if embeddings.len() > MAX_SNAPSHOT_EMBEDDINGS {
+            return Err(anyhow::anyhow!("snapshot has too many embeddings: {} (max {})", embeddings.len(), MAX_SNAPSHOT_EMBEDDINGS));
+        }
+    }
+    if let Some(edges) = snapshot.get("edges").and_then(|v| v.as_array()) {
+        if edges.len() > MAX_SNAPSHOT_EDGES {
+            return Err(anyhow::anyhow!("snapshot has too many edges: {} (max {})", edges.len(), MAX_SNAPSHOT_EDGES));
+        }
+    }
+
     transaction(conn, || {
         exec(conn, "DELETE FROM notes;", &[])?;
         exec(conn, "DELETE FROM files;", &[])?;

@@ -152,13 +152,13 @@ impl FileWatcher {
     }
 
     /// Watch a directory for changes.
+    ///
+    /// Returns an error if the mutex is poisoned (indicates a previous panic).
     pub fn watch(&mut self, path: &Path) -> notify::Result<()> {
         let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
 
-        let mut watched = match self.watched_dirs.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let mut watched = self.watched_dirs.lock()
+            .map_err(|_| notify::Error::generic("internal state corrupted (mutex poisoned)"))?;
         if watched.contains(&canonical) {
             return Ok(()); // Already watching
         }
@@ -169,13 +169,13 @@ impl FileWatcher {
     }
 
     /// Stop watching a directory.
+    ///
+    /// Returns an error if the mutex is poisoned (indicates a previous panic).
     pub fn unwatch(&mut self, path: &Path) -> notify::Result<()> {
         let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
 
-        let mut watched = match self.watched_dirs.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let mut watched = self.watched_dirs.lock()
+            .map_err(|_| notify::Error::generic("internal state corrupted (mutex poisoned)"))?;
         if watched.remove(&canonical) {
             self.watcher.unwatch(&canonical)?;
         }
@@ -183,21 +183,22 @@ impl FileWatcher {
     }
 
     /// Register a callback for file changes.
-    pub fn on_change(&self, callback: ChangeCallback) {
-        let mut callbacks = match self.callbacks.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+    ///
+    /// Returns an error if the mutex is poisoned (indicates a previous panic).
+    pub fn on_change(&self, callback: ChangeCallback) -> notify::Result<()> {
+        let mut callbacks = self.callbacks.lock()
+            .map_err(|_| notify::Error::generic("internal state corrupted (mutex poisoned)"))?;
         callbacks.push(callback);
+        Ok(())
     }
 
     /// Get list of watched directories.
-    pub fn watched_dirs(&self) -> Vec<PathBuf> {
-        let watched = match self.watched_dirs.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        watched.iter().cloned().collect()
+    ///
+    /// Returns an error if the mutex is poisoned (indicates a previous panic).
+    pub fn watched_dirs(&self) -> notify::Result<Vec<PathBuf>> {
+        let watched = self.watched_dirs.lock()
+            .map_err(|_| notify::Error::generic("internal state corrupted (mutex poisoned)"))?;
+        Ok(watched.iter().cloned().collect())
     }
 }
 
@@ -232,7 +233,7 @@ mod tests {
 
         let result = watcher.watch(dir.path());
         assert!(result.is_ok());
-        assert_eq!(watcher.watched_dirs().len(), 1);
+        assert_eq!(watcher.watched_dirs().unwrap().len(), 1);
     }
 
     #[test]
@@ -248,7 +249,7 @@ mod tests {
         let (tx, rx) = channel();
         watcher.on_change(Arc::new(move |change| {
             let _ = tx.send(change);
-        }));
+        })).unwrap();
 
         // Modify the file
         std::thread::sleep(Duration::from_millis(50));

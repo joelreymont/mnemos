@@ -40,6 +40,12 @@ const IGNORE_DIRS: &[&str] = &[
     "build",
 ];
 
+/// Maximum directory depth to traverse (prevents runaway recursion)
+const MAX_TRAVERSAL_DEPTH: usize = 50;
+
+/// Maximum number of files to return from list_files
+const MAX_FILE_COUNT: usize = 100_000;
+
 fn list_files(root: &Path) -> anyhow::Result<Vec<FileInfo>> {
     // Canonicalize path to prevent path traversal attacks
     let canonical_root = root.canonicalize()
@@ -60,9 +66,15 @@ fn list_files(root: &Path) -> anyhow::Result<Vec<FileInfo>> {
         return Err(anyhow::anyhow!("refusing to traverse system path: {}", canonical_root.display()));
     }
 
-    let mut stack = vec![canonical_root.clone()];
+    // Track (path, depth) for depth limiting
+    let mut stack = vec![(canonical_root.clone(), 0usize)];
     let mut files = Vec::new();
-    while let Some(dir) = stack.pop() {
+    while let Some((dir, depth)) = stack.pop() {
+        // Check depth limit
+        if depth > MAX_TRAVERSAL_DEPTH {
+            continue; // Skip directories beyond max depth
+        }
+
         for entry in fs::read_dir(&dir)? {
             let entry = entry?;
             let path = entry.path();
@@ -79,8 +91,14 @@ fn list_files(root: &Path) -> anyhow::Result<Vec<FileInfo>> {
                 if IGNORE_DIRS.contains(&name.as_str()) {
                     continue;
                 }
-                stack.push(path);
+                stack.push((path, depth + 1));
             } else if entry.file_type()?.is_file() {
+                // Check file count limit
+                if files.len() >= MAX_FILE_COUNT {
+                    // Return early with what we have
+                    files.sort_by(|a: &FileInfo, b: &FileInfo| a.file.cmp(&b.file));
+                    return Ok(files);
+                }
                 let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
                 files.push(FileInfo {
                     file: path.to_string_lossy().to_string(),
@@ -166,14 +184,14 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 .and_then(|s| s.get("line"))
                 .and_then(|v| v.as_u64())
                 .or_else(|| req.params.get("startLine").and_then(|v| v.as_u64()))
-                .unwrap_or(1) as usize;
+                .unwrap_or(1);
             let end_line = req
                 .params
                 .get("end")
                 .and_then(|s| s.get("line"))
                 .and_then(|v| v.as_u64())
                 .or_else(|| req.params.get("endLine").and_then(|v| v.as_u64()))
-                .unwrap_or(start_line as u64) as usize;
+                .unwrap_or(start_line);
 
             // Validate line range
             if start_line == 0 {
@@ -182,6 +200,14 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             if end_line < start_line {
                 return Response::error(id, INVALID_PARAMS, "endLine must be >= startLine");
             }
+            // Cap line range to prevent excessive memory usage
+            const MAX_LINE_RANGE: u64 = 10_000;
+            if end_line - start_line > MAX_LINE_RANGE {
+                return Response::error(id, INVALID_PARAMS, format!("line range too large (max {} lines)", MAX_LINE_RANGE));
+            }
+            // Safe conversion after validation (values are reasonable after checks)
+            let start_line = start_line as usize;
+            let end_line = end_line as usize;
 
             let use_ai = req
                 .params
@@ -394,7 +420,9 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             if let Some(path) = req.params.get("path").and_then(|v| v.as_str()) {
                 let project_root = req.params.get("projectRoot").and_then(|v| v.as_str());
                 match snapshot::create(db, project_root).and_then(|payload| {
-                    fs::write(path, serde_json::to_vec_pretty(&payload).unwrap())
+                    let json_bytes = serde_json::to_vec_pretty(&payload)
+                        .map_err(|e| anyhow::anyhow!("failed to serialize snapshot: {}", e))?;
+                    fs::write(path, json_bytes)
                         .map(|_| payload.clone())
                         .map_err(|e| anyhow::anyhow!(e))
                 }) {
