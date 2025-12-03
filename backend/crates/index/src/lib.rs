@@ -168,26 +168,25 @@ pub fn search(
     query: &str,
     project_root: Option<&str>,
 ) -> Result<Vec<SearchHit>> {
-    let rows = if let Some(root) = project_root {
-        query_all(
-            conn,
-            "SELECT file, content FROM files WHERE project_root = ?;",
-            &[&root],
-            |row| {
-                let file: String = row.get(0)?;
-                let content: String = row.get(1)?;
-                Ok((file, content))
-            },
-        )?
+    // Use SQL LIKE to pre-filter files that might contain the query,
+    // avoiding loading files that definitely don't match
+    let pattern = format!("%{}%", query);
+    let mut stmt;
+    let mut rows;
+    if let Some(root) = project_root {
+        stmt = conn.prepare(
+            "SELECT file, content FROM files WHERE project_root = ? AND content LIKE ?;",
+        )?;
+        rows = stmt.query([root, pattern.as_str()])?;
     } else {
-        query_all(conn, "SELECT file, content FROM files;", &[], |row| {
-            let file: String = row.get(0)?;
-            let content: String = row.get(1)?;
-            Ok((file, content))
-        })?
+        stmt = conn.prepare("SELECT file, content FROM files WHERE content LIKE ?;")?;
+        rows = stmt.query([pattern.as_str()])?;
     };
+
     let mut hits = Vec::new();
-    for (file, content) in rows {
+    while let Some(row) = rows.next()? {
+        let file: String = row.get(0)?;
+        let content: String = row.get(1)?;
         for (idx, line) in content.lines().enumerate() {
             if let Some(pos) = line.find(query) {
                 hits.push(SearchHit {
@@ -203,7 +202,6 @@ pub fn search(
             }
         }
     }
-    hits.sort_by(|a, b| b.score.total_cmp(&a.score));
     Ok(hits)
 }
 
