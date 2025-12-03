@@ -112,9 +112,9 @@ impl Server {
                 }
             };
 
-            // Preload tables
-            if let Err(e) = preload::preload(&conn) {
-                eprintln!("Failed to preload: {}", e);
+            // Verify schema is accessible
+            if let Err(e) = preload::sanity_check(&conn) {
+                eprintln!("Schema sanity check failed: {}", e);
             }
 
             if let Err(e) = handle_connection(stream, &conn, start_time, &connections) {

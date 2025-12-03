@@ -1,9 +1,10 @@
-use backend::preload::preload;
+use backend::preload::sanity_check;
 use rusqlite::params;
 use storage::connect;
 
 #[test]
-fn preload_scans_existing_rows() {
+fn sanity_check_passes_with_data() {
+    // Verify sanity_check works when tables have rows
     let conn = connect(":memory:").unwrap();
     conn.execute(
         "INSERT INTO notes (id,file,project_root,line,column,node_path,tags,text,summary,commit_sha,blob_sha,created_at,updated_at)
@@ -21,8 +22,12 @@ fn preload_scans_existing_rows() {
         params!["/tmp/a.rs", "/tmp"],
     )
     .unwrap();
-    let stats = preload(&conn).unwrap();
-    assert_eq!(stats.notes, 1);
-    assert_eq!(stats.files, 1);
-    assert_eq!(stats.embeddings, 1);
+    sanity_check(&conn).unwrap();
+}
+
+#[test]
+fn sanity_check_passes_with_empty_tables() {
+    // Verify sanity_check works when tables are empty
+    let conn = connect(":memory:").unwrap();
+    sanity_check(&conn).unwrap();
 }

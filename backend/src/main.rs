@@ -79,7 +79,7 @@ fn hemis_dir() -> PathBuf {
 fn run_stdio_mode() -> Result<()> {
     let db_path = std::env::var("HEMIS_DB_PATH").unwrap_or_else(|_| default_db_path());
     let conn = connect(&db_path)?;
-    backend::preload::preload(&conn)?;
+    backend::preload::sanity_check(&conn)?;
 
     let mut stdin = io::stdin().lock();
     let mut stdout = io::stdout().lock();

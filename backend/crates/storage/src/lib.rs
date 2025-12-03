@@ -47,14 +47,34 @@ CREATE TABLE IF NOT EXISTS edges (
 
 CREATE INDEX IF NOT EXISTS idx_notes_file ON notes(file);
 CREATE INDEX IF NOT EXISTS idx_notes_project_root ON notes(project_root);
+CREATE INDEX IF NOT EXISTS idx_notes_updated ON notes(project_root, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_files_project ON files(project_root);
+CREATE INDEX IF NOT EXISTS idx_embeddings_file ON embeddings(file);
+CREATE INDEX IF NOT EXISTS idx_embeddings_project ON embeddings(project_root);
 CREATE INDEX IF NOT EXISTS idx_edges_src ON edges(src);
 CREATE INDEX IF NOT EXISTS idx_edges_dst ON edges(dst);
+CREATE INDEX IF NOT EXISTS idx_edges_project ON edges(project_root);
 "#;
 
 pub fn connect(path: &str) -> Result<Connection> {
     let conn = Connection::open(path)?;
+    configure_pragmas(&conn)?;
     migrate(&conn)?;
     Ok(conn)
+}
+
+fn configure_pragmas(conn: &Connection) -> Result<()> {
+    // WAL mode for better concurrency (readers don't block writers)
+    conn.execute_batch(
+        "
+        PRAGMA journal_mode = WAL;
+        PRAGMA synchronous = NORMAL;
+        PRAGMA busy_timeout = 5000;
+        PRAGMA cache_size = -64000;
+        PRAGMA temp_store = MEMORY;
+        ",
+    )?;
+    Ok(())
 }
 
 fn migrate(conn: &Connection) -> Result<()> {
