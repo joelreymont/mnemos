@@ -54,6 +54,15 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_project ON embeddings(project_root);
 CREATE INDEX IF NOT EXISTS idx_edges_src ON edges(src);
 CREATE INDEX IF NOT EXISTS idx_edges_dst ON edges(dst);
 CREATE INDEX IF NOT EXISTS idx_edges_project ON edges(project_root);
+
+CREATE TABLE IF NOT EXISTS project_meta (
+  project_root TEXT PRIMARY KEY,
+  indexed_at INTEGER,
+  indexed_commit_sha TEXT,
+  analyzed_at INTEGER,
+  analysis_commit_sha TEXT,
+  analysis_provider TEXT
+);
 "#;
 
 pub fn connect(path: &str) -> Result<Connection> {
@@ -331,4 +340,85 @@ pub fn counts(conn: &Connection, project_root: Option<&str>) -> Result<Counts> {
         embeddings,
         edges,
     })
+}
+
+/// Metadata about a project's indexing and analysis state.
+#[derive(Debug, Clone, Default)]
+pub struct ProjectMeta {
+    pub project_root: String,
+    pub indexed_at: Option<i64>,
+    pub indexed_commit_sha: Option<String>,
+    pub analyzed_at: Option<i64>,
+    pub analysis_commit_sha: Option<String>,
+    pub analysis_provider: Option<String>,
+}
+
+/// Get project metadata. Returns None if project not found.
+pub fn get_project_meta(conn: &Connection, project_root: &str) -> Result<Option<ProjectMeta>> {
+    let mut stmt = conn.prepare(
+        "SELECT project_root, indexed_at, indexed_commit_sha, analyzed_at, analysis_commit_sha, analysis_provider
+         FROM project_meta WHERE project_root = ?",
+    )?;
+    let mut rows = stmt.query([project_root])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(ProjectMeta {
+            project_root: row.get(0)?,
+            indexed_at: row.get(1)?,
+            indexed_commit_sha: row.get(2)?,
+            analyzed_at: row.get(3)?,
+            analysis_commit_sha: row.get(4)?,
+            analysis_provider: row.get(5)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Update project indexing metadata.
+pub fn set_project_indexed(
+    conn: &Connection,
+    project_root: &str,
+    commit_sha: Option<&str>,
+) -> Result<()> {
+    let now = now_unix();
+    conn.execute(
+        "INSERT INTO project_meta (project_root, indexed_at, indexed_commit_sha)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(project_root) DO UPDATE SET
+           indexed_at = ?2,
+           indexed_commit_sha = ?3",
+        rusqlite::params![project_root, now, commit_sha],
+    )?;
+    Ok(())
+}
+
+/// Update project analysis metadata.
+pub fn set_project_analyzed(
+    conn: &Connection,
+    project_root: &str,
+    commit_sha: Option<&str>,
+    provider: &str,
+) -> Result<()> {
+    let now = now_unix();
+    conn.execute(
+        "INSERT INTO project_meta (project_root, analyzed_at, analysis_commit_sha, analysis_provider)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(project_root) DO UPDATE SET
+           analyzed_at = ?2,
+           analysis_commit_sha = ?3,
+           analysis_provider = ?4",
+        rusqlite::params![project_root, now, commit_sha, provider],
+    )?;
+    Ok(())
+}
+
+/// Check if project needs re-analysis (commit SHA changed since last analysis).
+pub fn project_analysis_stale(conn: &Connection, project_root: &str, current_commit: &str) -> Result<bool> {
+    if let Some(meta) = get_project_meta(conn, project_root)? {
+        if let Some(analysis_sha) = meta.analysis_commit_sha {
+            return Ok(analysis_sha != current_commit);
+        }
+    }
+    // No analysis or no commit recorded means stale
+    Ok(true)
 }

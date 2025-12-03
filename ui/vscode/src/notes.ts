@@ -143,15 +143,75 @@ export interface ExplainResult {
   startLine: number;
   endLine: number;
   content: string;
+  explanation?: string;
+  ai?: {
+    provider?: string;
+    hadContext?: boolean;
+    error?: string;
+  };
 }
 
 export async function explainRegion(
   file: string,
   startLine: number,
-  endLine: number
+  endLine: number,
+  useAI = false,
+  content?: string,
+  projectRoot?: string
 ): Promise<ExplainResult> {
   const client = getRpcClient();
-  return client.request<ExplainResult>('hemis/explain-region', { file, startLine, endLine });
+  const params: Record<string, unknown> = { file, startLine, endLine };
+  if (useAI) {
+    params.useAI = true;
+  }
+  if (content) {
+    params.content = content;
+  }
+  if (projectRoot) {
+    params.projectRoot = projectRoot;
+  }
+  return client.request<ExplainResult>('hemis/explain-region', params);
+}
+
+export interface IndexProjectResult {
+  ok: boolean;
+  indexed: number;
+  skipped: number;
+  projectRoot: string;
+  ai?: {
+    analyzed?: boolean;
+    provider?: string;
+    error?: string;
+  };
+}
+
+export async function indexProjectWithAI(projectRoot: string, includeAI = false): Promise<IndexProjectResult> {
+  const client = getRpcClient();
+  const params: Record<string, unknown> = { projectRoot };
+  if (includeAI) {
+    params.includeAI = true;
+  }
+  return client.request<IndexProjectResult>('hemis/index-project', params);
+}
+
+export interface ProjectMeta {
+  projectRoot: string;
+  indexed: boolean;
+  indexedAt?: number;
+  indexedCommit?: string;
+  analyzed: boolean;
+  analyzedAt?: number;
+  analysisCommit?: string;
+  analysisProvider?: string;
+  analysisStale: boolean;
+  hasAnalysisFile: boolean;
+  aiAvailable: boolean;
+  currentCommit?: string;
+}
+
+export async function getProjectMeta(projectRoot: string): Promise<ProjectMeta> {
+  const client = getRpcClient();
+  return client.request<ProjectMeta>('hemis/project-meta', { projectRoot });
 }
 
 export interface SnapshotResult {

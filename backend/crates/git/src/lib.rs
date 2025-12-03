@@ -14,6 +14,32 @@ pub fn info_for_file(path: &str) -> Option<GitInfo> {
     info_git2(path).or_else(|| info_cli(path).ok()).flatten()
 }
 
+/// Get the HEAD commit SHA for a directory (typically project root).
+pub fn head_commit(dir: &Path) -> Option<String> {
+    // Try git2 first
+    if let Ok(repo) = git2::Repository::discover(dir) {
+        if let Ok(head) = repo.head() {
+            if let Some(oid) = head.target() {
+                return Some(oid.to_string());
+            }
+        }
+    }
+    // Fall back to CLI
+    cmd(dir, &["rev-parse", "HEAD"]).ok()
+}
+
+/// Get the git root directory for a path.
+pub fn find_root(path: &Path) -> Option<String> {
+    // Try git2 first
+    if let Ok(repo) = git2::Repository::discover(path) {
+        if let Some(workdir) = repo.workdir() {
+            return Some(workdir.to_string_lossy().into_owned());
+        }
+    }
+    // Fall back to CLI
+    cmd(path, &["rev-parse", "--show-toplevel"]).ok()
+}
+
 fn info_git2(path: &str) -> Option<Option<GitInfo>> {
     let p = Path::new(path);
     let repo = git2::Repository::discover(p).ok()?;
@@ -61,13 +87,24 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::tempdir;
+
     #[test]
-    fn cli_info_handles_non_repo() {
+    fn cli_info_returns_error_for_non_repo() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("f.txt");
         fs::write(&file, "hi").unwrap();
-        // On systems with global git config, `hash-object` works even outside a repo,
-        // so just ensure we don't error.
-        let _ = info_cli(file.to_str().unwrap()).unwrap();
+        // info_cli calls rev-parse which fails outside a repo
+        let result = info_cli(file.to_str().unwrap());
+        assert!(result.is_err(), "info_cli should error on non-repo path");
+    }
+
+    #[test]
+    fn info_for_file_returns_none_for_non_repo() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("f.txt");
+        fs::write(&file, "hi").unwrap();
+        // info_for_file should gracefully return None for non-repo paths
+        let result = info_for_file(file.to_str().unwrap());
+        assert!(result.is_none(), "info_for_file should return None for non-repo path");
     }
 }

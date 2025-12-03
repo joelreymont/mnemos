@@ -761,16 +761,70 @@ position tracking."
                         (content . ,content))))
     (message "Hemis: indexed %s" file)))
 
-(defun hemis-index-project (&optional root)
-  "Index all files under ROOT (defaults to project root) and show progress."
-  (interactive)
+(defun hemis-index-project (&optional root include-ai)
+  "Index all files under ROOT (defaults to project root) and show progress.
+With prefix arg or INCLUDE-AI non-nil, also run AI analysis."
+  (interactive (list nil current-prefix-arg))
   (let ((root (or root (hemis--project-root) default-directory)))
-    (message "Hemis: indexing project %s..." root)
-    (let ((resp (hemis--request "hemis/index-project"
-                                `((projectRoot . ,root)))))
-      (message "Hemis: indexed %s files in %s"
-               (or (alist-get 'indexed resp) "?")
-               root))))
+    (message "Hemis: indexing project %s%s..."
+             root (if include-ai " with AI analysis" ""))
+    (let* ((params `((projectRoot . ,root)))
+           (_ (when include-ai
+                (setq params (append params '((includeAI . t))))))
+           (resp (hemis--request "hemis/index-project" params))
+           (indexed (alist-get 'indexed resp))
+           (ai-info (alist-get 'ai resp)))
+      (if ai-info
+          (let ((analyzed (alist-get 'analyzed ai-info))
+                (provider (alist-get 'provider ai-info))
+                (error-msg (alist-get 'error ai-info)))
+            (if analyzed
+                (message "Hemis: indexed %s files, analyzed with %s in %s"
+                         (or indexed "?") provider root)
+              (message "Hemis: indexed %s files (AI analysis failed: %s)"
+                       (or indexed "?") error-msg)))
+        (message "Hemis: indexed %s files in %s"
+                 (or indexed "?") root)))))
+
+(defun hemis-index-project-ai (&optional root)
+  "Index all files under ROOT and run AI analysis."
+  (interactive)
+  (hemis-index-project root t))
+
+(defun hemis-project-meta ()
+  "Display project metadata (indexing and AI analysis status)."
+  (interactive)
+  (let* ((root (or (hemis--project-root) default-directory))
+         (resp (hemis--request "hemis/project-meta"
+                               `((projectRoot . ,root)))))
+    (with-current-buffer (get-buffer-create "*Hemis Project*")
+      (setq buffer-read-only nil)
+      (erase-buffer)
+      (insert (format "Project: %s\n\n" root))
+      (insert (format "Indexed: %s\n"
+                      (if (alist-get 'indexed resp) "Yes" "No")))
+      (when (alist-get 'indexedAt resp)
+        (insert (format "  Last indexed: %s\n"
+                        (format-time-string "%Y-%m-%d %H:%M:%S"
+                                            (alist-get 'indexedAt resp)))))
+      (insert "\n")
+      (insert (format "AI Analysis: %s\n"
+                      (cond
+                       ((alist-get 'analyzed resp)
+                        (if (alist-get 'analysisStale resp)
+                            "Stale (commit changed)"
+                          "Up to date"))
+                       ((alist-get 'hasAnalysisFile resp)
+                        "Has file but not tracked")
+                       (t "Not analyzed"))))
+      (when (alist-get 'analysisProvider resp)
+        (insert (format "  Provider: %s\n" (alist-get 'analysisProvider resp))))
+      (insert "\n")
+      (insert (format "AI Available: %s\n"
+                      (if (alist-get 'aiAvailable resp) "Yes" "No")))
+      (goto-char (point-min))
+      (view-mode 1)
+      (display-buffer (current-buffer)))))
 
 (defun hemis-search-project (query)
   "Search QUERY in indexed files/notes for the current project and show results."
@@ -912,27 +966,55 @@ position tracking."
       (view-mode 1)
       (display-buffer (current-buffer)))))
 
-(defun hemis-explain-region (beg end)
-  "Request an explanation for the region from BEG to END."
-  (interactive "r")
+(defun hemis-explain-region (beg end &optional use-ai)
+  "Request an explanation for the region from BEG to END.
+With prefix arg or USE-AI non-nil, use AI to explain."
+  (interactive "r\nP")
   (unless (and (buffer-file-name) beg end)
     (user-error "No region or file to explain"))
   (let* ((file (buffer-file-name))
          (start-line (line-number-at-pos beg))
          (end-line (line-number-at-pos end))
-         (resp (hemis--request "hemis/explain-region"
-                               `((file . ,file)
-                                 (start . ((line . ,start-line) (column . 0)))
-                                 (end . ((line . ,end-line) (column . 0))))))
-         (text (alist-get 'content resp)))
+         (content (buffer-substring-no-properties (point-min) (point-max)))
+         (project-root (hemis--project-root))
+         (params `((file . ,file)
+                   (startLine . ,start-line)
+                   (endLine . ,end-line)
+                   (content . ,content)))
+         (_ (when project-root
+              (setq params (append params `((projectRoot . ,project-root))))))
+         (_ (when use-ai
+              (setq params (append params '((useAI . t))))))
+         (resp (hemis--request "hemis/explain-region" params))
+         (snippet (alist-get 'content resp))
+         (explanation (alist-get 'explanation resp))
+         (ai-info (alist-get 'ai resp)))
     (with-current-buffer (get-buffer-create "*Hemis Explain*")
       (setq buffer-read-only nil)
       (erase-buffer)
-      (insert (format "Explanation for %s:%d-%d\n\n%s"
-                      file start-line end-line text))
+      (insert (format "Explanation for %s:%d-%d\n" file start-line end-line))
+      (when ai-info
+        (let ((provider (alist-get 'provider ai-info))
+              (error-msg (alist-get 'error ai-info))
+              (had-context (alist-get 'hadContext ai-info)))
+          (if provider
+              (insert (format "[AI: %s%s]\n"
+                              provider
+                              (if had-context " + project context" "")))
+            (when error-msg
+              (insert (format "[AI error: %s]\n" error-msg))))))
+      (insert "\n")
+      (if explanation
+          (insert explanation)
+        (insert snippet))
       (goto-char (point-min))
       (view-mode 1)
       (display-buffer (current-buffer)))))
+
+(defun hemis-explain-region-ai (beg end)
+  "Request an AI-powered explanation for the region from BEG to END."
+  (interactive "r")
+  (hemis-explain-region beg end t))
 
 (defun hemis-save-snapshot (path)
   "Save a Hemis snapshot to PATH."

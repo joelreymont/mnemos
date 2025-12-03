@@ -393,7 +393,12 @@ end
 
 -- Index project
 function M.index_project()
-  notes.index_project()
+  notes.index_project(false)
+end
+
+-- Index project with AI analysis
+function M.index_project_ai()
+  notes.index_project(true)
 end
 
 -- Show status
@@ -628,7 +633,8 @@ function M.view_file()
 end
 
 -- Explain region (copy visual selection for LLM)
-function M.explain_region()
+-- If use_ai is true, will use AI to generate explanation
+function M.explain_region(use_ai)
   local start_pos = vim.fn.getpos("'<")
   local end_pos = vim.fn.getpos("'>")
   local start_line = start_pos[2]
@@ -641,19 +647,88 @@ function M.explain_region()
 
   local file = vim.fn.expand("%:p")
 
-  notes.explain_region(file, start_line, end_line, function(err, result)
+  notes.explain_region(file, start_line, end_line, use_ai, function(err, result)
     if err then
       vim.notify("Failed to explain region: " .. (err.message or "unknown"), vim.log.levels.ERROR)
       return
     end
 
-    -- Copy to clipboard
-    vim.fn.setreg("+", result.content or "")
-    vim.fn.setreg("*", result.content or "")
-    vim.notify(
-      string.format("Copied %d lines to clipboard (LLM-ready)", end_line - start_line + 1),
-      vim.log.levels.INFO
-    )
+    -- If AI explanation is available, show it in a buffer
+    if result.explanation then
+      local buf = vim.api.nvim_create_buf(false, true)
+      local lines = {}
+      table.insert(lines, string.format("Explanation for %s:%d-%d", file, start_line, end_line))
+      if result.ai then
+        local ai_info = result.ai
+        if ai_info.provider then
+          local suffix = ai_info.hadContext and " + project context" or ""
+          table.insert(lines, string.format("[AI: %s%s]", ai_info.provider, suffix))
+        elseif ai_info.error then
+          table.insert(lines, string.format("[AI error: %s]", ai_info.error))
+        end
+      end
+      table.insert(lines, "")
+      for line in result.explanation:gmatch("[^\n]+") do
+        table.insert(lines, line)
+      end
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+      vim.api.nvim_buf_set_option(buf, "modifiable", false)
+      vim.api.nvim_buf_set_option(buf, "filetype", "markdown")
+      vim.cmd("split")
+      vim.api.nvim_win_set_buf(0, buf)
+    else
+      -- Copy to clipboard (original behavior)
+      vim.fn.setreg("+", result.content or "")
+      vim.fn.setreg("*", result.content or "")
+      vim.notify(
+        string.format("Copied %d lines to clipboard (LLM-ready)", end_line - start_line + 1),
+        vim.log.levels.INFO
+      )
+    end
+  end)
+end
+
+-- Explain region with AI
+function M.explain_region_ai()
+  M.explain_region(true)
+end
+
+-- Show project metadata
+function M.project_meta()
+  notes.project_meta(function(err, result)
+    if err then
+      vim.notify("Failed to get project meta: " .. (err.message or "unknown"), vim.log.levels.ERROR)
+      return
+    end
+
+    local buf = vim.api.nvim_create_buf(false, true)
+    local lines = {}
+    table.insert(lines, string.format("Project: %s", result.projectRoot or "unknown"))
+    table.insert(lines, "")
+    table.insert(lines, string.format("Indexed: %s", result.indexed and "Yes" or "No"))
+    if result.indexedAt then
+      table.insert(lines, string.format("  Last indexed: %s", os.date("%Y-%m-%d %H:%M:%S", result.indexedAt)))
+    end
+    table.insert(lines, "")
+    local analysis_status
+    if result.analyzed then
+      analysis_status = result.analysisStale and "Stale (commit changed)" or "Up to date"
+    elseif result.hasAnalysisFile then
+      analysis_status = "Has file but not tracked"
+    else
+      analysis_status = "Not analyzed"
+    end
+    table.insert(lines, string.format("AI Analysis: %s", analysis_status))
+    if result.analysisProvider then
+      table.insert(lines, string.format("  Provider: %s", result.analysisProvider))
+    end
+    table.insert(lines, "")
+    table.insert(lines, string.format("AI Available: %s", result.aiAvailable and "Yes" or "No"))
+
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.api.nvim_buf_set_option(buf, "modifiable", false)
+    vim.cmd("split")
+    vim.api.nvim_win_set_buf(0, buf)
   end)
 end
 
@@ -730,6 +805,9 @@ function M.setup_commands()
   vim.api.nvim_create_user_command("HemisListFiles", M.list_files, {})
   vim.api.nvim_create_user_command("HemisViewFile", M.view_file, {})
   vim.api.nvim_create_user_command("HemisExplainRegion", M.explain_region, { range = true })
+  vim.api.nvim_create_user_command("HemisExplainRegionAI", M.explain_region_ai, { range = true })
+  vim.api.nvim_create_user_command("HemisIndexProjectAI", M.index_project_ai, {})
+  vim.api.nvim_create_user_command("HemisProjectMeta", M.project_meta, {})
   vim.api.nvim_create_user_command("HemisSaveSnapshot", M.save_snapshot, {})
   vim.api.nvim_create_user_command("HemisLoadSnapshot", M.load_snapshot, {})
 end
@@ -769,6 +847,7 @@ function M.setup_keymaps()
 
   -- Visual mode mapping for explain region
   vim.keymap.set("v", prefix .. "x", M.explain_region, { desc = "Hemis: Explain region" })
+  vim.keymap.set("v", prefix .. "X", M.explain_region_ai, { desc = "Hemis: Explain region (AI)" })
 end
 
 -- Debounce timer for buffer updates

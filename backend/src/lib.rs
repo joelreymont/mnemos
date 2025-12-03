@@ -18,6 +18,7 @@ pub struct FileInfo {
     pub size: u64,
 }
 
+pub mod ai_cli;
 pub mod preload;
 pub mod server;
 pub mod snapshot;
@@ -107,6 +108,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
         }
         "hemis/explain-region" => {
             let file = req.params.get("file").and_then(|v| v.as_str());
+            let project_root = req.params.get("projectRoot").and_then(|v| v.as_str());
             // Accept both nested format (start.line) and flat format (startLine)
             let start_line = req
                 .params
@@ -122,8 +124,20 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 .and_then(|v| v.as_u64())
                 .or_else(|| req.params.get("endLine").and_then(|v| v.as_u64()))
                 .unwrap_or(start_line as u64) as usize;
+            let use_ai = req
+                .params
+                .get("useAI")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let content_param = req.params.get("content").and_then(|v| v.as_str());
             if let Some(file) = file {
-                match fs::read_to_string(file) {
+                // Read content from param or file
+                let content_result = if let Some(c) = content_param {
+                    Ok(c.to_string())
+                } else {
+                    fs::read_to_string(file)
+                };
+                match content_result {
                     Ok(content) => {
                         let snippet: String = content
                             .lines()
@@ -135,12 +149,73 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                             .map(|(_, l)| l)
                             .collect::<Vec<_>>()
                             .join("\n");
-                        let resp = if snippet.is_empty() {
-                            json!({"content": "", "references": []})
+
+                        if snippet.is_empty() {
+                            return Response::result(id, json!({"content": "", "references": []}));
+                        }
+
+                        // If AI requested, try to get AI explanation
+                        if use_ai {
+                            // Find project root: param > git > file's parent dir
+                            let root_path = if let Some(pr) = project_root {
+                                Path::new(pr).to_path_buf()
+                            } else if let Some(git_root) = git::find_root(Path::new(file)) {
+                                Path::new(&git_root).to_path_buf()
+                            } else {
+                                Path::new(file)
+                                    .parent()
+                                    .unwrap_or(Path::new("."))
+                                    .to_path_buf()
+                            };
+
+                            // Check if project is indexed; auto-index if not
+                            let is_indexed = storage::get_project_meta(db, root_path.to_string_lossy().as_ref())
+                                .ok()
+                                .flatten()
+                                .map(|m| m.indexed_at.is_some())
+                                .unwrap_or(false);
+
+                            if !is_indexed {
+                                // Auto-index first (without AI analysis)
+                                if let Ok(files) = list_files(&root_path) {
+                                    for f in files {
+                                        if let Ok(fc) = fs::read_to_string(&f.file) {
+                                            let _ = idx::add_file(db, &f.file, root_path.to_string_lossy().as_ref(), &fc);
+                                        }
+                                    }
+                                    let commit = git::head_commit(&root_path);
+                                    let _ = storage::set_project_indexed(db, root_path.to_string_lossy().as_ref(), commit.as_deref());
+                                }
+                            }
+
+                            // Try AI explanation
+                            match ai_cli::explain_region(&root_path, file, start_line, end_line, &snippet) {
+                                Ok((provider, explanation, had_context)) => {
+                                    Response::result(id, json!({
+                                        "content": snippet,
+                                        "explanation": explanation,
+                                        "references": [],
+                                        "ai": {
+                                            "provider": provider.as_str(),
+                                            "hadContext": had_context
+                                        }
+                                    }))
+                                }
+                                Err(e) => {
+                                    // AI failed, return snippet with error info
+                                    Response::result(id, json!({
+                                        "content": snippet,
+                                        "references": [],
+                                        "ai": {
+                                            "error": e.to_string()
+                                        }
+                                    }))
+                                }
+                            }
                         } else {
-                            json!({"content": snippet, "references": []})
-                        };
-                        Response::result(id, resp)
+                            // No AI requested, just return snippet
+                            Response::result(id, json!({"content": snippet, "references": []}))
+                        }
                     }
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
@@ -206,6 +281,11 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             if let Some(root) = req.params.get("projectRoot").and_then(|v| v.as_str()) {
                 let mut indexed = 0;
                 let mut skipped = 0;
+                let include_ai = req
+                    .params
+                    .get("includeAI")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 match list_files(Path::new(root)) {
                     Ok(files) => {
                         for f in files {
@@ -217,10 +297,44 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                 }
                             }
                         }
-                        Response::result(
-                            id,
-                            json!({"ok": true, "indexed": indexed, "skipped": skipped, "projectRoot": root}),
-                        )
+                        // Update project_meta with indexing info
+                        let commit_sha = git::head_commit(Path::new(root));
+                        let _ = storage::set_project_indexed(db, root, commit_sha.as_deref());
+
+                        // Optionally run AI analysis
+                        let mut ai_result: Option<serde_json::Value> = None;
+                        if include_ai {
+                            match ai_cli::analyze_repo(Path::new(root)) {
+                                Ok(provider) => {
+                                    let _ = storage::set_project_analyzed(
+                                        db,
+                                        root,
+                                        commit_sha.as_deref(),
+                                        provider.as_str(),
+                                    );
+                                    ai_result = Some(json!({
+                                        "analyzed": true,
+                                        "provider": provider.as_str()
+                                    }));
+                                }
+                                Err(e) => {
+                                    ai_result = Some(json!({
+                                        "analyzed": false,
+                                        "error": e.to_string()
+                                    }));
+                                }
+                            }
+                        }
+                        let mut result = json!({
+                            "ok": true,
+                            "indexed": indexed,
+                            "skipped": skipped,
+                            "projectRoot": root
+                        });
+                        if let Some(ai) = ai_result {
+                            result["ai"] = ai;
+                        }
+                        Response::result(id, result)
                     }
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
@@ -279,6 +393,53 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     }),
                 ),
                 Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+            }
+        }
+        "hemis/project-meta" => {
+            if let Some(proj) = req.params.get("projectRoot").and_then(|v| v.as_str()) {
+                match storage::get_project_meta(db, proj) {
+                    Ok(Some(meta)) => {
+                        // Check if analysis is stale by comparing to current HEAD
+                        let current_commit = git::head_commit(Path::new(proj));
+                        let analysis_stale = meta.analysis_commit_sha.as_ref()
+                            .map(|sha| current_commit.as_ref() != Some(sha))
+                            .unwrap_or(true);
+                        let has_analysis = ai_cli::has_analysis(Path::new(proj));
+                        let ai_available = ai_cli::CliProvider::from_env().is_some();
+                        Response::result(id, json!({
+                            "projectRoot": proj,
+                            "indexed": meta.indexed_at.is_some(),
+                            "indexedAt": meta.indexed_at,
+                            "indexedCommit": meta.indexed_commit_sha,
+                            "analyzed": meta.analyzed_at.is_some(),
+                            "analyzedAt": meta.analyzed_at,
+                            "analysisCommit": meta.analysis_commit_sha,
+                            "analysisProvider": meta.analysis_provider,
+                            "analysisStale": analysis_stale,
+                            "hasAnalysisFile": has_analysis,
+                            "aiAvailable": ai_available,
+                            "currentCommit": current_commit
+                        }))
+                    }
+                    Ok(None) => {
+                        // Project not tracked yet
+                        let has_analysis = ai_cli::has_analysis(Path::new(proj));
+                        let ai_available = ai_cli::CliProvider::from_env().is_some();
+                        let current_commit = git::head_commit(Path::new(proj));
+                        Response::result(id, json!({
+                            "projectRoot": proj,
+                            "indexed": false,
+                            "analyzed": false,
+                            "analysisStale": true,
+                            "hasAnalysisFile": has_analysis,
+                            "aiAvailable": ai_available,
+                            "currentCommit": current_commit
+                        }))
+                    }
+                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                }
+            } else {
+                Response::error(id, INVALID_PARAMS, "missing projectRoot")
             }
         }
         "notes/list-for-file" => {

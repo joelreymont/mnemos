@@ -229,14 +229,27 @@ function M.index_file(callback)
 end
 
 -- Index project
-function M.index_project(callback)
+-- If include_ai is true, also run AI analysis
+function M.index_project(include_ai, callback)
   local root = get_project_root()
-  rpc.request("hemis/index-project", { projectRoot = root }, function(err, result)
+  local params = { projectRoot = root }
+  if include_ai then
+    params.includeAI = true
+  end
+  rpc.request("hemis/index-project", params, function(err, result)
     if callback then
       callback(err, result)
     end
     if not err and result then
-      vim.notify(string.format("Project indexed: %d files", result.indexed or 0), vim.log.levels.INFO)
+      local msg = string.format("Project indexed: %d files", result.indexed or 0)
+      if result.ai then
+        if result.ai.analyzed then
+          msg = msg .. string.format(", AI analyzed with %s", result.ai.provider or "?")
+        elseif result.ai.error then
+          msg = msg .. string.format(" (AI failed: %s)", result.ai.error)
+        end
+      end
+      vim.notify(msg, vim.log.levels.INFO)
     end
   end)
 end
@@ -274,12 +287,33 @@ function M.get_file(file, callback)
 end
 
 -- Explain region (for LLM context)
-function M.explain_region(file, start_line, end_line, callback)
-  rpc.request("hemis/explain-region", {
+-- If use_ai is true, will use AI to generate explanation
+function M.explain_region(file, start_line, end_line, use_ai, callback)
+  local bufnr = vim.fn.bufnr(file)
+  local content = nil
+  if bufnr ~= -1 then
+    local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+    content = table.concat(lines, "\n")
+  end
+  local params = {
     file = file,
     startLine = start_line,
     endLine = end_line,
-  }, callback)
+    projectRoot = get_project_root(),
+  }
+  if content then
+    params.content = content
+  end
+  if use_ai then
+    params.useAI = true
+  end
+  rpc.request("hemis/explain-region", params, callback)
+end
+
+-- Get project metadata (indexing and AI analysis status)
+function M.project_meta(callback)
+  local root = get_project_root()
+  rpc.request("hemis/project-meta", { projectRoot = root }, callback)
 end
 
 -- Save snapshot

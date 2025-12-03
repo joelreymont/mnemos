@@ -1980,3 +1980,755 @@ container-nodes = ["document", "object", "array"]
 
     Ok(())
 }
+
+// Test project-meta RPC returns correct state for unindexed project
+#[test]
+fn project_meta_returns_unindexed_state() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let tmpdir = tempfile::tempdir()?;
+    let project_root = tmpdir.path().to_string_lossy().to_string();
+
+    // Initialize git repo
+    git(tmpdir.path(), &["init"])?;
+    std::fs::write(tmpdir.path().join("test.rs"), "fn main() {}")?;
+    git(tmpdir.path(), &["add", "."])?;
+    git(tmpdir.path(), &["-c", "commit.gpgsign=false", "commit", "-m", "init"])?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/project-meta",
+        "params": {
+            "projectRoot": project_root
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("decode response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    let result = resp.result.expect("should have result");
+
+    // Project should not be indexed yet
+    assert_eq!(result.get("indexed").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(result.get("analyzed").and_then(|v| v.as_bool()), Some(false));
+    assert_eq!(result.get("analysisStale").and_then(|v| v.as_bool()), Some(true));
+
+    // Should have currentCommit since it's a git repo
+    assert!(result.get("currentCommit").is_some());
+
+    Ok(())
+}
+
+// Test index-project updates project_meta
+#[test]
+fn index_project_updates_project_meta() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let tmpdir = tempfile::tempdir()?;
+    let project_root = tmpdir.path().to_string_lossy().to_string();
+
+    // Initialize git repo with a file
+    git(tmpdir.path(), &["init"])?;
+    std::fs::write(tmpdir.path().join("lib.rs"), "pub fn hello() {}")?;
+    git(tmpdir.path(), &["add", "."])?;
+    git(tmpdir.path(), &["-c", "commit.gpgsign=false", "commit", "-m", "init"])?;
+
+    // Index the project (without AI), then check project-meta
+    let req_index = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/index-project",
+        "params": {
+            "projectRoot": project_root,
+            "includeAI": false
+        }
+    })
+    .to_string();
+
+    let req_meta = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "hemis/project-meta",
+        "params": {
+            "projectRoot": project_root
+        }
+    })
+    .to_string();
+
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        req_index.len(), req_index, req_meta.len(), req_meta
+    );
+
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    assert_eq!(bodies.len(), 2, "expected two responses");
+
+    let resp_index: Response = serde_json::from_slice(&bodies[0])?;
+    let resp_meta: Response = serde_json::from_slice(&bodies[1])?;
+
+    let result_index = resp_index.result.expect("should have result");
+    assert_eq!(result_index.get("ok").and_then(|v| v.as_bool()), Some(true));
+    assert!(result_index.get("indexed").and_then(|v| v.as_u64()).unwrap_or(0) >= 1);
+
+    let result_meta = resp_meta.result.expect("should have result");
+    assert_eq!(result_meta.get("indexed").and_then(|v| v.as_bool()), Some(true));
+    assert!(result_meta.get("indexedAt").and_then(|v| v.as_i64()).is_some());
+    assert!(result_meta.get("indexedCommit").and_then(|v| v.as_str()).is_some());
+
+    // AI should still be false since we didn't include it
+    assert_eq!(result_meta.get("analyzed").and_then(|v| v.as_bool()), Some(false));
+
+    Ok(())
+}
+
+// Test explain-region works without AI
+#[test]
+fn explain_region_without_ai_returns_snippet() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let tmpdir = tempfile::tempdir()?;
+    let file_path = tmpdir.path().join("test.rs");
+
+    let content = r#"fn main() {
+    println!("Hello");
+    println!("World");
+}
+"#;
+    std::fs::write(&file_path, content)?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/explain-region",
+        "params": {
+            "file": file_path.to_string_lossy(),
+            "startLine": 2,
+            "endLine": 3,
+            "useAI": false
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("decode response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    let result = resp.result.expect("should have result");
+
+    // Should return the snippet
+    let snippet = result.get("content").and_then(|v| v.as_str()).expect("should have content");
+    assert!(snippet.contains("println"));
+    assert!(snippet.contains("Hello"));
+    assert!(snippet.contains("World"));
+
+    // Should not have explanation when AI is disabled
+    assert!(result.get("explanation").is_none());
+    assert!(result.get("ai").is_none());
+
+    Ok(())
+}
+
+// Test explain-region with AI disabled in environment returns snippet only
+#[test]
+fn explain_region_with_ai_disabled_env() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let tmpdir = tempfile::tempdir()?;
+    let file_path = tmpdir.path().join("test.rs");
+
+    let content = "fn add(a: i32, b: i32) -> i32 { a + b }";
+    std::fs::write(&file_path, content)?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/explain-region",
+        "params": {
+            "file": file_path.to_string_lossy(),
+            "startLine": 1,
+            "endLine": 1,
+            "useAI": true
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+
+    // Run with HEMIS_AI_PROVIDER=none to disable AI
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .env("HEMIS_AI_PROVIDER", "none")
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("decode response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    let result = resp.result.expect("should have result");
+
+    // Should return the snippet
+    let snippet = result.get("content").and_then(|v| v.as_str()).expect("should have content");
+    assert!(snippet.contains("fn add"));
+
+    // Should have AI error since it was requested but disabled
+    let ai_info = result.get("ai");
+    assert!(ai_info.is_some());
+    let ai_error = ai_info.and_then(|a| a.get("error")).and_then(|v| v.as_str());
+    assert!(ai_error.is_some());
+    assert!(ai_error.unwrap().contains("no AI CLI available"));
+
+    Ok(())
+}
+
+// Test index-project with AI requested but disabled via env
+#[test]
+fn index_project_with_ai_disabled_env() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let tmpdir = tempfile::tempdir()?;
+    let project_root = tmpdir.path().to_string_lossy().to_string();
+
+    // Initialize git repo
+    git(tmpdir.path(), &["init"])?;
+    std::fs::write(tmpdir.path().join("main.rs"), "fn main() {}")?;
+    git(tmpdir.path(), &["add", "."])?;
+    git(tmpdir.path(), &["-c", "commit.gpgsign=false", "commit", "-m", "init"])?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/index-project",
+        "params": {
+            "projectRoot": project_root,
+            "includeAI": true
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+
+    // Run with HEMIS_AI_PROVIDER=none to disable AI
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .env("HEMIS_AI_PROVIDER", "none")
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("decode response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    let result = resp.result.expect("should have result");
+
+    // Indexing should still succeed
+    assert_eq!(result.get("ok").and_then(|v| v.as_bool()), Some(true));
+    assert!(result.get("indexed").and_then(|v| v.as_u64()).unwrap_or(0) >= 1);
+
+    // AI should have error
+    let ai_info = result.get("ai");
+    assert!(ai_info.is_some(), "should have ai info when includeAI requested");
+    let ai_error = ai_info.and_then(|a| a.get("error")).and_then(|v| v.as_str());
+    assert!(ai_error.is_some(), "should have ai error when disabled");
+
+    Ok(())
+}
+
+// Test explain-region reads from content param instead of disk
+#[test]
+fn explain_region_uses_content_param() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let tmpdir = tempfile::tempdir()?;
+    let file_path = tmpdir.path().join("test.rs");
+
+    // Write one thing to disk
+    std::fs::write(&file_path, "fn disk_version() {}")?;
+
+    // But send different content in the request
+    let buffer_content = "fn buffer_version() {\n    let x = 42;\n}\n";
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/explain-region",
+        "params": {
+            "file": file_path.to_string_lossy(),
+            "startLine": 1,
+            "endLine": 3,
+            "content": buffer_content,
+            "useAI": false
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("decode response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    let result = resp.result.expect("should have result");
+
+    // Should return buffer content, not disk content
+    let snippet = result.get("content").and_then(|v| v.as_str()).expect("should have content");
+    assert!(snippet.contains("buffer_version"), "should use content param");
+    assert!(snippet.contains("let x = 42"), "should have buffer content");
+    assert!(!snippet.contains("disk_version"), "should NOT have disk content");
+
+    Ok(())
+}
+
+// Test project-meta staleness detection after new commit
+#[test]
+fn project_meta_detects_staleness_after_commit() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let tmpdir = tempfile::tempdir()?;
+    let project_root = tmpdir.path().to_string_lossy().to_string();
+
+    // Initialize git repo and index
+    git(tmpdir.path(), &["init"])?;
+    std::fs::write(tmpdir.path().join("lib.rs"), "pub fn v1() {}")?;
+    git(tmpdir.path(), &["add", "."])?;
+    git(tmpdir.path(), &["-c", "commit.gpgsign=false", "commit", "-m", "v1"])?;
+
+    // Index the project
+    let req_index = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/index-project",
+        "params": { "projectRoot": project_root }
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_index.len(), req_index);
+    cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    // Check project-meta - should not be stale yet
+    let req_meta = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "hemis/project-meta",
+        "params": { "projectRoot": project_root }
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_meta.len(), req_meta);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("decode");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let meta1 = resp.result.expect("meta result");
+    assert_eq!(meta1.get("indexed").and_then(|v| v.as_bool()), Some(true));
+    let commit1 = meta1.get("indexedCommit").and_then(|v| v.as_str()).unwrap().to_string();
+
+    // Make a new commit
+    std::fs::write(tmpdir.path().join("lib.rs"), "pub fn v2() {}")?;
+    git(tmpdir.path(), &["add", "."])?;
+    git(tmpdir.path(), &["-c", "commit.gpgsign=false", "commit", "-m", "v2"])?;
+
+    // Check project-meta again - currentCommit should differ from indexedCommit
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_meta.len(), req_meta);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("decode");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let meta2 = resp.result.expect("meta result");
+
+    let current_commit = meta2.get("currentCommit").and_then(|v| v.as_str()).unwrap();
+    let indexed_commit = meta2.get("indexedCommit").and_then(|v| v.as_str()).unwrap();
+
+    assert_ne!(current_commit, indexed_commit, "commits should differ after new commit");
+    assert_eq!(indexed_commit, commit1, "indexedCommit should be unchanged");
+
+    Ok(())
+}
+
+// Test notes/get returns a single note by ID
+#[test]
+fn get_note_by_id() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+
+    // Create a note
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 10,
+            "column": 5,
+            "text": "Test note for get",
+            "tags": ["tag1", "tag2"]
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("create response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let note_id = resp
+        .result
+        .as_ref()
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .expect("note id")
+        .to_string();
+
+    // Get the note by ID
+    let req_get = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/get",
+        "params": { "id": note_id }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_get.len(), req_get);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("get response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    let note = resp.result.expect("should have result");
+    assert_eq!(note.get("id").and_then(|v| v.as_str()).unwrap(), note_id);
+    assert_eq!(note.get("text").and_then(|v| v.as_str()).unwrap(), "Test note for get");
+    assert_eq!(note.get("line").and_then(|v| v.as_i64()).unwrap(), 10);
+    assert_eq!(note.get("column").and_then(|v| v.as_i64()).unwrap(), 5);
+
+    Ok(())
+}
+
+// Test notes/get returns error for non-existent note
+#[test]
+fn get_note_not_found() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/get",
+        "params": { "id": "00000000-0000-0000-0000-000000000000" }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("get response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    assert!(resp.error.is_some(), "should return error for non-existent note");
+    assert!(resp.error.as_ref().unwrap().message.contains("not found"));
+
+    Ok(())
+}
+
+// Test notes/search finds notes by text
+#[test]
+fn search_notes_by_text() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let tmpdir = tempfile::tempdir()?;
+    let project_root = tmpdir.path().to_string_lossy().to_string();
+
+    // Create notes with different text
+    for (i, text) in ["apple pie recipe", "banana bread", "apple cider"].iter().enumerate() {
+        let req = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": i + 1,
+            "method": "notes/create",
+            "params": {
+                "file": format!("{}/test.rs", project_root),
+                "projectRoot": project_root,
+                "line": i + 1,
+                "column": 0,
+                "text": text,
+                "tags": []
+            }
+        })
+        .to_string();
+        let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+        cargo_bin_cmd!("hemis")
+            .env("HEMIS_DB_PATH", db.path())
+            .write_stdin(input)
+            .assert()
+            .success();
+    }
+
+    // Search for "apple"
+    let req_search = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "notes/search",
+        "params": {
+            "query": "apple",
+            "projectRoot": project_root
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_search.len(), req_search);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("search response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    let results = resp.result.as_ref().and_then(|v| v.as_array()).expect("search results");
+    assert_eq!(results.len(), 2, "should find 2 notes with 'apple'");
+
+    // Verify both apple notes are found
+    let texts: Vec<&str> = results
+        .iter()
+        .filter_map(|n| n.get("text").and_then(|v| v.as_str()))
+        .collect();
+    assert!(texts.iter().any(|t| t.contains("apple pie")));
+    assert!(texts.iter().any(|t| t.contains("apple cider")));
+
+    Ok(())
+}
+
+// Test hemis/status returns correct counts
+#[test]
+fn status_returns_counts() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let tmpdir = tempfile::tempdir()?;
+    let project_root = tmpdir.path().to_string_lossy().to_string();
+
+    // Create a note
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": format!("{}/test.rs", project_root),
+            "projectRoot": project_root,
+            "line": 1,
+            "column": 0,
+            "text": "Status test note",
+            "tags": []
+        }
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
+    cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    // Get status
+    let req_status = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "hemis/status",
+        "params": {}
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_status.len(), req_status);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("status response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    let result = resp.result.expect("should have result");
+    assert_eq!(result.get("ok").and_then(|v| v.as_bool()), Some(true));
+
+    let counts = result.get("counts").expect("should have counts");
+    assert!(counts.get("notes").and_then(|v| v.as_u64()).unwrap() >= 1);
+
+    Ok(())
+}
+
+// Test index/add-file indexes a single file
+#[test]
+fn index_add_file() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let tmpdir = tempfile::tempdir()?;
+    let file_path = tmpdir.path().join("indexed.rs");
+    let project_root = tmpdir.path().to_string_lossy().to_string();
+
+    let content = "fn indexed_function() { let x = 42; }";
+    std::fs::write(&file_path, content)?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "index/add-file",
+        "params": {
+            "file": file_path.to_string_lossy(),
+            "projectRoot": project_root,
+            "content": content
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("index response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    // Should succeed
+    assert!(resp.error.is_none(), "index/add-file should succeed");
+
+    // Now search for the indexed content
+    let req_search = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "index/search",
+        "params": {
+            "query": "indexed_function"
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_search.len(), req_search);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("search response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    let results = resp.result.as_ref().and_then(|v| v.as_array()).expect("search results");
+    assert!(!results.is_empty(), "should find indexed file");
+
+    Ok(())
+}
+
+// Test hemis/open-project initializes project root
+#[test]
+fn open_project_succeeds() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let tmpdir = tempfile::tempdir()?;
+    let project_root = tmpdir.path().to_string_lossy().to_string();
+
+    // Initialize git repo
+    git(tmpdir.path(), &["init"])?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/open-project",
+        "params": {
+            "projectRoot": project_root
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("open-project response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    let result = resp.result.expect("should have result");
+    assert_eq!(result.get("ok").and_then(|v| v.as_bool()), Some(true));
+
+    Ok(())
+}
+
+// Test hemis/open-project fails without projectRoot param
+#[test]
+fn open_project_requires_root() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/open-project",
+        "params": {}
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("open-project response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    assert!(resp.error.is_some(), "should error without projectRoot");
+    assert!(resp.error.as_ref().unwrap().message.contains("projectRoot"));
+
+    Ok(())
+}

@@ -7,6 +7,7 @@ import {
   listNotes,
   indexFile,
   indexProject,
+  indexProjectWithAI,
   search,
   getStatus,
   getBacklinks,
@@ -18,6 +19,7 @@ import {
   loadSnapshot,
   getNoteAtCursor,
   getProjectRoot,
+  getProjectMeta,
   Note,
   SearchHit,
   FileInfo,
@@ -572,6 +574,159 @@ export async function explainRegionCommand(): Promise<void> {
   }
 }
 
+export async function explainRegionAICommand(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    vscode.window.showErrorMessage('No active editor');
+    return;
+  }
+
+  const selection = editor.selection;
+  if (selection.isEmpty) {
+    vscode.window.showInformationMessage('Select a region first');
+    return;
+  }
+
+  const file = editor.document.uri.fsPath;
+  const startLine = selection.start.line + 1;
+  const endLine = selection.end.line + 1;
+  const content = editor.document.getText();
+  const projectRoot = getProjectRoot();
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: 'Getting AI explanation...',
+      cancellable: false,
+    },
+    async () => {
+      try {
+        const result = await explainRegion(file, startLine, endLine, true, content, projectRoot || undefined);
+
+        if (result.explanation) {
+          // Show in a document
+          const lines = [
+            `# Explanation for ${path.basename(file)}:${startLine}-${endLine}`,
+            '',
+          ];
+
+          if (result.ai) {
+            if (result.ai.provider) {
+              const suffix = result.ai.hadContext ? ' + project context' : '';
+              lines.push(`*[AI: ${result.ai.provider}${suffix}]*`);
+            } else if (result.ai.error) {
+              lines.push(`*[AI error: ${result.ai.error}]*`);
+            }
+            lines.push('');
+          }
+
+          lines.push(result.explanation);
+
+          const doc = await vscode.workspace.openTextDocument({
+            content: lines.join('\n'),
+            language: 'markdown',
+          });
+          await vscode.window.showTextDocument(doc, { preview: true });
+        } else {
+          // Fall back to clipboard
+          await vscode.env.clipboard.writeText(result.content);
+          let msg = `Copied ${endLine - startLine + 1} lines to clipboard`;
+          if (result.ai?.error) {
+            msg += ` (AI failed: ${result.ai.error})`;
+          }
+          vscode.window.showInformationMessage(msg);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`Failed to explain region: ${message}`);
+      }
+    }
+  );
+}
+
+export async function indexProjectAICommand(): Promise<void> {
+  const projectRoot = getProjectRoot();
+  if (!projectRoot) {
+    vscode.window.showErrorMessage('No workspace folder open');
+    return;
+  }
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: 'Indexing project with AI analysis...',
+      cancellable: false,
+    },
+    async () => {
+      try {
+        const result = await indexProjectWithAI(projectRoot, true);
+        let msg = `Indexed ${result.indexed} files`;
+        if (result.ai) {
+          if (result.ai.analyzed) {
+            msg += `, analyzed with ${result.ai.provider}`;
+          } else if (result.ai.error) {
+            msg += ` (AI failed: ${result.ai.error})`;
+          }
+        }
+        vscode.window.showInformationMessage(msg);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`Failed to index project: ${message}`);
+      }
+    }
+  );
+}
+
+export async function projectMetaCommand(): Promise<void> {
+  const projectRoot = getProjectRoot();
+  if (!projectRoot) {
+    vscode.window.showErrorMessage('No workspace folder open');
+    return;
+  }
+
+  try {
+    const meta = await getProjectMeta(projectRoot);
+
+    const lines = [
+      `# Project: ${meta.projectRoot}`,
+      '',
+      `**Indexed:** ${meta.indexed ? 'Yes' : 'No'}`,
+    ];
+
+    if (meta.indexedAt) {
+      lines.push(`  - Last indexed: ${new Date(meta.indexedAt * 1000).toLocaleString()}`);
+    }
+
+    lines.push('');
+
+    let analysisStatus: string;
+    if (meta.analyzed) {
+      analysisStatus = meta.analysisStale ? 'Stale (commit changed)' : 'Up to date';
+    } else if (meta.hasAnalysisFile) {
+      analysisStatus = 'Has file but not tracked';
+    } else {
+      analysisStatus = 'Not analyzed';
+    }
+
+    lines.push(`**AI Analysis:** ${analysisStatus}`);
+    if (meta.analysisProvider) {
+      lines.push(`  - Provider: ${meta.analysisProvider}`);
+    }
+
+    lines.push('');
+    lines.push(`**AI Available:** ${meta.aiAvailable ? 'Yes' : 'No'}`);
+
+    const doc = await vscode.workspace.openTextDocument({
+      content: lines.join('\n'),
+      language: 'markdown',
+    });
+    await vscode.window.showTextDocument(doc, { preview: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`Failed to get project meta: ${message}`);
+  }
+}
+
 export async function saveSnapshotCommand(): Promise<void> {
   const uri = await vscode.window.showSaveDialog({
     defaultUri: vscode.Uri.file('hemis-snapshot.json'),
@@ -645,9 +800,11 @@ export function registerCommands(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('hemis.listNotes', listNotesCommand),
     vscode.commands.registerCommand('hemis.indexFile', indexFileCommand),
     vscode.commands.registerCommand('hemis.indexProject', indexProjectCommand),
+    vscode.commands.registerCommand('hemis.indexProjectAI', indexProjectAICommand),
     vscode.commands.registerCommand('hemis.search', searchCommand),
     vscode.commands.registerCommand('hemis.insertLink', insertLinkCommand),
     vscode.commands.registerCommand('hemis.status', statusCommand),
+    vscode.commands.registerCommand('hemis.projectMeta', projectMetaCommand),
     vscode.commands.registerCommand('hemis.backlinks', backlinksCommand),
     vscode.commands.registerCommand('hemis.viewNote', viewNoteCommand),
     vscode.commands.registerCommand('hemis.help', helpCommand),
@@ -655,6 +812,7 @@ export function registerCommands(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('hemis.listFiles', listFilesCommand),
     vscode.commands.registerCommand('hemis.viewFile', viewFileCommand),
     vscode.commands.registerCommand('hemis.explainRegion', explainRegionCommand),
+    vscode.commands.registerCommand('hemis.explainRegionAI', explainRegionAICommand),
     vscode.commands.registerCommand('hemis.saveSnapshot', saveSnapshotCommand),
     vscode.commands.registerCommand('hemis.loadSnapshot', loadSnapshotCommand)
   );
