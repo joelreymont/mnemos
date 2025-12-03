@@ -133,25 +133,20 @@
       (should (stringp (car path)))
       (should (string= (car path) node-type)))))
 
-(ert-deftest hemis-add-note-sends-node-path ()
-  (skip-unless (and (fboundp 'rust-ts-mode)
-                    (fboundp 'treesit-node-at)))
+(ert-deftest hemis-add-note-sends-content ()
+  ;; Server-side tree-sitter: add-note now sends buffer content
+  ;; so server can compute nodeTextHash and nodePath
   (hemis-test-with-mocked-backend
     (with-temp-buffer
       (insert "fn add(x: i32, y: i32) -> i32 {\n    x + y\n}\n")
       (set-visited-file-name "/tmp/add.rs" t t)
-      (unless (hemis--ensure-rust-grammar t)
-        (ert-skip "Rust Tree-sitter grammar unavailable"))
-      (rust-ts-mode)
-      (unless (hemis--treesit-available-p)
-        (ert-skip "Rust Tree-sitter not ready"))
       (goto-char (point-min))
       (search-forward "add")
       (hemis-add-note "test note")
       (should (equal hemis-test-last-method "notes/create"))
-        (let ((node-path (cdr (assoc 'nodePath hemis-test-last-params))))
-          (should (sequencep node-path))
-          (should (stringp (elt node-path 0)))))))
+      (let ((content (cdr (assoc 'content hemis-test-last-params))))
+        (should (stringp content))
+        (should (string-match-p "fn add" content))))))
 
 (ert-deftest hemis-add-note-allows-multiline ()
   (hemis-test-with-mocked-backend

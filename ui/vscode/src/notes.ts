@@ -11,6 +11,8 @@ export interface Note {
   commit?: string;
   blob?: string;
   stale?: boolean;
+  displayLine?: number; // Server-computed display position
+  computedStale?: boolean; // Server-computed staleness
   createdAt: string;
   updatedAt: string;
 }
@@ -21,7 +23,8 @@ export interface CreateNoteParams {
   line: number;
   column: number;
   text: string;
-  nodePath: string[];
+  content?: string; // Buffer content for server-side hash computation
+  nodePath?: string[]; // Optional fallback if content not provided
 }
 
 export interface UpdateNoteParams {
@@ -49,9 +52,14 @@ export async function deleteNote(id: string): Promise<void> {
   await client.request<void>('notes/delete', { id });
 }
 
-export async function listNotes(file: string, projectRoot: string, includeStale = true): Promise<Note[]> {
+export async function listNotes(
+  file: string,
+  projectRoot: string,
+  includeStale = true,
+  content?: string
+): Promise<Note[]> {
   const client = getRpcClient();
-  return client.request<Note[]>('notes/list-for-file', { file, projectRoot, includeStale });
+  return client.request<Note[]>('notes/list-for-file', { file, projectRoot, includeStale, content });
 }
 
 export async function listNotesByNode(
@@ -166,6 +174,12 @@ export async function loadSnapshot(path: string): Promise<SnapshotResult> {
   return client.request<SnapshotResult>('hemis/load-snapshot', { path });
 }
 
+// Send buffer update for real-time position tracking
+export async function bufferUpdate(file: string, content: string): Promise<Note[]> {
+  const client = getRpcClient();
+  return client.request<Note[]>('notes/buffer-update', { file, content });
+}
+
 // Helper to get project root from workspace
 export function getProjectRoot(): string | null {
   const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -184,16 +198,19 @@ export async function getNoteAtCursor(
   const file = document.uri.fsPath;
   const line = position.line + 1; // 1-indexed
   const projectRoot = getProjectRoot();
+  const content = document.getText();
 
   if (!projectRoot) {
     return null;
   }
 
-  const notes = await listNotes(file, projectRoot);
+  // Send content so server computes displayLine
+  const notes = await listNotes(file, projectRoot, true, content);
 
-  // Find note closest to cursor line
+  // Find note at cursor line using displayLine (server-computed) or stored line
   for (const note of notes) {
-    if (note.line === line) {
+    const displayLine = note.displayLine ?? note.line;
+    if (displayLine === line) {
       return note;
     }
   }

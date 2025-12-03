@@ -77,11 +77,16 @@ export function renderNotes(editor: vscode.TextEditor, notes: Note[]): void {
   const staleDecorations: vscode.DecorationOptions[] = [];
 
   for (const note of notes) {
-    const line = Math.max(0, note.line - 1); // Convert to 0-indexed
+    // Use server-computed displayLine when available, otherwise stored line
+    const displayLine = note.displayLine ?? note.line;
+    const line = Math.max(0, displayLine - 1); // Convert to 0-indexed
     const range = new vscode.Range(line, 0, line, 0);
 
-    const text = formatNoteText(note, languageId, config.displayStyle);
-    const color = note.stale ? '#808080' : '#4682B4';
+    // Use server-computed staleness when available
+    const isStale = note.computedStale ?? note.stale ?? false;
+
+    const text = formatNoteText({ ...note, stale: isStale }, languageId, config.displayStyle);
+    const color = isStale ? '#808080' : '#4682B4';
 
     const decoration: vscode.DecorationOptions = {
       range,
@@ -94,11 +99,11 @@ export function renderNotes(editor: vscode.TextEditor, notes: Note[]): void {
         },
       },
       hoverMessage: new vscode.MarkdownString(
-        `**Note** (${note.id.substring(0, 8)})${note.stale ? ' [STALE]' : ''}\n\n${note.text}`
+        `**Note** (${note.id.substring(0, 8)})${isStale ? ' [STALE]' : ''}\n\n${note.text}`
       ),
     };
 
-    if (note.stale) {
+    if (isStale) {
       staleDecorations.push(decoration);
     } else {
       decorations.push(decoration);
@@ -121,6 +126,7 @@ export function clearNotes(editor: vscode.TextEditor): void {
 export async function refreshNotes(editor: vscode.TextEditor): Promise<void> {
   const file = editor.document.uri.fsPath;
   const projectRoot = getProjectRoot();
+  const content = editor.document.getText();
 
   if (!projectRoot) {
     clearNotes(editor);
@@ -128,7 +134,8 @@ export async function refreshNotes(editor: vscode.TextEditor): Promise<void> {
   }
 
   try {
-    const notes = await listNotes(file, projectRoot);
+    // Send content so server computes displayLine positions
+    const notes = await listNotes(file, projectRoot, true, content);
     renderNotes(editor, notes);
   } catch (err) {
     // Backend might not be running, silently ignore

@@ -645,9 +645,12 @@ RET inserts a newline; use C-c C-c to finish or C-c C-k to cancel."
 
 (defun hemis--make-note-overlay (note)
   "Create an overlay in the current buffer from NOTE.
-NOTE is an alist or plist parsed from JSON, keys like :id, :line, :column, :summary."
+NOTE is an alist or plist parsed from JSON, keys like :id, :line, :column, :summary.
+When server provides displayLine, use that instead of stored line."
   (let* ((id     (hemis--note-get note 'id))
-         (line   (hemis--note-get note 'line))
+         ;; Prefer server-computed displayLine when available
+         (line   (or (hemis--note-get note 'displayLine)
+                     (hemis--note-get note 'line)))
          (col    (or (hemis--note-get note 'column) 0))
          (text   (or (hemis--note-text note) "Note"))
          (pos (hemis--anchor-position line col))
@@ -725,8 +728,14 @@ NOTES is a list of note objects (alist/plist) from the backend."
             (project-root proj)
           (error nil)))))
 
-(defun hemis--buffer-params ()
-  "Return an alist describing the current buffer for the backend."
+(defun hemis--buffer-content ()
+  "Return the current buffer content as a string."
+  (buffer-substring-no-properties (point-min) (point-max)))
+
+(defun hemis--buffer-params (&optional include-content)
+  "Return an alist describing the current buffer for the backend.
+When INCLUDE-CONTENT is non-nil, include buffer content for server-side
+position tracking."
   (let* ((file (or (buffer-file-name) (buffer-name)))
          (root (or (hemis--project-root) default-directory))
          (git (and (buffer-file-name) (hemis--git-info (buffer-file-name)))))
@@ -734,7 +743,9 @@ NOTES is a list of note objects (alist/plist) from the backend."
       (projectRoot . ,root)
       ,@(when git
           `((commit . ,(alist-get 'commit git))
-            (blob . ,(alist-get 'blob git)))))))
+            (blob . ,(alist-get 'blob git))))
+      ,@(when include-content
+          `((content . ,(hemis--buffer-content)))))))
 
 (defun hemis-index-file (&optional file)
   "Send the current FILE (or current buffer) to the backend index."
@@ -947,10 +958,11 @@ NOTES is a list of note objects (alist/plist) from the backend."
       (display-buffer buf))))
 
 (defun hemis-refresh-notes ()
-  "Fetch and render all notes for the current buffer."
+  "Fetch and render all notes for the current buffer.
+Sends buffer content so server can compute displayLine positions."
   (interactive)
   (when (buffer-file-name)
-    (let* ((params (append (hemis--buffer-params) '((includeStale . t))))
+    (let* ((params (append (hemis--buffer-params t) '((includeStale . t))))
            (notes  (let ((r (hemis--request "notes/list-for-file" params)))
                      (if (vectorp r) (append r nil) r))))
       (hemis--apply-notes notes)
@@ -975,20 +987,17 @@ NOTES is a list of note objects (alist/plist) from the backend."
       (message "Hemis: %d notes loaded." (length notes)))))
 
 (defun hemis-add-note (text &optional tags)
-  "Create a new Hemis note at point with TEXT and optional TAGS list."
+  "Create a new Hemis note at point with TEXT and optional TAGS list.
+Sends buffer content so server can compute nodeTextHash."
   (interactive
    (let ((note-text (hemis--read-note-text)))
      (list (or note-text (user-error "Note entry canceled")))))
   (let* ((anchor (hemis--note-anchor))
-         (node-path (hemis--node-path-at-point))
-         (node-path-json (when (and node-path (> (length node-path) 0))
-                           (vconcat node-path)))
-         (params (append (hemis--buffer-params)
+         (params (append (hemis--buffer-params t) ; include content
                          `((line . ,(plist-get anchor :line))
                            (column . ,(plist-get anchor :column))
                            (text . ,text)
-                           (tags . ,tags)
-                           (nodePath . ,node-path-json))))
+                           (tags . ,tags))))
          (note   (hemis--request "notes/create" params)))
     (hemis--make-note-overlay note)
     (message "Hemis: note created.")
