@@ -19,7 +19,7 @@ expression: responses
     "result": [
       {
         "column": 3,
-        "file": "/tmp/foo.rs",
+        "file": "/private/tmp/foo.rs",
         "kind": "file",
         "line": 1,
         "score": 1.0,

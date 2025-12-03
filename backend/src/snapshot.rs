@@ -133,10 +133,17 @@ pub fn restore(conn: &Connection, snapshot: &serde_json::Value) -> Result<serde_
         // Clear project_meta to avoid stale indexing/analysis timestamps
         exec(conn, "DELETE FROM project_meta;", &[])?;
         if let Some(notes) = snapshot.get("notes").and_then(|v| v.as_array()) {
-            for n in notes {
-                let id = n.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                let file = n.get("file").and_then(|v| v.as_str()).unwrap_or("");
-                let proj = n.get("projectRoot").and_then(|v| v.as_str()).unwrap_or("");
+            for (i, n) in notes.iter().enumerate() {
+                // Validate required fields to prevent silent data corruption
+                let id = n.get("id").and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("snapshot note[{}] missing required field: id", i))?;
+                let file = n.get("file").and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("snapshot note[{}] missing required field: file", i))?;
+                let proj = n.get("projectRoot").and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("snapshot note[{}] missing required field: projectRoot", i))?;
+                if id.is_empty() {
+                    return Err(anyhow::anyhow!("snapshot note[{}] has empty id", i));
+                }
                 let line = n.get("line").and_then(|v| v.as_i64()).unwrap_or(1);
                 let column = n.get("column").and_then(|v| v.as_i64()).unwrap_or(0);
                 let node_path = n.get("nodePath").and_then(|v| v.as_str());
@@ -160,9 +167,11 @@ pub fn restore(conn: &Connection, snapshot: &serde_json::Value) -> Result<serde_
             }
         }
         if let Some(files) = snapshot.get("files").and_then(|v| v.as_array()) {
-            for f in files {
-                let file = f.get("file").and_then(|v| v.as_str()).unwrap_or("");
-                let proj = f.get("projectRoot").and_then(|v| v.as_str()).unwrap_or("");
+            for (i, f) in files.iter().enumerate() {
+                let file = f.get("file").and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("snapshot file[{}] missing required field: file", i))?;
+                let proj = f.get("projectRoot").and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("snapshot file[{}] missing required field: projectRoot", i))?;
                 let content = f.get("content").and_then(|v| v.as_str()).unwrap_or("");
                 let updated_at = f
                     .get("updatedAt")
@@ -176,9 +185,11 @@ pub fn restore(conn: &Connection, snapshot: &serde_json::Value) -> Result<serde_
             }
         }
         if let Some(embs) = snapshot.get("embeddings").and_then(|v| v.as_array()) {
-            for e in embs {
-                let file = e.get("file").and_then(|v| v.as_str()).unwrap_or("");
-                let proj = e.get("projectRoot").and_then(|v| v.as_str()).unwrap_or("");
+            for (i, e) in embs.iter().enumerate() {
+                let file = e.get("file").and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("snapshot embedding[{}] missing required field: file", i))?;
+                let proj = e.get("projectRoot").and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("snapshot embedding[{}] missing required field: projectRoot", i))?;
                 let vector = e
                     .get("vector")
                     .map(|v| v.to_string())
@@ -194,11 +205,14 @@ pub fn restore(conn: &Connection, snapshot: &serde_json::Value) -> Result<serde_
             }
         }
         if let Some(edges) = snapshot.get("edges").and_then(|v| v.as_array()) {
-            for e in edges {
-                let src = e.get("src").and_then(|v| v.as_str()).unwrap_or("");
-                let dst = e.get("dst").and_then(|v| v.as_str()).unwrap_or("");
-                let kind = e.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-                let proj = e.get("projectRoot").and_then(|v| v.as_str()).unwrap_or("");
+            for (i, e) in edges.iter().enumerate() {
+                let src = e.get("src").and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("snapshot edge[{}] missing required field: src", i))?;
+                let dst = e.get("dst").and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("snapshot edge[{}] missing required field: dst", i))?;
+                let kind = e.get("kind").and_then(|v| v.as_str()).unwrap_or("link");
+                let proj = e.get("projectRoot").and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("snapshot edge[{}] missing required field: projectRoot", i))?;
                 let updated_at = e
                     .get("updatedAt")
                     .and_then(|v| v.as_i64())

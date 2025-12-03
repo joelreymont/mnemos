@@ -28,8 +28,8 @@ pub enum FileChangeKind {
     Deleted,
 }
 
-/// Callback type for file change notifications
-pub type ChangeCallback = Box<dyn Fn(FileChange) + Send + Sync>;
+/// Callback type for file change notifications (Arc for cloning across threads)
+pub type ChangeCallback = Arc<dyn Fn(FileChange) + Send + Sync>;
 
 /// File watcher that monitors directories for external changes.
 pub struct FileWatcher {
@@ -108,10 +108,18 @@ impl FileWatcher {
 
                 // Notify callbacks
                 if !ready_changes.is_empty() {
-                    let callbacks = callbacks_for_processor.lock().unwrap();
+                    // Clone callbacks to release lock before invoking (prevents blocking registration)
+                    let callbacks: Vec<_> = {
+                        let guard = callbacks_for_processor.lock().unwrap();
+                        guard.clone()
+                    };
                     for change in ready_changes {
-                        for callback in callbacks.iter() {
-                            callback(change.clone());
+                        for callback in &callbacks {
+                            // Use catch_unwind to prevent panics from poisoning the mutex
+                            let change_clone = change.clone();
+                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                callback(change_clone);
+                            }));
                         }
                     }
                 }
@@ -198,7 +206,7 @@ mod tests {
         watcher.watch(dir.path()).unwrap();
 
         let (tx, rx) = channel();
-        watcher.on_change(Box::new(move |change| {
+        watcher.on_change(Arc::new(move |change| {
             let _ = tx.send(change);
         }));
 

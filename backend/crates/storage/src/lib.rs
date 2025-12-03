@@ -227,7 +227,27 @@ fn create_fts_tables(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Allowed table names for schema migrations (whitelist to prevent SQL injection)
+const ALLOWED_TABLES: &[&str] = &["notes", "files", "embeddings", "edges", "project_meta"];
+
+/// Allowed column types for schema migrations
+const ALLOWED_TYPES: &[&str] = &["TEXT", "INTEGER", "REAL", "BLOB"];
+
 fn ensure_column(conn: &Connection, table: &str, column: &str, ty: &str) -> Result<()> {
+    // Validate table name against whitelist to prevent SQL injection
+    if !ALLOWED_TABLES.contains(&table) {
+        return Err(anyhow::anyhow!("invalid table name: {}", table));
+    }
+    // Validate column name: alphanumeric and underscores only
+    if !column.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(anyhow::anyhow!("invalid column name: {}", column));
+    }
+    // Validate type against whitelist
+    let ty_upper = ty.to_uppercase();
+    if !ALLOWED_TYPES.contains(&ty_upper.as_str()) {
+        return Err(anyhow::anyhow!("invalid column type: {}", ty));
+    }
+
     let mut stmt = conn.prepare(&format!("PRAGMA table_info({});", table))?;
     let cols = stmt.query_map([], |row| row.get::<_, String>(1))?;
     let mut present = false;
@@ -239,7 +259,7 @@ fn ensure_column(conn: &Connection, table: &str, column: &str, ty: &str) -> Resu
     }
     if !present {
         conn.execute(
-            &format!("ALTER TABLE {} ADD COLUMN {} {};", table, column, ty),
+            &format!("ALTER TABLE {} ADD COLUMN {} {};", table, column, ty_upper),
             [],
         )?;
     }
@@ -264,12 +284,10 @@ where
     F: Fn(&rusqlite::Row<'_>) -> Result<T>,
 {
     let mut stmt = conn.prepare(sql)?;
-    let rows = stmt.query_map(params, |row| {
-        map(row).map_err(|_e| rusqlite::Error::ExecuteReturnedResults)
-    })?;
+    let mut rows = stmt.query(params)?;
     let mut out = Vec::new();
-    for r in rows {
-        out.push(r?);
+    while let Some(row) = rows.next()? {
+        out.push(map(row)?);
     }
     Ok(out)
 }
@@ -287,7 +305,10 @@ where
             Ok(result)
         }
         Err(e) => {
-            let _ = conn.execute("ROLLBACK", []);
+            // Log rollback failure but still return the original error
+            if let Err(rollback_err) = conn.execute("ROLLBACK", []) {
+                eprintln!("Warning: ROLLBACK failed after error: {}", rollback_err);
+            }
             Err(e)
         }
     }

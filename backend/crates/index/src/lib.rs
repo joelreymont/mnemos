@@ -9,6 +9,16 @@ use std::collections::BinaryHeap;
 use std::env;
 use storage::{exec, now_unix};
 
+/// Validate that a vector contains only finite values (no NaN or Infinity).
+fn validate_vector(v: &[f32]) -> Result<()> {
+    for (i, &val) in v.iter().enumerate() {
+        if !val.is_finite() {
+            return Err(anyhow!("vector contains non-finite value at index {}: {}", i, val));
+        }
+    }
+    Ok(())
+}
+
 fn content_hash(content: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
@@ -84,6 +94,8 @@ fn call_embedder(text: &str) -> Result<Vec<f32>> {
             .map_err(|e| anyhow!("embed request failed: {e}"))?
             .json()
             .map_err(|e| anyhow!("embed decode failed: {e}"))?;
+        // Validate vector from external embedder
+        validate_vector(&resp.vector)?;
         return Ok(resp.vector);
     }
     Ok(vec![text.len() as f32, 1.0])
@@ -351,6 +363,9 @@ pub fn semantic_search(
     project_root: Option<&str>,
     top_k: usize,
 ) -> Result<Vec<SearchHit>> {
+    // Validate query vector
+    validate_vector(query_vector)?;
+
     // Pre-compute query binary hash for fast candidate filtering
     let query_hash = binary_hash(query_vector);
     let query_norm = norm(query_vector);
@@ -405,7 +420,14 @@ pub fn semantic_search(
 
         // Passed filters - compute exact dot product
         let vector_str: String = row.get("vector")?;
-        let vector: Vec<f32> = serde_json::from_str(&vector_str).unwrap_or_default();
+        let vector: Vec<f32> = match serde_json::from_str(&vector_str) {
+            Ok(v) => v,
+            Err(_) => continue, // Skip malformed vectors
+        };
+        // Skip vectors with non-finite values (NaN/Infinity from corrupted data)
+        if validate_vector(&vector).is_err() {
+            continue;
+        }
         let score = dot(&vector, query_vector);
 
         let hit = SearchHit {

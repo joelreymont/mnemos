@@ -241,6 +241,9 @@ Keep the explanation focused and practical. Output plain text only.
     Ok((provider, explanation.trim().to_string(), has_analysis))
 }
 
+/// Timeout for AI CLI subprocess execution (5 minutes)
+const AI_CLI_TIMEOUT_SECS: u64 = 300;
+
 /// Helper: run Codex CLI with a prompt in the given project root.
 fn run_codex(project_root: &Path, prompt: &str) -> Result<String> {
     // Create unique temp file for output since codex prints progress/diagnostics to stdout
@@ -250,7 +253,7 @@ fn run_codex(project_root: &Path, prompt: &str) -> Result<String> {
 
     // codex exec <prompt> --output-last-message <file>
     // The prompt is passed as a positional argument, not with -p (that's for profile)
-    let output = Command::new("codex")
+    let mut child = Command::new("codex")
         .arg("exec")
         .arg("--skip-git-repo-check")
         .arg("--sandbox")
@@ -259,19 +262,40 @@ fn run_codex(project_root: &Path, prompt: &str) -> Result<String> {
         .arg(&output_path)
         .arg(prompt)
         .current_dir(project_root)
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .with_context(|| "failed to spawn `codex` CLI")?;
+
+    // Wait with timeout
+    let start = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if start.elapsed().as_secs() > AI_CLI_TIMEOUT_SECS {
+                    let _ = child.kill();
+                    let _ = std::fs::remove_file(&output_path);
+                    return Err(anyhow!("codex CLI timed out after {} seconds", AI_CLI_TIMEOUT_SECS));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(e) => {
+                let _ = std::fs::remove_file(&output_path);
+                return Err(anyhow!("failed to wait for codex CLI: {}", e));
+            }
+        }
+    };
 
     // Read output before checking status (file may exist even on failure)
     let result = std::fs::read_to_string(&output_path);
     // Clean up temp file
     let _ = std::fs::remove_file(&output_path);
 
-    if !output.status.success() {
+    if !status.success() {
         return Err(anyhow!(
-            "`codex exec` failed with status {:?}: {}",
-            output.status.code(),
-            String::from_utf8_lossy(&output.stderr)
+            "`codex exec` failed with status {:?}",
+            status.code(),
         ));
     }
 
@@ -280,22 +304,50 @@ fn run_codex(project_root: &Path, prompt: &str) -> Result<String> {
 
 /// Helper: run Claude Code CLI with a prompt in the given project root.
 fn run_claude(project_root: &Path, prompt: &str) -> Result<String> {
-    let output = Command::new("claude")
+    let mut child = Command::new("claude")
         .arg("-p")
         .arg(prompt)
         .current_dir(project_root)
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .with_context(|| "failed to spawn `claude` CLI")?;
 
-    if !output.status.success() {
+    // Wait with timeout
+    let start = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if start.elapsed().as_secs() > AI_CLI_TIMEOUT_SECS {
+                    let _ = child.kill();
+                    return Err(anyhow!("claude CLI timed out after {} seconds", AI_CLI_TIMEOUT_SECS));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(e) => return Err(anyhow!("failed to wait for claude CLI: {}", e)),
+        }
+    };
+
+    if !status.success() {
+        let mut stderr = String::new();
+        if let Some(mut err) = child.stderr {
+            use std::io::Read;
+            let _ = err.read_to_string(&mut stderr);
+        }
         return Err(anyhow!(
             "`claude -p` failed with status {:?}: {}",
-            output.status.code(),
-            String::from_utf8_lossy(&output.stderr)
+            status.code(),
+            stderr
         ));
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    let mut stdout = String::new();
+    if let Some(mut out) = child.stdout {
+        use std::io::Read;
+        out.read_to_string(&mut stdout)?;
+    }
+    Ok(stdout)
 }
 
 #[cfg(test)]

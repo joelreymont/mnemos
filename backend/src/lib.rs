@@ -1,3 +1,4 @@
+use anyhow::Context;
 use git::info_for_file;
 use index as idx;
 use notes::{self, NoteFilters};
@@ -40,12 +41,39 @@ const IGNORE_DIRS: &[&str] = &[
 ];
 
 fn list_files(root: &Path) -> anyhow::Result<Vec<FileInfo>> {
-    let mut stack = vec![root.to_path_buf()];
+    // Canonicalize path to prevent path traversal attacks
+    let canonical_root = root.canonicalize()
+        .with_context(|| format!("failed to canonicalize path: {}", root.display()))?;
+
+    // Validate the path is a directory and not a system path
+    if !canonical_root.is_dir() {
+        return Err(anyhow::anyhow!("path is not a directory: {}", canonical_root.display()));
+    }
+
+    // Reject obvious system paths to prevent accidental traversal
+    let path_str = canonical_root.to_string_lossy();
+    if path_str == "/" || path_str.starts_with("/etc") || path_str.starts_with("/var")
+        || path_str.starts_with("/usr") || path_str.starts_with("/bin")
+        || path_str.starts_with("/sbin") || path_str.starts_with("/System")
+        || path_str.starts_with("/Library") || path_str.starts_with("C:\\Windows")
+    {
+        return Err(anyhow::anyhow!("refusing to traverse system path: {}", canonical_root.display()));
+    }
+
+    let mut stack = vec![canonical_root.clone()];
     let mut files = Vec::new();
     while let Some(dir) = stack.pop() {
         for entry in fs::read_dir(&dir)? {
             let entry = entry?;
             let path = entry.path();
+
+            // Ensure traversed paths stay within the original root (symlink protection)
+            if let Ok(canonical_path) = path.canonicalize() {
+                if !canonical_path.starts_with(&canonical_root) {
+                    continue; // Skip paths that escape the root via symlinks
+                }
+            }
+
             let name = entry.file_name().to_string_lossy().to_string();
             if entry.file_type()?.is_dir() {
                 if IGNORE_DIRS.contains(&name.as_str()) {
@@ -71,7 +99,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
         "hemis/list-files" => {
             if let Some(root) = req.params.get("projectRoot").and_then(|v| v.as_str()) {
                 match list_files(Path::new(root)) {
-                    Ok(files) => Response::result(id, serde_json::to_value(files).unwrap()),
+                    Ok(files) => Response::result_from(id, files),
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
@@ -124,6 +152,15 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 .and_then(|v| v.as_u64())
                 .or_else(|| req.params.get("endLine").and_then(|v| v.as_u64()))
                 .unwrap_or(start_line as u64) as usize;
+
+            // Validate line range
+            if start_line == 0 {
+                return Response::error(id, INVALID_PARAMS, "startLine must be >= 1");
+            }
+            if end_line < start_line {
+                return Response::error(id, INVALID_PARAMS, "endLine must be >= startLine");
+            }
+
             let use_ai = req
                 .params
                 .get("useAI")
@@ -261,7 +298,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                             }
                         }
                     }
-                    Response::result(id, serde_json::to_value(results).unwrap())
+                    Response::result_from(id, results)
                 }
                 Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
             }
@@ -472,7 +509,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                 note.stale = pos.stale;
                             }
                         }
-                        Response::result(id, serde_json::to_value(notes_list).unwrap())
+                        Response::result_from(id, notes_list)
                     }
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
@@ -493,7 +530,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0) as usize;
                 match notes::list_project(db, proj, limit, offset) {
-                    Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
+                    Ok(n) => Response::result_from(id, n),
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
@@ -518,7 +555,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0) as usize;
             match notes::search(db, query, proj, limit, offset) {
-                Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
+                Ok(n) => Response::result_from(id, n),
                 Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
             }
         }
@@ -543,7 +580,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     include_stale,
                 };
                 match notes::list_by_node(db, filters) {
-                    Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
+                    Ok(n) => Response::result_from(id, n),
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
@@ -578,7 +615,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     let node_path_value = if computed_path.is_empty() {
                         None
                     } else {
-                        Some(serde_json::to_value(&computed_path).unwrap())
+                        serde_json::to_value(&computed_path).ok()
                     };
                     (node_path_value, computed_hash)
                 } else {
@@ -604,7 +641,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     git,
                     node_text_hash,
                 ) {
-                    Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
+                    Ok(n) => Response::result_from(id, n),
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
@@ -626,7 +663,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 let text = req.params.get("text").and_then(|v| v.as_str());
                 let tags = req.params.get("tags").cloned();
                 match notes::update(db, note_id, text, tags) {
-                    Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
+                    Ok(n) => Response::result_from(id, n),
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
@@ -636,7 +673,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
         "notes/get" => {
             if let Some(note_id) = req.params.get("id").and_then(|v| v.as_str()) {
                 match notes::get(db, note_id) {
-                    Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
+                    Ok(n) => Response::result_from(id, n),
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
@@ -646,7 +683,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
         "notes/backlinks" => {
             if let Some(note_id) = req.params.get("id").and_then(|v| v.as_str()) {
                 match notes::backlinks(db, note_id) {
-                    Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
+                    Ok(n) => Response::result_from(id, n),
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
@@ -674,7 +711,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     let node_path_value = if computed_path.is_empty() {
                         None
                     } else {
-                        Some(serde_json::to_value(&computed_path).unwrap())
+                        serde_json::to_value(&computed_path).ok()
                     };
                     (node_path_value, computed_hash)
                 } else {
@@ -689,7 +726,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 };
                 let git = file.and_then(info_for_file);
                 match notes::reattach(db, note_id, line, column, node_path, git, node_text_hash) {
-                    Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
+                    Ok(n) => Response::result_from(id, n),
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
@@ -729,7 +766,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                             note.line = (pos.line + 1) as i64;
                             note.stale = pos.stale;
                         }
-                        Response::result(id, serde_json::to_value(notes_list).unwrap())
+                        Response::result_from(id, notes_list)
                     }
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
@@ -747,7 +784,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 .unwrap_or("");
             if let (Some(file), Some(proj)) = (file, proj) {
                 match idx::add_file(db, file, proj, content) {
-                    Ok(info) => Response::result(id, serde_json::to_value(info).unwrap()),
+                    Ok(info) => Response::result_from(id, info),
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
@@ -762,7 +799,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 .unwrap_or("");
             let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
             match idx::search(db, query, proj) {
-                Ok(results) => Response::result(id, serde_json::to_value(results).unwrap()),
+                Ok(results) => Response::result_from(id, results),
                 Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
             }
         }

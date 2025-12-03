@@ -8,7 +8,7 @@ expression: redacted
     "jsonrpc": "2.0",
     "result": [
       {
-        "file": "<root>/foo.txt",
+        "file": "/private<root>/foo.txt",
         "size": 5
       }
     ]

@@ -185,7 +185,7 @@ fn handle_request(
                     uptime_secs: start_time.elapsed().as_secs(),
                     connections: connections.load(Ordering::SeqCst),
                 };
-                return Response::result(req.id, serde_json::to_value(info).unwrap());
+                return Response::result_from(req.id, info);
             }
             "shutdown" => {
                 // Schedule shutdown after response is sent

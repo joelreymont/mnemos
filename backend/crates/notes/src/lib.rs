@@ -237,17 +237,21 @@ pub fn list_project(
     limit: Option<usize>,
     offset: usize,
 ) -> Result<Vec<Note>> {
-    let sql = match limit {
-        Some(lim) => format!(
-            "SELECT * FROM notes WHERE project_root = ? ORDER BY updated_at DESC LIMIT {} OFFSET {};",
-            lim, offset
-        ),
-        None => format!(
-            "SELECT * FROM notes WHERE project_root = ? ORDER BY updated_at DESC LIMIT -1 OFFSET {};",
-            offset
-        ),
-    };
-    query_all(conn, &sql, &[&project_root], |row| map_note(row, false))
+    // Cap limit to prevent DoS via excessive memory allocation
+    const MAX_LIMIT: i64 = 10000;
+    let limit_val: i64 = limit.map(|l| (l as i64).min(MAX_LIMIT)).unwrap_or(-1);
+    let offset_val = offset as i64;
+
+    // Use parameterized query to prevent SQL injection
+    let mut stmt = conn.prepare(
+        "SELECT * FROM notes WHERE project_root = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?;",
+    )?;
+    let mut rows = stmt.query(rusqlite::params![project_root, limit_val, offset_val])?;
+    let mut notes = Vec::new();
+    while let Some(row) = rows.next()? {
+        notes.push(map_note(row, false)?);
+    }
+    Ok(notes)
 }
 
 pub fn delete(conn: &Connection, id: &str) -> Result<bool> {

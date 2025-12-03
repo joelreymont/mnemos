@@ -53,6 +53,14 @@ impl Response {
         }
     }
 
+    /// Create a result response by serializing a value. Returns an error response on serialization failure.
+    pub fn result_from<T: serde::Serialize>(id: Option<serde_json::Value>, value: T) -> Self {
+        match serde_json::to_value(value) {
+            Ok(v) => Self::result(id, v),
+            Err(e) => Self::error(id, -32603, format!("failed to serialize response: {}", e)),
+        }
+    }
+
     pub fn error(id: Option<serde_json::Value>, code: i64, message: impl Into<String>) -> Self {
         Self {
             jsonrpc: "2.0".into(),
