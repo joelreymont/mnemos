@@ -557,28 +557,14 @@ impl Default for Config {
       assert.is_false(has_stale, "Note should be fresh when hash matches")
     end)
 
-    it("finds note at new position when code moves down", function()
-      -- Simulate inserting lines above the note's original position
-      -- Note was at line 16 (fn new), but code moved to line 18 after inserting 2 lines above
+    it("finds note at new position when server provides displayLine", function()
+      -- Server computes displayLine when code moves
+      -- Note stored at line 16, but server computed displayLine = 18
       local display = require("hemis.display")
-      local ts = require("hemis.treesitter")
 
-      -- Get the hash of "fn new" at line 16 (inside impl Server block)
-      local hash = ts.get_hash_at_position(buf, 16, 4)
-      assert.is_not_nil(hash, "Should get hash at line 16")
-
-      -- Insert 2 comment lines after line 15 (impl Server {), before fn new
-      -- Line 15 = "impl Server {"
-      -- Line 16 = "    fn new(...)"
-      vim.api.nvim_buf_set_lines(buf, 15, 15, false, {
-        "    // Added comment line 1",
-        "    // Added comment line 2",
-      })
-      helpers.wait()
-
-      -- Now fn new is at line 18, but note still has line = 16
+      -- Server has computed that code moved to line 18
       local notes = {
-        { id = "note-1", line = 16, column = 4, text = "Factory method", nodeTextHash = hash },
+        { id = "note-1", line = 16, column = 4, text = "Factory method", displayLine = 18 },
       }
 
       display.render_notes(buf, notes)
@@ -586,39 +572,25 @@ impl Default for Config {
 
       local state = helpers.capture_display_state(buf)
       assert.equals(1, #state.extmarks)
-      -- Note should display at line 18 (where the code actually is now)
-      assert.equals(18, state.extmarks[1].line, "Note should follow code to new position")
-      -- Should still be fresh since hash was found
+      -- Note should display at line 18 (server-computed displayLine)
+      assert.equals(18, state.extmarks[1].line, "Note should display at server-computed displayLine")
+      -- Should be fresh since server didn't set computedStale
       local has_stale = false
       for _, hl in ipairs(state.extmarks[1].hl_groups) do
         if hl == "HemisNoteStale" then
           has_stale = true
         end
       end
-      assert.is_false(has_stale, "Note should be fresh when code just moved")
+      assert.is_false(has_stale, "Note should be fresh when server says so")
     end)
 
-    it("marks note as stale when tree-sitter node content changes", function()
-      -- Changing "Self { config }" to "Server { config }" changes the hash
-      -- Note becomes stale because the code it was attached to was modified
-      -- Line 17 = "        Self { config }"
+    it("marks note as stale when server sets computedStale", function()
+      -- Server detects code was modified and sets computedStale = true
       local display = require("hemis.display")
-      local ts = require("hemis.treesitter")
 
-      -- Get the original hash at line 17 (Self { config })
-      local original_hash = ts.get_hash_at_position(buf, 17, 8)
-      assert.is_not_nil(original_hash, "Should get hash at line 17")
-
-      -- Modify line 17: change Self to Server
-      local line_content = vim.api.nvim_buf_get_lines(buf, 16, 17, false)[1]
-      assert.truthy(line_content:find("Self"), "Line 17 should contain Self")
-      local modified_content = line_content:gsub("Self", "Server")
-      vim.api.nvim_buf_set_lines(buf, 16, 17, false, { modified_content })
-      helpers.wait()
-
-      -- Note still has the old hash
+      -- Server has computed that code was modified
       local notes = {
-        { id = "note-1", line = 17, column = 8, text = "Constructor body", nodeTextHash = original_hash },
+        { id = "note-1", line = 17, column = 8, text = "Constructor body", displayLine = 17, computedStale = true },
       }
 
       display.render_notes(buf, notes)
@@ -626,32 +598,23 @@ impl Default for Config {
 
       local state = helpers.capture_display_state(buf)
       assert.equals(1, #state.extmarks)
-      -- Note should be stale - the code was modified so hash no longer matches
+      -- Note should be stale - server says so
       local has_stale = false
       for _, hl in ipairs(state.extmarks[1].hl_groups) do
         if hl == "HemisNoteStale" then
           has_stale = true
         end
       end
-      assert.is_true(has_stale, "Note should be stale when code is modified")
+      assert.is_true(has_stale, "Note should be stale when server sets computedStale")
     end)
 
-    it("marks note as stale when node is removed", function()
-      -- Delete the line entirely - note becomes stale because code is gone
+    it("falls back to stored stale flag when server doesn't compute", function()
+      -- When server doesn't provide displayLine/computedStale, use stored stale flag
       local display = require("hemis.display")
-      local ts = require("hemis.treesitter")
 
-      -- Get the original hash at line 17
-      local original_hash = ts.get_hash_at_position(buf, 17, 8)
-      assert.is_not_nil(original_hash, "Should get hash at line 17")
-
-      -- Delete line 17 entirely
-      vim.api.nvim_buf_set_lines(buf, 16, 17, false, {})
-      helpers.wait()
-
-      -- Note still references line 17 with old hash
+      -- Note without server-computed displayLine, using stored stale flag
       local notes = {
-        { id = "note-1", line = 17, column = 8, text = "Constructor body", nodeTextHash = original_hash },
+        { id = "note-1", line = 17, column = 8, text = "Constructor body", stale = true },
       }
 
       display.render_notes(buf, notes)
@@ -659,83 +622,65 @@ impl Default for Config {
 
       local state = helpers.capture_display_state(buf)
       assert.equals(1, #state.extmarks)
-      -- Should be stale - the code the note was attached to is gone
+      -- Should use the stored stale flag
       local has_stale = false
       for _, hl in ipairs(state.extmarks[1].hl_groups) do
         if hl == "HemisNoteStale" then
           has_stale = true
         end
       end
-      assert.is_true(has_stale, "Note should be stale when code is removed")
+      assert.is_true(has_stale, "Note should be stale when stored flag says so")
     end)
 
-    it("marks note as stale when all code in range is removed", function()
-      -- Use a buffer without tree-sitter support (plain text)
+    it("prefers computedStale over stored stale flag", function()
+      -- Server-computed staleness takes precedence over stored flag
       local display = require("hemis.display")
 
-      local plain_buf = vim.api.nvim_create_buf(false, true)
-      vim.api.nvim_buf_set_lines(plain_buf, 0, -1, false, { "just some text", "no tree-sitter" })
-      vim.bo[plain_buf].filetype = "text" -- No tree-sitter parser for plain text
-      helpers.wait()
-
-      -- Note references line 1 with a hash - but no tree-sitter, so no nodes to find
+      -- Note has stored stale=true but server says computedStale=false
       local notes = {
-        { id = "note-1", line = 1, column = 0, text = "Note on deleted code", nodeTextHash = "abc123nonexistent" },
+        { id = "note-1", line = 1, column = 0, text = "Note text", stale = true, displayLine = 1, computedStale = false },
       }
 
-      display.render_notes(plain_buf, notes)
+      display.render_notes(buf, notes)
       helpers.wait()
 
-      local state = helpers.capture_display_state(plain_buf)
+      local state = helpers.capture_display_state(buf)
       assert.equals(1, #state.extmarks)
-      -- Should be stale since there's no tree-sitter parser
+      -- Should use computedStale (false), not stored stale (true)
       local has_stale = false
       for _, hl in ipairs(state.extmarks[1].hl_groups) do
         if hl == "HemisNoteStale" then
           has_stale = true
         end
       end
-      assert.truthy(has_stale, "Note should be stale when no tree-sitter available")
-      vim.api.nvim_buf_delete(plain_buf, { force = true })
+      assert.is_false(has_stale, "computedStale should override stored stale flag")
     end)
   end)
 
   describe("get_note_at_cursor with position tracking", function()
-    it("finds note at display position, not stored position", function()
-      -- When code moves, get_note_at_cursor should use display position
+    it("finds note at server-computed displayLine, not stored position", function()
+      -- get_note_at_cursor should use server-provided displayLine
       local display = require("hemis.display")
-      local ts = require("hemis.treesitter")
 
-      -- Get hash at line 16 (fn new)
-      local hash = ts.get_hash_at_position(buf, 16, 4)
-      assert.is_not_nil(hash, "Should get hash at line 16")
-
-      -- Insert lines after line 15 (impl Server {) to move code down
-      vim.api.nvim_buf_set_lines(buf, 15, 15, false, {
-        "    // Comment 1",
-        "    // Comment 2",
-      })
-      helpers.wait()
-
-      -- Note stored at line 16, but code is now at line 18
+      -- Note stored at line 16, but server computed displayLine = 18
       local notes = {
-        { id = "note-1", line = 16, column = 4, text = "Factory method", nodeTextHash = hash },
+        { id = "note-1", line = 16, column = 4, text = "Factory method", displayLine = 18 },
       }
 
       display.render_notes(buf, notes)
       helpers.wait()
 
-      -- Set cursor to line 18 (where code actually is)
+      -- Set cursor to line 18 (displayLine)
       vim.api.nvim_win_set_cursor(0, { 18, 4 })
 
       local note = display.get_note_at_cursor(notes)
-      assert.is_not_nil(note, "Should find note at display position")
+      assert.is_not_nil(note, "Should find note at displayLine")
       assert.equals("note-1", note.id)
 
       -- Setting cursor to line 16 (stored position) should NOT find note
       vim.api.nvim_win_set_cursor(0, { 16, 4 })
       local no_note = display.get_note_at_cursor(notes)
-      assert.is_nil(no_note, "Should not find note at old stored position")
+      assert.is_nil(no_note, "Should not find note at stored position when displayLine differs")
     end)
   end)
 end)
