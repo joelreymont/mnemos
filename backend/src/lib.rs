@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
 use std::path::Path;
+use treesitter::{
+    compute_display_position, compute_hash_at_position, compute_node_path, default_config,
+    GrammarRegistry, ParserService,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileInfo {
@@ -59,7 +63,7 @@ fn list_files(root: &Path) -> anyhow::Result<Vec<FileInfo>> {
     Ok(files)
 }
 
-pub fn handle(req: Request, db: &Connection) -> Response {
+pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Response {
     let id = req.id.clone();
     match req.method.as_str() {
         "hemis/list-files" => {
@@ -296,7 +300,26 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     include_stale,
                 };
                 match notes::list_for_file(db, filters) {
-                    Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
+                    Ok(mut notes_list) => {
+                        // If content is provided, compute display positions server-side
+                        if let Some(content) = req.params.get("content").and_then(|v| v.as_str()) {
+                            let file_path = Path::new(file);
+                            for note in &mut notes_list {
+                                let pos = compute_display_position(
+                                    parser,
+                                    file_path,
+                                    content,
+                                    note.line as u32,
+                                    note.column as u32,
+                                    note.node_text_hash.as_deref(),
+                                    20, // search_radius
+                                );
+                                note.line = pos.line as i64;
+                                note.stale = pos.stale;
+                            }
+                        }
+                        Response::result(id, serde_json::to_value(notes_list).unwrap())
+                    }
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
@@ -383,18 +406,35 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     .get("column")
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0);
-                let node_path = req.params.get("nodePath").cloned();
                 let tags = req.params.get("tags").cloned().unwrap_or_else(|| json!([]));
                 let text = req
                     .params
                     .get("text")
                     .and_then(|v| v.as_str())
                     .unwrap_or_default();
-                let node_text_hash = req
-                    .params
-                    .get("nodeTextHash")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                // If content is provided, compute node_path and node_text_hash server-side
+                // Otherwise, use client-provided values (backwards compatibility)
+                let content = req.params.get("content").and_then(|v| v.as_str());
+                let (node_path, node_text_hash) = if let Some(content) = content {
+                    let file_path = Path::new(file);
+                    let computed_path = compute_node_path(parser, file_path, content, line as u32, column as u32);
+                    let computed_hash = compute_hash_at_position(parser, file_path, content, line as u32, column as u32);
+                    let node_path_value = if computed_path.is_empty() {
+                        None
+                    } else {
+                        Some(serde_json::to_value(&computed_path).unwrap())
+                    };
+                    (node_path_value, computed_hash)
+                } else {
+                    // Backwards compatibility: use client-provided values
+                    let node_path = req.params.get("nodePath").cloned();
+                    let node_text_hash = req
+                        .params
+                        .get("nodeTextHash")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    (node_path, node_text_hash)
+                };
                 let git = info_for_file(file);
                 match notes::create(
                     db,
@@ -467,19 +507,73 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     .get("column")
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0);
-                let node_path = req.params.get("nodePath").cloned();
-                let node_text_hash = req
-                    .params
-                    .get("nodeTextHash")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                let git = file.and_then(|f| info_for_file(f));
+                // If content is provided, compute node_path and hash server-side
+                let content = req.params.get("content").and_then(|v| v.as_str());
+                let (node_path, node_text_hash) = if let (Some(content), Some(file)) = (content, file) {
+                    let file_path = Path::new(file);
+                    let computed_path = compute_node_path(parser, file_path, content, line as u32, column as u32);
+                    let computed_hash = compute_hash_at_position(parser, file_path, content, line as u32, column as u32);
+                    let node_path_value = if computed_path.is_empty() {
+                        None
+                    } else {
+                        Some(serde_json::to_value(&computed_path).unwrap())
+                    };
+                    (node_path_value, computed_hash)
+                } else {
+                    // Backwards compatibility
+                    let node_path = req.params.get("nodePath").cloned();
+                    let node_text_hash = req
+                        .params
+                        .get("nodeTextHash")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    (node_path, node_text_hash)
+                };
+                let git = file.and_then(info_for_file);
                 match notes::reattach(db, note_id, line, column, node_path, git, node_text_hash) {
                     Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing id")
+            }
+        }
+        "notes/buffer-update" => {
+            // Real-time position tracking: recompute positions for all notes in file
+            let file = req.params.get("file").and_then(|v| v.as_str());
+            let content = req.params.get("content").and_then(|v| v.as_str());
+            if let (Some(file), Some(content)) = (file, content) {
+                // Get all notes for this file
+                let filters = NoteFilters {
+                    file,
+                    project_root: "",
+                    node_path: None,
+                    commit: None,
+                    blob: None,
+                    include_stale: true,
+                };
+                match notes::list_for_file(db, filters) {
+                    Ok(mut notes_list) => {
+                        let file_path = Path::new(file);
+                        for note in &mut notes_list {
+                            let pos = compute_display_position(
+                                parser,
+                                file_path,
+                                content,
+                                note.line as u32,
+                                note.column as u32,
+                                note.node_text_hash.as_deref(),
+                                20,
+                            );
+                            note.line = pos.line as i64;
+                            note.stale = pos.stale;
+                        }
+                        Response::result(id, serde_json::to_value(notes_list).unwrap())
+                    }
+                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
+                }
+            } else {
+                Response::error(id, INVALID_PARAMS, "missing file/content")
             }
         }
         "index/add-file" => {
@@ -520,11 +614,17 @@ pub fn handle(req: Request, db: &Connection) -> Response {
     }
 }
 
-pub fn parse_and_handle(buf: &[u8], conn: &Connection) -> Response {
+pub fn parse_and_handle(buf: &[u8], conn: &Connection, parser: &mut ParserService) -> Response {
     match rpc::parse_request(buf) {
-        Ok(req) => handle(req, conn),
+        Ok(req) => handle(req, conn, parser),
         Err(_) => Response::error(None, PARSE_ERROR, "parse error"),
     }
+}
+
+/// Create a new ParserService with default configuration
+pub fn create_parser_service() -> ParserService {
+    let registry = GrammarRegistry::new(default_config());
+    ParserService::new(registry)
 }
 
 #[cfg(test)]
@@ -535,7 +635,8 @@ mod tests {
     #[test]
     fn returns_parse_error_on_invalid_json() {
         let conn = Connection::open_in_memory().unwrap();
-        let resp = parse_and_handle(b"not json", &conn);
+        let mut parser = create_parser_service();
+        let resp = parse_and_handle(b"not json", &conn, &mut parser);
         assert!(resp.result.is_none());
         assert_eq!(resp.error.as_ref().unwrap().code, PARSE_ERROR);
     }
@@ -543,9 +644,11 @@ mod tests {
     #[test]
     fn shutdown_round_trip_succeeds() {
         let conn = Connection::open_in_memory().unwrap();
+        let mut parser = create_parser_service();
         let resp = parse_and_handle(
             br#"{"jsonrpc":"2.0","id":1,"method":"shutdown","params":{}}"#,
             &conn,
+            &mut parser,
         );
         assert_eq!(resp.result, Some(json!("shutting down")));
         assert!(resp.error.is_none());

@@ -1568,3 +1568,232 @@ fn pagination_works_for_list_project() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Test: notes/create with content computes node_text_hash server-side.
+#[test]
+fn create_with_content_computes_hash() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let root = tempfile::tempdir()?;
+    let file = root.path().join("test.rs");
+    let content = "fn main() {\n    println!(\"hello\");\n}\n\nfn helper() {\n    let x = 1;\n}\n";
+    fs::write(&file, content)?;
+
+    let file_str = file.to_string_lossy().to_string();
+    let root_str = root.path().to_string_lossy().to_string();
+
+    // Create note with content - server should compute hash
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str,
+            "line": 4,
+            "column": 0,
+            "text": "Note on helper function",
+            "content": content,
+            "tags": []
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("create response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    assert!(resp.error.is_none(), "create should succeed");
+
+    let note = resp.result.expect("create result");
+    // Server should have computed nodeTextHash
+    assert!(
+        note.get("nodeTextHash")
+            .and_then(|v| v.as_str())
+            .is_some(),
+        "server should compute nodeTextHash when content is provided"
+    );
+    // Server should have computed nodePath
+    let node_path = note.get("nodePath").and_then(|v| v.as_array());
+    assert!(
+        node_path.is_some(),
+        "server should compute nodePath when content is provided"
+    );
+    let path = node_path.unwrap();
+    assert!(
+        path.iter().any(|v| v.as_str() == Some("function_item")),
+        "nodePath should contain function_item for Rust function"
+    );
+
+    Ok(())
+}
+
+/// Test: notes/list-for-file with content computes display positions.
+#[test]
+fn list_with_content_computes_positions() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let root = tempfile::tempdir()?;
+    let file = root.path().join("test.rs");
+    let original_content = "fn main() {}\n\nfn helper() {\n    let x = 1;\n}\n";
+    fs::write(&file, original_content)?;
+
+    let file_str = file.to_string_lossy().to_string();
+    let root_str = root.path().to_string_lossy().to_string();
+
+    // Create note with content at line 2 (helper function)
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str,
+            "line": 2,
+            "column": 0,
+            "text": "Note on helper",
+            "content": original_content,
+            "tags": []
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("create response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let _orig_hash = resp
+        .result
+        .as_ref()
+        .and_then(|v| v.get("nodeTextHash"))
+        .and_then(|v| v.as_str())
+        .expect("original hash")
+        .to_string();
+
+    // New content: helper moved to line 5 (added comments)
+    let new_content = "fn main() {}\n\n// Comment 1\n// Comment 2\nfn helper() {\n    let x = 1;\n}\n";
+
+    // List notes with new content - should find helper at new position
+    let req_list = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/list-for-file",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str,
+            "content": new_content
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_list.len(), req_list);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("list response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let notes = resp
+        .result
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .cloned()
+        .expect("notes list");
+
+    assert_eq!(notes.len(), 1, "should have one note");
+    let note = &notes[0];
+    // Note should have moved to line 4 (0-indexed: helper is at line 4)
+    let display_line = note.get("line").and_then(|v| v.as_i64()).expect("line");
+    assert_eq!(display_line, 4, "note should follow helper to line 4");
+    // Note should NOT be stale (hash still matches)
+    let stale = note.get("stale").and_then(|v| v.as_bool()).unwrap_or(true);
+    assert!(!stale, "note should not be stale when code moves");
+
+    Ok(())
+}
+
+/// Test: notes/buffer-update recomputes positions for all notes.
+#[test]
+fn buffer_update_recomputes_positions() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let root = tempfile::tempdir()?;
+    let file = root.path().join("test.rs");
+    let original_content = "fn main() {}\n\nfn helper() {\n    let x = 1;\n}\n";
+    fs::write(&file, original_content)?;
+
+    let file_str = file.to_string_lossy().to_string();
+    let root_str = root.path().to_string_lossy().to_string();
+
+    // Create note on helper function
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str,
+            "line": 2,
+            "column": 0,
+            "text": "Note on helper",
+            "content": original_content,
+            "tags": []
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
+    cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    // Buffer update with modified content (helper renamed - should be stale)
+    let modified_content =
+        "fn main() {}\n\nfn renamed_function() {\n    let x = 1;\n}\n";
+
+    let req_update = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/buffer-update",
+        "params": {
+            "file": file_str,
+            "content": modified_content
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_update.len(), req_update);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("buffer-update response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let notes = resp
+        .result
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .cloned()
+        .expect("notes list");
+
+    assert_eq!(notes.len(), 1, "should have one note");
+    let note = &notes[0];
+    // Note should be stale (hash no longer matches)
+    let stale = note.get("stale").and_then(|v| v.as_bool()).unwrap_or(false);
+    assert!(stale, "note should be stale when function renamed");
+
+    Ok(())
+}

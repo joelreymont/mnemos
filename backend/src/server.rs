@@ -19,8 +19,8 @@ use rpc::{decode_framed, encode_response, Response};
 use serde_json::json;
 use storage::connect;
 
-use crate::version::{VersionInfo, GIT_HASH, PROTOCOL_VERSION};
-use crate::{parse_and_handle, preload};
+use crate::version::{GIT_HASH, PROTOCOL_VERSION, VersionInfo};
+use crate::{create_parser_service, parse_and_handle, preload};
 
 /// Grace period before shutdown when no clients are connected.
 const SHUTDOWN_GRACE_SECS: u64 = 30;
@@ -109,12 +109,15 @@ impl Server {
                 }
             };
 
+            // Each thread gets its own ParserService (for tree caching)
+            let mut parser = create_parser_service();
+
             // Verify schema is accessible
             if let Err(e) = preload::sanity_check(&conn) {
                 eprintln!("Schema sanity check failed: {}", e);
             }
 
-            if let Err(e) = handle_connection(stream, &conn, start_time, &connections) {
+            if let Err(e) = handle_connection(stream, &conn, &mut parser, start_time, &connections) {
                 // Don't log "broken pipe" errors - that's just client disconnect
                 let err_str = e.to_string();
                 if !err_str.contains("Broken pipe") && !err_str.contains("Connection reset") {
@@ -136,6 +139,7 @@ impl Server {
 fn handle_connection(
     mut stream: UnixStream,
     conn: &rusqlite::Connection,
+    parser: &mut treesitter::ParserService,
     start_time: Instant,
     connections: &Arc<AtomicUsize>,
 ) -> Result<()> {
@@ -151,7 +155,7 @@ fn handle_connection(
                 // Process complete messages
                 while let Some((body, consumed)) = decode_framed(&buffer) {
                     buffer.drain(..consumed);
-                    let response = handle_request(&body, conn, start_time, connections);
+                    let response = handle_request(&body, conn, parser, start_time, connections);
                     write_response(&mut stream, &response)?;
                 }
             }
@@ -167,6 +171,7 @@ fn handle_connection(
 fn handle_request(
     body: &[u8],
     conn: &rusqlite::Connection,
+    parser: &mut treesitter::ParserService,
     start_time: Instant,
     connections: &Arc<AtomicUsize>,
 ) -> Response {
@@ -196,7 +201,7 @@ fn handle_request(
     }
 
     // Delegate to standard handler
-    parse_and_handle(body, conn)
+    parse_and_handle(body, conn, parser)
 }
 
 /// Write a framed response to the stream.

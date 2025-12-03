@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::str;
 
 use anyhow::Result;
-use backend::parse_and_handle;
+use backend::{create_parser_service, parse_and_handle};
 use backend::server::Server;
 use rpc::{decode_framed, encode_response, Response};
 use storage::connect;
@@ -77,6 +77,7 @@ fn run_stdio_mode() -> Result<()> {
     let conn = connect(&db_path)?;
     backend::preload::sanity_check(&conn)?;
 
+    let mut parser = create_parser_service();
     let mut stdin = io::stdin().lock();
     let mut stdout = io::stdout().lock();
     let mut buffer: VecDeque<u8> = VecDeque::new();
@@ -97,7 +98,7 @@ fn run_stdio_mode() -> Result<()> {
         // Try framed message first
         while let Some((body, consumed)) = decode_framed(buffer.make_contiguous()) {
             buffer.drain(..consumed);
-            let resp = parse_and_handle(&body, &conn);
+            let resp = parse_and_handle(&body, &conn, &mut parser);
             write_response(&mut stdout, resp, true)?;
             handled = true;
         }
@@ -116,7 +117,7 @@ fn run_stdio_mode() -> Result<()> {
                     .cloned()
                     .collect::<Vec<u8>>();
                 if !trimmed.is_empty() {
-                    let resp = parse_and_handle(&trimmed, &conn);
+                    let resp = parse_and_handle(&trimmed, &conn, &mut parser);
                     write_response(&mut stdout, resp, false)?;
                 }
                 handled = true;

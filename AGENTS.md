@@ -42,9 +42,13 @@ Author: `Joel Reymont <18791+joelreymont@users.noreply.github.com>`
 - See `docs/ARCHITECTURE.md` for the current backend/frontend architecture and stale-note behavior.
 
 ### Demo Driver
-- Located in sibling directory `../hemis-demo/` (NOT in this repo)
+- Swift-based demo automation in sibling directory `../hemis-demo/` (NOT in this repo)
 - MUST run from hemis-demo directory: `cd ../hemis-demo && swift run hemis_demo neovim --show-labels`
-- Common options: `--prepare-only`, `--skip-setup`, `--countdown N`, `--record`
+- Options: `--prepare-only` (setup only), `--skip-setup`, `--countdown N`, `--record`
+- Aborts if target app loses focus (prevents typing in wrong window)
+- Aborts if target window is occluded by another window (>30% overlap)
+- Demo modifies code (Self -> Server) to trigger stale detection
+- Scenario config in `scenarios/demo.json`
 
 ## Slash Commands
 

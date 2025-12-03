@@ -29,6 +29,7 @@ function M.add_note()
   local ts = require("hemis.treesitter")
   local anchor = ts.get_anchor_position()
   local node_path = ts.get_node_path()
+  local node_text_hash = ts.get_node_text_hash()
   local source_buf = vim.api.nvim_get_current_buf()
 
   vim.ui.input({ prompt = "Note: " }, function(text)
@@ -43,9 +44,15 @@ function M.add_note()
     end
 
     -- Pass captured position to create
+    local f = io.open("/tmp/hemis-debug.log", "a")
+    if f then
+      f:write(os.date("%H:%M:%S") .. " Creating note with hash: " .. tostring(node_text_hash) .. "\n")
+      f:close()
+    end
     notes.create(text, {
       anchor = anchor,
       node_path = node_path,
+      node_text_hash = node_text_hash,
       source_buf = source_buf,
     }, function(err, _)
       if not err then
@@ -61,6 +68,7 @@ function M.add_note_multiline()
   local ts = require("hemis.treesitter")
   local anchor = ts.get_anchor_position()
   local node_path = ts.get_node_path()
+  local node_text_hash = ts.get_node_text_hash()
   local source_buf = vim.api.nvim_get_current_buf()
 
   -- Create a scratch buffer for note input
@@ -95,6 +103,7 @@ function M.add_note_multiline()
       notes.create(text, {
         anchor = anchor,
         node_path = node_path,
+        node_text_hash = node_text_hash,
         source_buf = source_buf,
       }, function(err, _)
         if not err then
@@ -427,12 +436,14 @@ function M.reattach_note()
   local ts = require("hemis.treesitter")
   local anchor = ts.get_anchor_position()
   local node_path = ts.get_node_path()
+  local node_text_hash = ts.get_node_text_hash()
 
   vim.ui.select({ "Yes", "No" }, { prompt = "Reattach note to current position?" }, function(choice)
     if choice == "Yes" then
       notes.reattach(note.id, {
         anchor = anchor,
         node_path = node_path,
+        node_text_hash = node_text_hash,
       }, function(err, _)
         if not err then
           M.refresh()

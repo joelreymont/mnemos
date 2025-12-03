@@ -600,7 +600,7 @@ impl Default for Config {
 
     it("marks note as stale when tree-sitter node content changes", function()
       -- Changing "Self { config }" to "Server { config }" changes the hash
-      -- But the tree-sitter node still exists, so note stays fresh
+      -- Note becomes stale because the code it was attached to was modified
       -- Line 17 = "        Self { config }"
       local display = require("hemis.display")
       local ts = require("hemis.treesitter")
@@ -626,19 +626,18 @@ impl Default for Config {
 
       local state = helpers.capture_display_state(buf)
       assert.equals(1, #state.extmarks)
-      -- Note should NOT be stale - there's still a tree-sitter node at the position
-      -- The hash changed but the code still exists, so it's still relevant
+      -- Note should be stale - the code was modified so hash no longer matches
       local has_stale = false
       for _, hl in ipairs(state.extmarks[1].hl_groups) do
         if hl == "HemisNoteStale" then
           has_stale = true
         end
       end
-      assert.is_false(has_stale, "Note should be fresh when node still exists (even if modified)")
+      assert.is_true(has_stale, "Note should be stale when code is modified")
     end)
 
-    it("keeps note fresh when node removed but other code exists nearby", function()
-      -- Delete the line entirely - but there's still other code in range
+    it("marks note as stale when node is removed", function()
+      -- Delete the line entirely - note becomes stale because code is gone
       local display = require("hemis.display")
       local ts = require("hemis.treesitter")
 
@@ -660,14 +659,14 @@ impl Default for Config {
 
       local state = helpers.capture_display_state(buf)
       assert.equals(1, #state.extmarks)
-      -- Should NOT be stale - there's still other code in the search range
+      -- Should be stale - the code the note was attached to is gone
       local has_stale = false
       for _, hl in ipairs(state.extmarks[1].hl_groups) do
         if hl == "HemisNoteStale" then
           has_stale = true
         end
       end
-      assert.is_false(has_stale, "Note should be fresh when other code exists in range")
+      assert.is_true(has_stale, "Note should be stale when code is removed")
     end)
 
     it("marks note as stale when all code in range is removed", function()

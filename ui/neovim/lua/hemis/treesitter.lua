@@ -14,12 +14,29 @@ function M.is_available()
 end
 
 -- Get the Tree-sitter node at cursor
+-- Uses first non-whitespace column to find actual code, not parent scope
 function M.get_node_at_cursor()
   if not M.is_available() then
     return nil
   end
 
-  local ok, node = pcall(vim.treesitter.get_node)
+  local buf = vim.api.nvim_get_current_buf()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local row = cursor[1] - 1 -- 0-indexed
+  local col = cursor[2]
+
+  -- If cursor is at column 0 or in leading whitespace, find first non-whitespace
+  -- This ensures we anchor to actual code, not parent scope containing whitespace
+  local lines = vim.api.nvim_buf_get_lines(buf, row, row + 1, false)
+  if #lines > 0 then
+    local first_nonws = lines[1]:find("%S")
+    if first_nonws and col < first_nonws - 1 then
+      col = first_nonws - 1 -- Use first non-whitespace column
+    end
+  end
+
+  -- Use explicit buffer and position for reliability
+  local ok, node = pcall(vim.treesitter.get_node, { bufnr = buf, pos = { row, col } })
   if ok and node then
     return node
   end
@@ -96,7 +113,7 @@ function M.get_anchor_position()
 end
 
 -- Node types that are too small/generic to hash uniquely
--- These are identifiers that likely appear multiple times in a file
+-- These are identifiers and small fragments that likely appear multiple times
 local IDENTIFIER_TYPES = {
   identifier = true,
   type_identifier = true,
@@ -108,6 +125,21 @@ local IDENTIFIER_TYPES = {
   name = true,
   variable_name = true,
   simple_identifier = true,
+  -- Parameters and arguments - too granular, want function-level
+  parameter = true,
+  parameters = true,
+  formal_parameters = true,
+  argument = true,
+  arguments = true,
+  -- Type annotations - too granular
+  type_annotation = true,
+  return_type = true,
+  primitive_type = true,
+  generic_type = true,
+  scoped_type_identifier = true,
+  -- Rust-specific small nodes
+  self_parameter = true,
+  visibility_modifier = true,
 }
 
 -- Node types that are too large to be useful for tracking
@@ -159,7 +191,8 @@ local function find_significant_node(node)
 end
 
 -- Get the source text of the significant node at cursor
--- Walks up from identifiers to meaningful parent nodes for consistent hashing
+-- For multi-line nodes, returns only the first line to avoid false staleness
+-- when content inside the node changes (e.g., adding code inside a function)
 function M.get_node_text()
   local node = M.get_named_node_at_cursor()
   if not node then
@@ -174,7 +207,11 @@ function M.get_node_text()
 
   local buf = vim.api.nvim_get_current_buf()
   local text = vim.treesitter.get_node_text(node, buf)
-  return text
+
+  -- For multi-line nodes, use only the first line as the hash basis
+  -- This prevents false staleness when content inside the node changes
+  local first_line = text:match("^[^\n]+")
+  return first_line or text
 end
 
 -- Compute SHA256 hash of significant node's source text
@@ -191,6 +228,8 @@ end
 
 -- Get node at specific line/column position
 -- Returns a semantically meaningful node (not just an identifier)
+-- If column is 0 or in whitespace, finds first non-whitespace column on the line
+-- to avoid anchoring to parent nodes that contain the whitespace
 function M.get_node_at_position(buf, line, column)
   buf = buf or vim.api.nvim_get_current_buf()
   local lang = vim.treesitter.language.get_lang(vim.bo[buf].filetype)
@@ -203,7 +242,8 @@ function M.get_node_at_position(buf, line, column)
     return nil
   end
 
-  local tree = parser:parse()[1]
+  -- Force re-parse to get current buffer state (not cached stale tree)
+  local tree = parser:parse(true)[1]
   if not tree then
     return nil
   end
@@ -211,6 +251,19 @@ function M.get_node_at_position(buf, line, column)
   -- Tree-sitter uses 0-indexed line/column
   local row = line - 1
   local col = column or 0
+
+  -- If column is 0 or not specified, find first non-whitespace column
+  -- This prevents anchoring to parent nodes that contain leading whitespace
+  if col == 0 then
+    local lines = vim.api.nvim_buf_get_lines(buf, row, row + 1, false)
+    if #lines > 0 then
+      local first_nonws = lines[1]:find("%S")
+      if first_nonws then
+        col = first_nonws - 1 -- Convert to 0-indexed
+      end
+    end
+  end
+
   local node = tree:root():named_descendant_for_range(row, col, row, col)
 
   -- Walk up to find a significant node (not just an identifier)
@@ -218,6 +271,7 @@ function M.get_node_at_position(buf, line, column)
 end
 
 -- Get text of node at specific position
+-- For multi-line nodes, returns only the first line (matches get_node_text behavior)
 function M.get_text_at_position(buf, line, column)
   local node = M.get_node_at_position(buf, line, column)
   if not node then
@@ -225,7 +279,11 @@ function M.get_text_at_position(buf, line, column)
   end
 
   buf = buf or vim.api.nvim_get_current_buf()
-  return vim.treesitter.get_node_text(node, buf)
+  local text = vim.treesitter.get_node_text(node, buf)
+
+  -- Use only first line for multi-line nodes
+  local first_line = text:match("^[^\n]+")
+  return first_line or text
 end
 
 -- Compute hash of node at specific position

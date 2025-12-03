@@ -12,13 +12,13 @@ M.ns_id = vim.api.nvim_create_namespace("hemis_notes")
 local position_hash_cache = {}
 
 -- Per-render cache for parsed tree (cleared at start of each render_notes call)
--- Key: bufnr -> { tree = tree, root = root }
+-- Key: bufnr -> { tree = tree, root = root, changedtick = tick }
 local tree_cache = {}
 
 -- Highlight groups
 local function setup_highlights()
   vim.api.nvim_set_hl(0, "HemisNote", { fg = "#4682B4", italic = true, default = true })
-  vim.api.nvim_set_hl(0, "HemisNoteStale", { fg = "#B47846", italic = true, default = true })
+  vim.api.nvim_set_hl(0, "HemisNoteStale", { fg = "#CC6666", italic = true, default = true })
   vim.api.nvim_set_hl(0, "HemisNoteMarker", { fg = "#4682B4", bold = true, default = true })
 end
 
@@ -146,14 +146,39 @@ local IDENTIFIER_TYPES = {
   name = true,
   variable_name = true,
   simple_identifier = true,
+  -- Parameters and arguments - too granular, want function-level
+  parameter = true,
+  parameters = true,
+  formal_parameters = true,
+  argument = true,
+  arguments = true,
+  -- Type annotations - too granular
+  type_annotation = true,
+  return_type = true,
+  primitive_type = true,
+  generic_type = true,
+  scoped_type_identifier = true,
+  -- Rust-specific small nodes
+  self_parameter = true,
+  visibility_modifier = true,
+  -- Comments - not code, shouldn't anchor notes
+  line_comment = true,
+  block_comment = true,
+  comment = true,
 }
 
--- Node types that are too large (root-level nodes that always exist)
+-- Node types that are too large (root-level or container nodes)
 local TOO_LARGE_TYPES = {
   source_file = true,
   program = true,
   module = true,
   chunk = true, -- Lua
+  -- Container types - too broad, contains multiple items
+  impl_item = true,
+  trait_item = true,
+  mod_item = true,
+  declaration_list = true,
+  block = true,
 }
 
 -- Check if a node type is a significant (hashable) type
@@ -178,7 +203,8 @@ local function get_cached_tree(bufnr)
     return nil, nil
   end
 
-  local tree = parser:parse()[1]
+  -- Force re-parse to get current buffer state
+  local tree = parser:parse(true)[1]
   if not tree then
     return nil, nil
   end
@@ -188,23 +214,22 @@ local function get_cached_tree(bufnr)
   return tree, root
 end
 
--- Search the tree-sitter tree within a line range for:
--- 1. A node with exact matching hash (returns its line)
--- 2. Any significant node (tracks existence)
---
--- Returns: exact_match_line (or nil), any_node_exists (boolean)
--- Single traversal for efficiency - only called when node not at stored position
-local function find_node_in_range(bufnr, target_hash, min_line, max_line)
+-- Search the tree-sitter tree within a line range for a node with exact matching hash
+-- Returns: exact_match_line, closest_significant_line
+-- - exact_match_line: line where hash matches exactly (nil if not found)
+-- - closest_significant_line: line of significant node closest to target_line (for stale fallback)
+-- Single traversal for efficiency
+local function find_node_in_range(bufnr, target_hash, min_line, max_line, target_line)
   local tree, root = get_cached_tree(bufnr)
   if not tree or not root then
-    return nil, false
+    return nil, nil
   end
 
-  local any_node_found = false
+  local exact_match = nil
+  local closest_line = nil
+  local closest_distance = math.huge
 
-  -- Traverse tree looking for matching node
-  -- Track any significant node, return immediately on exact hash match
-  -- Optimization: skip subtrees entirely outside the search range
+  -- Traverse tree looking for matching node and tracking closest significant node
   local function search_node(node)
     local start_row, _, end_row, _ = node:range()
     local node_start_line = start_row + 1 -- Convert to 1-indexed
@@ -212,38 +237,49 @@ local function find_node_in_range(bufnr, target_hash, min_line, max_line)
 
     -- Skip subtrees entirely outside the search range
     if node_end_line < min_line or node_start_line > max_line then
-      return nil
+      return
     end
 
     -- Check this node if it's within range and significant
     if node_start_line >= min_line and node_start_line <= max_line and node:named() then
       local node_type = node:type()
       if is_significant_type(node_type) then
-        any_node_found = true -- Track that we found at least one node
+        -- Track closest significant node to target_line (for stale fallback)
+        -- Prefer nodes AFTER target_line (code usually moves down when lines inserted)
+        local distance = math.abs(node_start_line - target_line)
+        -- Bias: nodes after target get slight preference (subtract 0.5 from distance)
+        if node_start_line > target_line then
+          distance = distance - 0.5
+        end
+        if distance < closest_distance then
+          closest_distance = distance
+          closest_line = node_start_line
+        end
 
+        -- Check for exact hash match
         local text = vim.treesitter.get_node_text(node, bufnr)
         if text then
-          local hash = vim.fn.sha256(text)
+          local first_line = text:match("^[^\n]+")
+          local hash = vim.fn.sha256(first_line or text)
           if hash == target_hash then
-            return node_start_line -- Exact match - return immediately
+            exact_match = node_start_line
+            return -- Found exact match, but continue for closest tracking
           end
         end
       end
     end
 
-    -- Recurse into children (only if subtree overlaps range - already checked above)
+    -- Recurse into children
     for child in node:iter_children() do
-      local result = search_node(child)
-      if result then
-        return result -- Propagate exact match
+      search_node(child)
+      if exact_match then
+        return -- Early exit once exact match found
       end
     end
-
-    return nil
   end
 
-  local exact_match = search_node(root)
-  return exact_match, any_node_found
+  search_node(root)
+  return exact_match, closest_line
 end
 
 -- Get hash at position with per-render caching
@@ -258,27 +294,55 @@ local function get_cached_hash_at_position(bufnr, line, column)
   return hash
 end
 
+-- Debug log file
+local function debug_log(msg)
+  local f = io.open("/tmp/hemis-debug.log", "a")
+  if f then
+    f:write(os.date("%H:%M:%S") .. " " .. msg .. "\n")
+    f:close()
+  end
+end
+
 -- Find the display position for a note by searching for its code
 -- When code moves (e.g., line inserted above), the note should follow it
 -- Returns: display_line, is_stale
 --
--- Staleness logic (optimized for efficiency):
+-- Staleness logic:
 -- 1. Exact hash at stored position → stay at stored position (fresh)
 -- 2. Exact hash found elsewhere → FOLLOW to new position (fresh) - code moved unchanged
--- 3. No exact hash, but node at stored position → stay (fresh) - code modified in place
--- 4. No exact hash, no node at stored, but nodes in range → stay (fresh)
--- 5. No nodes in range → stale (code was deleted)
+-- 3. No exact hash found → stale (code was modified or deleted)
 --
 -- Performance: O(1) in common case (hash matches at stored position)
 local function find_note_position(bufnr, note)
   -- If note has no stored hash, use stored position and backend's stale flag
   if not note.nodeTextHash then
+    debug_log("Note has NO hash, stored line=" .. note.line)
     return note.line, note.stale
+  end
+
+  debug_log("Note has hash, stored line=" .. note.line .. ", hash=" .. note.nodeTextHash:sub(1,8))
+
+  -- Debug: show actual buffer content at stored line
+  local lines = vim.api.nvim_buf_get_lines(bufnr, note.line - 1, note.line, false)
+  debug_log("Buffer line " .. note.line .. ": " .. (lines[1] and lines[1]:sub(1, 50) or "nil"))
+
+  -- Debug: show what node is at stored position
+  local node = ts.get_node_at_position(bufnr, note.line, note.column or 0)
+  if node then
+    debug_log("Node at stored pos: type=" .. node:type() .. ", row=" .. (node:start() + 1))
+    local node_text = vim.treesitter.get_node_text(node, bufnr)
+    local first_line = node_text:match("^[^\n]+")
+    debug_log("Node text: " .. (first_line and first_line:sub(1, 50) or "nil"))
+  else
+    debug_log("Node at stored pos: nil")
   end
 
   -- Fast path: check stored position first (O(1) - no tree traversal, cached hash)
   local stored_hash = get_cached_hash_at_position(bufnr, note.line, note.column or 0)
+  debug_log("Hash at stored pos: " .. (stored_hash and stored_hash:sub(1,8) or "nil"))
+
   if stored_hash == note.nodeTextHash then
+    debug_log("Hash matches at stored position")
     return note.line, false -- Exact match at stored position
   end
 
@@ -289,25 +353,25 @@ local function find_note_position(bufnr, note)
   local min_line = math.max(1, note.line - search_radius)
   local max_line = math.min(line_count, note.line + search_radius)
 
-  local exact_match_line, any_node_exists = find_node_in_range(bufnr, note.nodeTextHash, min_line, max_line)
+  local exact_match_line, closest_line = find_node_in_range(
+    bufnr, note.nodeTextHash, min_line, max_line, note.line
+  )
 
   if exact_match_line then
+    debug_log("Found hash at line " .. exact_match_line .. " (was " .. note.line .. ")")
     return exact_match_line, false -- Exact hash found elsewhere - follow the code
   end
 
-  -- No exact hash found anywhere
-  -- If there's still a node at stored position, stay there (code was modified)
-  if stored_hash then
-    return note.line, false -- Node exists but was modified, stay fresh
+  -- No exact hash found - code was modified, note is stale
+  -- Use closest significant node as display position (code moved then modified)
+  if closest_line then
+    debug_log("STALE at line " .. closest_line .. " (closest node, was " .. note.line .. ")")
+    return closest_line, true
   end
 
-  -- No node at stored position either
-  -- But if there are any nodes in range, stay fresh (code exists nearby)
-  if any_node_exists then
-    return note.line, false -- Code exists nearby, stays fresh at stored position
-  end
-
-  return note.line, true -- No code in range, truly stale
+  -- Fallback to stored position if no significant nodes found
+  debug_log("STALE at stored line " .. note.line .. " (no nodes found)")
+  return note.line, true
 end
 
 -- Render all notes for buffer
