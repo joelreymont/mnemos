@@ -23,6 +23,7 @@ rusqlite = { workspace = true }
 memchr = "2"
 dirs = "5"
 atty = "0.2"
+notify = "6"
 
 [dev-dependencies]
 assert_cmd = "2"

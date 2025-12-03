@@ -22,6 +22,7 @@ pub mod preload;
 pub mod server;
 pub mod snapshot;
 pub mod version;
+pub mod watcher;
 
 const IGNORE_DIRS: &[&str] = &[
     ".git",
