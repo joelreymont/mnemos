@@ -359,10 +359,19 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     if include_notes {
                         if let Ok(notes) = notes::search(db, query, proj, None, 0) {
                             for n in notes {
+                                // Safe conversion: skip notes with out-of-bounds coordinates
+                                let line = match usize::try_from(n.line) {
+                                    Ok(l) if l > 0 => l,
+                                    _ => continue,
+                                };
+                                let column = match usize::try_from(n.column) {
+                                    Ok(c) => c,
+                                    _ => continue,
+                                };
                                 results.push(idx::SearchHit {
                                     file: n.file.clone(),
-                                    line: n.line as usize,
-                                    column: n.column as usize,
+                                    line,
+                                    column,
                                     text: n.summary.clone(),
                                     score: 0.5,
                                     kind: Some("note".into()),
