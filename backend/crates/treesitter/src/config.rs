@@ -118,24 +118,40 @@ impl Default for LanguageSettings {
     }
 }
 
-/// Load configuration from ~/.config/hemis/languages.toml
+/// Get the hemis config directory.
+/// Uses HEMIS_CONFIG_DIR env var if set, otherwise ~/.config/hemis
+pub fn config_dir() -> PathBuf {
+    std::env::var("HEMIS_CONFIG_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            dirs::config_dir()
+                .unwrap_or_else(|| PathBuf::from("~/.config"))
+                .join("hemis")
+        })
+}
+
+/// Load configuration from languages.toml
 /// Returns default config with built-in language settings if file doesn't exist
 pub fn load_config() -> Result<LanguageConfig> {
-    let config_path = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("~/.config"))
-        .join("hemis")
-        .join("languages.toml");
+    let config_path = config_dir().join("languages.toml");
 
     if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)?;
         let mut config: LanguageConfig = toml::from_str(&content)
             .map_err(|e| TreeSitterError::ConfigError(e.to_string()))?;
 
+        // Override runtime_dir with config_dir if not explicitly set
+        if config.runtime_dir.is_none() {
+            config.runtime_dir = Some(config_dir());
+        }
+
         // Merge with defaults for any missing languages
         merge_defaults(&mut config);
         Ok(config)
     } else {
-        Ok(default_config())
+        let mut config = default_config();
+        config.runtime_dir = Some(config_dir());
+        Ok(config)
     }
 }
 

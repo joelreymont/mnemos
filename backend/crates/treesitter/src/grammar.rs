@@ -148,10 +148,17 @@ impl GrammarRegistry {
             }
 
             // Extract language name from filename
-            let name = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .map(|s| s.to_string());
+            // Supports both formats:
+            // - libtree-sitter-<name>.<ext> (tree-sitter CLI output)
+            // - <name>.<ext> (simple naming)
+            let stem = path.file_stem().and_then(|s| s.to_str());
+            let name = stem.map(|s| {
+                if let Some(stripped) = s.strip_prefix("libtree-sitter-") {
+                    stripped.to_string()
+                } else {
+                    s.to_string()
+                }
+            });
 
             if let Some(name) = name {
                 match self.load_grammar_from_path(&name, &path) {

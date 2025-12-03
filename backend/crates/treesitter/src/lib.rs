@@ -8,7 +8,7 @@ mod grammar;
 mod parser;
 mod position;
 
-pub use config::{default_config, load_config, GrammarSource, GrammarSourceLocation, LanguageConfig, LanguageSettings};
+pub use config::{config_dir, default_config, load_config, GrammarSource, GrammarSourceLocation, LanguageConfig, LanguageSettings};
 pub use grammar::{GrammarRegistry, Language};
 pub use parser::ParserService;
 pub use position::{
