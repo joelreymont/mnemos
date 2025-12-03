@@ -345,6 +345,15 @@ Sends shutdown RPC to stop the detached server process."
 ;; Disconnect when Emacs exits (server keeps running)
 (add-hook 'kill-emacs-hook #'hemis-disconnect)
 
+(defun hemis-reload ()
+  "Reload the Hemis Emacs package after code changes.
+This disconnects from the backend, unloads the feature, and reloads it."
+  (interactive)
+  (hemis-disconnect)
+  (unload-feature 'hemis t)
+  (require 'hemis)
+  (message "Hemis reloaded."))
+
 (defun hemis--request (method &optional params)
   "Synchronously send JSON-RPC METHOD with PARAMS and return result."
   (hemis--ensure-connection)

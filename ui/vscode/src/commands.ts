@@ -32,6 +32,28 @@ function getNodePath(): string[] {
   return [];
 }
 
+// Jump to a note's location (used by tree view click)
+export async function jumpToNoteCommand(note: Note): Promise<void> {
+  if (!note || !note.file) {
+    return;
+  }
+
+  try {
+    const uri = vscode.Uri.file(note.file);
+    const document = await vscode.workspace.openTextDocument(uri);
+    const editor = await vscode.window.showTextDocument(document);
+
+    // Use displayLine if available (server-computed position), otherwise fall back to stored line
+    const line = Math.max(0, (note.displayLine ?? note.line) - 1);
+    const position = new vscode.Position(line, note.column);
+    editor.selection = new vscode.Selection(position, position);
+    editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`Failed to jump to note: ${message}`);
+  }
+}
+
 export async function addNoteCommand(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
@@ -814,6 +836,7 @@ export function registerCommands(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('hemis.explainRegion', explainRegionCommand),
     vscode.commands.registerCommand('hemis.explainRegionAI', explainRegionAICommand),
     vscode.commands.registerCommand('hemis.saveSnapshot', saveSnapshotCommand),
-    vscode.commands.registerCommand('hemis.loadSnapshot', loadSnapshotCommand)
+    vscode.commands.registerCommand('hemis.loadSnapshot', loadSnapshotCommand),
+    vscode.commands.registerCommand('hemis.jumpToNote', jumpToNoteCommand)
   );
 }
