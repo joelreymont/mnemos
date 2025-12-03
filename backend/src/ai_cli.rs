@@ -243,9 +243,10 @@ Keep the explanation focused and practical. Output plain text only.
 
 /// Helper: run Codex CLI with a prompt in the given project root.
 fn run_codex(project_root: &Path, prompt: &str) -> Result<String> {
-    // Create temp file for output since codex prints progress/diagnostics to stdout
+    // Create unique temp file for output since codex prints progress/diagnostics to stdout
+    // Use UUID to avoid races between concurrent calls in the same process
     let tmp_dir = std::env::temp_dir();
-    let output_path = tmp_dir.join(format!("hemis-codex-{}.txt", std::process::id()));
+    let output_path = tmp_dir.join(format!("hemis-codex-{}.txt", uuid::Uuid::new_v4()));
 
     // codex exec <prompt> --output-last-message <file>
     // The prompt is passed as a positional argument, not with -p (that's for profile)
