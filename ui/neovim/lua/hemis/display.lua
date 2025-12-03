@@ -7,6 +7,14 @@ local M = {}
 -- Namespace for extmarks
 M.ns_id = vim.api.nvim_create_namespace("hemis_notes")
 
+-- Per-render cache for position hashes (cleared at start of each render_notes call)
+-- Key: "bufnr:line:column" -> hash
+local position_hash_cache = {}
+
+-- Per-render cache for parsed tree (cleared at start of each render_notes call)
+-- Key: bufnr -> { tree = tree, root = root }
+local tree_cache = {}
+
 -- Highlight groups
 local function setup_highlights()
   vim.api.nvim_set_hl(0, "HemisNote", { fg = "#4682B4", italic = true, default = true })
@@ -154,6 +162,32 @@ local function is_significant_type(node_type)
   return not IDENTIFIER_TYPES[node_type] and not TOO_LARGE_TYPES[node_type]
 end
 
+-- Get or create cached tree for buffer (avoids re-parsing per note)
+local function get_cached_tree(bufnr)
+  if tree_cache[bufnr] then
+    return tree_cache[bufnr].tree, tree_cache[bufnr].root
+  end
+
+  local lang = vim.treesitter.language.get_lang(vim.bo[bufnr].filetype)
+  if not lang then
+    return nil, nil
+  end
+
+  local ok, parser = pcall(vim.treesitter.get_parser, bufnr, lang)
+  if not ok or not parser then
+    return nil, nil
+  end
+
+  local tree = parser:parse()[1]
+  if not tree then
+    return nil, nil
+  end
+
+  local root = tree:root()
+  tree_cache[bufnr] = { tree = tree, root = root }
+  return tree, root
+end
+
 -- Search the tree-sitter tree within a line range for:
 -- 1. A node with exact matching hash (returns its line)
 -- 2. Any significant node (tracks existence)
@@ -161,18 +195,8 @@ end
 -- Returns: exact_match_line (or nil), any_node_exists (boolean)
 -- Single traversal for efficiency - only called when node not at stored position
 local function find_node_in_range(bufnr, target_hash, min_line, max_line)
-  local lang = vim.treesitter.language.get_lang(vim.bo[bufnr].filetype)
-  if not lang then
-    return nil, false
-  end
-
-  local ok, parser = pcall(vim.treesitter.get_parser, bufnr, lang)
-  if not ok or not parser then
-    return nil, false
-  end
-
-  local tree = parser:parse()[1]
-  if not tree then
+  local tree, root = get_cached_tree(bufnr)
+  if not tree or not root then
     return nil, false
   end
 
@@ -211,8 +235,20 @@ local function find_node_in_range(bufnr, target_hash, min_line, max_line)
     return nil
   end
 
-  local exact_match = search_node(tree:root())
+  local exact_match = search_node(root)
   return exact_match, any_node_found
+end
+
+-- Get hash at position with per-render caching
+-- Avoids recomputing sha256 for the same position within a render pass
+local function get_cached_hash_at_position(bufnr, line, column)
+  local cache_key = bufnr .. ":" .. line .. ":" .. (column or 0)
+  if position_hash_cache[cache_key] ~= nil then
+    return position_hash_cache[cache_key]
+  end
+  local hash = ts.get_hash_at_position(bufnr, line, column or 0)
+  position_hash_cache[cache_key] = hash or false -- false = no node at position
+  return hash
 end
 
 -- Find the display position for a note by searching for its code
@@ -233,8 +269,8 @@ local function find_note_position(bufnr, note)
     return note.line, note.stale
   end
 
-  -- Fast path: check stored position first (O(1) - no tree traversal)
-  local stored_hash = ts.get_hash_at_position(bufnr, note.line, note.column or 0)
+  -- Fast path: check stored position first (O(1) - no tree traversal, cached hash)
+  local stored_hash = get_cached_hash_at_position(bufnr, note.line, note.column or 0)
   if stored_hash == note.nodeTextHash then
     return note.line, false -- Exact match at stored position
   end
@@ -270,6 +306,10 @@ end
 -- Render all notes for buffer
 function M.render_notes(bufnr, notes)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
+
+  -- Clear per-render caches (new render = fresh caches)
+  position_hash_cache = {}
+  tree_cache = {}
 
   -- Clear existing marks
   M.clear(bufnr)

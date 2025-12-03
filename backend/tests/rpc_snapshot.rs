@@ -445,10 +445,16 @@ fn snapshot_list_files() -> anyhow::Result<()> {
             if let Some(arr) = v.get_mut("result").and_then(|r| r.as_array_mut()) {
                 for item in arr.iter_mut() {
                     if let Some(obj) = item.as_object_mut() {
-                        if let Some(file) = obj.get_mut("file").and_then(|f| f.as_str().map(String::from)) {
-                            obj.insert("file".to_string(), serde_json::Value::String(
-                                file.replace(root.path().to_string_lossy().as_ref(), "<root>"),
-                            ));
+                        if let Some(file) = obj
+                            .get_mut("file")
+                            .and_then(|f| f.as_str().map(String::from))
+                        {
+                            obj.insert(
+                                "file".to_string(),
+                                serde_json::Value::String(
+                                    file.replace(root.path().to_string_lossy().as_ref(), "<root>"),
+                                ),
+                            );
                         }
                     }
                 }
@@ -748,7 +754,11 @@ fn snapshot_backlinks() -> anyhow::Result<()> {
         }
     })
     .to_string();
-    let create_a_input = format!("Content-Length: {}\r\n\r\n{}", req_create_a.len(), req_create_a);
+    let create_a_input = format!(
+        "Content-Length: {}\r\n\r\n{}",
+        req_create_a.len(),
+        req_create_a
+    );
     let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(create_a_input)

@@ -371,12 +371,10 @@ fn filters_stale_notes_by_blob() -> anyhow::Result<()> {
         1,
         "stale notes should still return for blob/commit mismatch"
     );
-    assert!(
-        filtered_list[0]
-            .get("stale")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-    );
+    assert!(filtered_list[0]
+        .get("stale")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false));
     let included: Response = serde_json::from_slice(&bodies[2])?;
     let included_list = included
         .result
@@ -546,7 +544,11 @@ fn backlinks_returns_linking_notes() -> anyhow::Result<()> {
     })
     .to_string();
 
-    let input = format!("Content-Length: {}\r\n\r\n{}", req_create_a.len(), req_create_a);
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}",
+        req_create_a.len(),
+        req_create_a
+    );
     let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
@@ -625,7 +627,11 @@ fn backlinks_returns_linking_notes() -> anyhow::Result<()> {
         .cloned()
         .unwrap_or_default();
 
-    assert_eq!(backlinks.len(), 1, "note A should have exactly one backlink");
+    assert_eq!(
+        backlinks.len(),
+        1,
+        "note A should have exactly one backlink"
+    );
     let linking_note = &backlinks[0];
     assert_eq!(
         linking_note.get("id").and_then(|v| v.as_str()).unwrap(),
@@ -666,7 +672,11 @@ fn backlinks_found_after_update_adds_link() -> anyhow::Result<()> {
     })
     .to_string();
 
-    let input = format!("Content-Length: {}\r\n\r\n{}", req_create_a.len(), req_create_a);
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}",
+        req_create_a.len(),
+        req_create_a
+    );
     let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
@@ -699,7 +709,11 @@ fn backlinks_found_after_update_adds_link() -> anyhow::Result<()> {
     })
     .to_string();
 
-    let input = format!("Content-Length: {}\r\n\r\n{}", req_create_b.len(), req_create_b);
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}",
+        req_create_b.len(),
+        req_create_b
+    );
     let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
@@ -810,7 +824,11 @@ fn delete_note_removes_edges() -> anyhow::Result<()> {
     })
     .to_string();
 
-    let input = format!("Content-Length: {}\r\n\r\n{}", req_create_a.len(), req_create_a);
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}",
+        req_create_a.len(),
+        req_create_a
+    );
     let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
@@ -844,7 +862,11 @@ fn delete_note_removes_edges() -> anyhow::Result<()> {
     })
     .to_string();
 
-    let input = format!("Content-Length: {}\r\n\r\n{}", req_create_b.len(), req_create_b);
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}",
+        req_create_b.len(),
+        req_create_b
+    );
     let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
@@ -869,7 +891,11 @@ fn delete_note_removes_edges() -> anyhow::Result<()> {
         "params": { "id": note_a_id }
     })
     .to_string();
-    let input = format!("Content-Length: {}\r\n\r\n{}", req_backlinks.len(), req_backlinks);
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}",
+        req_backlinks.len(),
+        req_backlinks
+    );
     let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
@@ -909,7 +935,11 @@ fn delete_note_removes_edges() -> anyhow::Result<()> {
         "params": { "id": note_a_id }
     })
     .to_string();
-    let input = format!("Content-Length: {}\r\n\r\n{}", req_backlinks.len(), req_backlinks);
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}",
+        req_backlinks.len(),
+        req_backlinks
+    );
     let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
@@ -967,14 +997,27 @@ fn handles_utf8_in_summary() -> anyhow::Result<()> {
     assert!(resp.error.is_none(), "should not error on UTF-8 text");
     let note = resp.result.expect("should have result");
     let text = note.get("text").and_then(|v| v.as_str()).expect("text");
-    assert!(text.chars().count() > 60, "text should be longer than 60 chars");
-    let summary = note.get("summary").and_then(|v| v.as_str()).expect("summary");
+    assert!(
+        text.chars().count() > 60,
+        "text should be longer than 60 chars"
+    );
+    let summary = note
+        .get("summary")
+        .and_then(|v| v.as_str())
+        .expect("summary");
     // Summary should be truncated with "..." and not panic
     assert!(summary.ends_with("..."), "long text should be truncated");
     // Should contain Japanese characters
-    assert!(summary.contains("\u{3053}"), "summary should preserve Japanese chars");
+    assert!(
+        summary.contains("\u{3053}"),
+        "summary should preserve Japanese chars"
+    );
     // Summary char count should be exactly 60 (57 + "...")
-    assert_eq!(summary.chars().count(), 60, "summary should be 57 chars + ...");
+    assert_eq!(
+        summary.chars().count(),
+        60,
+        "summary should be 57 chars + ..."
+    );
     Ok(())
 }
 
@@ -999,7 +1042,11 @@ fn update_note_updates_edges() -> anyhow::Result<()> {
     })
     .to_string();
 
-    let input = format!("Content-Length: {}\r\n\r\n{}", req_create_a.len(), req_create_a);
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}",
+        req_create_a.len(),
+        req_create_a
+    );
     let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
@@ -1032,7 +1079,11 @@ fn update_note_updates_edges() -> anyhow::Result<()> {
     })
     .to_string();
 
-    let input = format!("Content-Length: {}\r\n\r\n{}", req_create_b.len(), req_create_b);
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}",
+        req_create_b.len(),
+        req_create_b
+    );
     let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
@@ -1066,7 +1117,11 @@ fn update_note_updates_edges() -> anyhow::Result<()> {
     })
     .to_string();
 
-    let input = format!("Content-Length: {}\r\n\r\n{}", req_create_c.len(), req_create_c);
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}",
+        req_create_c.len(),
+        req_create_c
+    );
     let assert = cargo_bin_cmd!("hemis")
         .env("HEMIS_DB_PATH", db.path())
         .write_stdin(input)
@@ -1341,11 +1396,17 @@ fn reattach_updates_note_position() -> anyhow::Result<()> {
     );
     // Verify commit/blob SHAs are set (from git info)
     assert!(
-        updated_note.get("commitSha").and_then(|v| v.as_str()).is_some(),
+        updated_note
+            .get("commitSha")
+            .and_then(|v| v.as_str())
+            .is_some(),
         "reattached note should have commitSha"
     );
     assert!(
-        updated_note.get("blobSha").and_then(|v| v.as_str()).is_some(),
+        updated_note
+            .get("blobSha")
+            .and_then(|v| v.as_str())
+            .is_some(),
         "reattached note should have blobSha"
     );
 
@@ -1382,11 +1443,7 @@ fn reattach_fails_for_missing_note() -> anyhow::Result<()> {
         "reattach should fail for non-existent note"
     );
     assert!(
-        resp.error
-            .as_ref()
-            .unwrap()
-            .message
-            .contains("not found"),
+        resp.error.as_ref().unwrap().message.contains("not found"),
         "error should mention note not found"
     );
 

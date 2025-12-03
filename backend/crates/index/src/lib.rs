@@ -97,35 +97,30 @@ fn upsert_embedding(
     text: &str,
 ) -> Result<()> {
     let updated = now_unix();
+    let bin_hash = binary_hash(vector);
+    let vec_norm = norm(vector);
     exec(
         conn,
-        "INSERT OR REPLACE INTO embeddings (id, file, project_root, vector, text, updated_at)
+        "INSERT OR REPLACE INTO embeddings (id, file, project_root, vector, text, binary_hash, norm, updated_at)
          VALUES (
             (SELECT id FROM embeddings WHERE file = ?1),
-            ?1, ?2, ?3, ?4, ?5
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7
          );",
         &[
             &file,
             &project_root,
             &serde_json::to_string(vector)?,
             &text,
+            &bin_hash,
+            &vec_norm,
             &updated,
         ],
     )?;
     Ok(())
 }
 
-fn embedding_from_row(row: &rusqlite::Row<'_>) -> Result<Embedding> {
-    let vector_str: String = row.get("vector")?;
-    let vector: Vec<f32> = serde_json::from_str(&vector_str).unwrap_or_default();
-    Ok(Embedding {
-        file: row.get("file")?,
-        project_root: row.get("project_root")?,
-        vector,
-        text: row.get("text")?,
-        updated_at: row.get("updated_at")?,
-    })
-}
+// Note: embedding_from_row removed - now parse fields directly in semantic_search
+// to avoid loading full vector when binary hash rejects the candidate
 
 fn dot(a: &[f32], b: &[f32]) -> f32 {
     let len = a.len().min(b.len());
@@ -134,6 +129,32 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
         sum += a[i] * b[i];
     }
     sum
+}
+
+fn norm(v: &[f32]) -> f32 {
+    dot(v, v).sqrt()
+}
+
+/// Compute binary hash of vector (sign bits packed into bytes)
+fn binary_hash(v: &[f32]) -> Vec<u8> {
+    let num_bytes = (v.len() + 7) / 8;
+    let mut hash = vec![0u8; num_bytes];
+    for (i, &val) in v.iter().enumerate() {
+        if val >= 0.0 {
+            hash[i / 8] |= 1 << (i % 8);
+        }
+    }
+    hash
+}
+
+/// Count differing bits between two binary hashes (Hamming distance)
+fn hamming_distance(a: &[u8], b: &[u8]) -> u32 {
+    let len = a.len().min(b.len());
+    let mut dist = 0u32;
+    for i in 0..len {
+        dist += (a[i] ^ b[i]).count_ones();
+    }
+    dist
 }
 
 pub fn upsert_embedding_for_file(
@@ -186,30 +207,73 @@ pub fn add_file(
     }))
 }
 
+/// Escape special FTS5 characters and format query for matching
+fn escape_fts_literal(value: &str) -> String {
+    value.replace('"', "\"\"")
+}
+
+fn escape_fts_query(query: &str) -> Option<String> {
+    let escaped: String = query
+        .chars()
+        .map(|c| match c {
+            '"' | '*' | '^' | '-' | '+' | '(' | ')' | ':' => ' ',
+            _ => c,
+        })
+        .collect();
+
+    let terms: Vec<String> = escaped
+        .split_whitespace()
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("\"{}\"*", s))
+        .collect();
+
+    if terms.is_empty() {
+        None
+    } else {
+        Some(terms.join(" OR "))
+    }
+}
+
 pub fn search(
     conn: &Connection,
     query: &str,
     project_root: Option<&str>,
 ) -> Result<Vec<SearchHit>> {
-    // Use SQL LIKE to pre-filter files that might contain the query,
-    // avoiding loading files that definitely don't match
-    let pattern = format!("%{}%", query);
+    // Reject empty queries to avoid returning whole index
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Use FTS5 for efficient full-text search - O(log N) instead of O(N)
+    let base_query = match escape_fts_query(query) {
+        Some(q) => q,
+        None => return Ok(Vec::new()),
+    };
+    let fts_query = if let Some(root) = project_root {
+        format!(
+            "project_root:\"{}\" AND ({})",
+            escape_fts_literal(root),
+            base_query
+        )
+    } else {
+        base_query
+    };
+
+    // FTS5 gives us matching files, then we scan those files for line positions
     let mut stmt;
     let mut rows;
-    if let Some(root) = project_root {
-        stmt = conn.prepare(
-            "SELECT file, content FROM files WHERE project_root = ? AND content LIKE ?;",
-        )?;
-        rows = stmt.query([root, pattern.as_str()])?;
-    } else {
-        stmt = conn.prepare("SELECT file, content FROM files WHERE content LIKE ?;")?;
-        rows = stmt.query([pattern.as_str()])?;
-    };
+    stmt = conn.prepare(
+        r#"SELECT f.file, f.content FROM files f
+           INNER JOIN files_fts fts ON f.rowid = fts.rowid
+           WHERE files_fts MATCH ?;"#,
+    )?;
+    rows = stmt.query([fts_query.as_str()])?;
 
     let mut hits = Vec::new();
     while let Some(row) = rows.next()? {
         let file: String = row.get(0)?;
         let content: String = row.get(1)?;
+        // Scan matching files for exact line positions
         for (idx, line) in content.lines().enumerate() {
             if let Some(pos) = line.find(query) {
                 hits.push(SearchHit {
@@ -261,29 +325,67 @@ pub fn semantic_search(
     project_root: Option<&str>,
     top_k: usize,
 ) -> Result<Vec<SearchHit>> {
-    // Use min-heap to maintain only top-k results (avoids full sort)
+    // Pre-compute query binary hash for fast candidate filtering
+    let query_hash = binary_hash(query_vector);
+    let query_norm = norm(query_vector);
+
+    // Two-phase filtering per row:
+    // 1. Norm upper bound: skip if |q|*|v| can't beat current minimum (Cauchy-Schwarz)
+    // 2. Hamming distance: skip if binary hash distance > threshold
+    // 3. Exact dot product: only for candidates passing both filters
+    //
+    // This scans all rows but avoids expensive JSON parsing and dot products
+    // for most candidates. No early termination - SQL order is arbitrary.
+
+    let dim_bits = query_vector.len();
+    let hamming_threshold = (dim_bits as f32 * 0.4) as u32;
+
     let mut heap: BinaryHeap<ScoredHit> = BinaryHeap::with_capacity(top_k + 1);
 
-    // Stream rows to avoid loading all embeddings into a Vec first
     let mut stmt;
     let mut rows;
     if let Some(root) = project_root {
-        stmt = conn.prepare("SELECT * FROM embeddings WHERE project_root = ?;")?;
+        stmt = conn.prepare(
+            "SELECT file, vector, text, binary_hash, norm FROM embeddings WHERE project_root = ?;",
+        )?;
         rows = stmt.query([root])?;
     } else {
-        stmt = conn.prepare("SELECT * FROM embeddings;")?;
+        stmt = conn.prepare("SELECT file, vector, text, binary_hash, norm FROM embeddings;")?;
         rows = stmt.query([])?;
     }
 
     while let Some(row) = rows.next()? {
-        let emb = embedding_from_row(row)?;
-        let score = dot(&emb.vector, query_vector);
+        let bin_hash: Option<Vec<u8>> = row.get("binary_hash").ok();
+        let emb_norm: Option<f64> = row.get("norm").ok();
+
+        // Fast rejection 1: norm upper bound (Cauchy-Schwarz inequality)
+        // dot(q,v) <= |q|*|v|, so skip if upper bound can't beat current min
+        if let (Some(min_hit), Some(emb_n)) = (heap.peek(), emb_norm) {
+            let upper_bound = query_norm * emb_n as f32;
+            if upper_bound <= min_hit.score && heap.len() >= top_k {
+                continue;
+            }
+        }
+
+        // Fast rejection 2: Hamming distance on binary hash
+        // High Hamming distance correlates with low cosine similarity
+        if let Some(ref hash) = bin_hash {
+            let dist = hamming_distance(&query_hash, hash);
+            if dist > hamming_threshold && heap.len() >= top_k {
+                continue;
+            }
+        }
+
+        // Passed filters - compute exact dot product
+        let vector_str: String = row.get("vector")?;
+        let vector: Vec<f32> = serde_json::from_str(&vector_str).unwrap_or_default();
+        let score = dot(&vector, query_vector);
 
         let hit = SearchHit {
-            file: emb.file,
+            file: row.get("file")?,
             line: 1,
             column: 0,
-            text: emb.text,
+            text: row.get("text")?,
             score,
             kind: Some("semantic".into()),
             note_id: None,

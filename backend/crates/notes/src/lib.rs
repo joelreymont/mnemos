@@ -252,7 +252,11 @@ pub fn list_project(
 
 pub fn delete(conn: &Connection, id: &str) -> Result<bool> {
     // Remove edges where this note is source or target
-    exec(conn, "DELETE FROM edges WHERE src = ? OR dst = ?;", &[&id, &id])?;
+    exec(
+        conn,
+        "DELETE FROM edges WHERE src = ? OR dst = ?;",
+        &[&id, &id],
+    )?;
     let count = exec(conn, "DELETE FROM notes WHERE id = ?;", &[&id])?;
     Ok(count > 0)
 }
@@ -295,33 +299,74 @@ pub fn search(
     limit: Option<usize>,
     offset: usize,
 ) -> Result<Vec<Note>> {
-    // Lowercase pattern for case-insensitive search
-    let pattern = format!("%{}%", query.to_lowercase());
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Use FTS5 for efficient full-text search
+    // Escape special FTS5 characters and wrap terms for prefix matching
+    let base_query = match escape_fts_query(query) {
+        Some(q) => q,
+        None => return Ok(Vec::new()),
+    };
+
+    let fts_query = if let Some(root) = project_root {
+        format!(
+            "project_root:\"{}\" AND ({})",
+            escape_fts_literal(root),
+            base_query
+        )
+    } else {
+        base_query
+    };
+
     let pagination = match limit {
         Some(lim) => format!("LIMIT {} OFFSET {}", lim, offset),
         None => format!("LIMIT -1 OFFSET {}", offset),
     };
-    let sql = if project_root.is_some() {
-        format!(
-            "SELECT * FROM notes WHERE project_root = ? AND (LOWER(text) LIKE ? OR LOWER(summary) LIKE ? OR LOWER(file) LIKE ?) ORDER BY updated_at DESC {};",
-            pagination
-        )
-    } else {
-        format!(
-            "SELECT * FROM notes WHERE (LOWER(text) LIKE ? OR LOWER(summary) LIKE ? OR LOWER(file) LIKE ?) ORDER BY updated_at DESC {};",
-            pagination
-        )
-    };
-    let rows = if let Some(proj) = project_root {
-        query_all(conn, &sql, &[&proj, &pattern, &pattern, &pattern], |row| {
-            map_note(row, false)
-        })?
-    } else {
-        query_all(conn, &sql, &[&pattern, &pattern, &pattern], |row| {
-            map_note(row, false)
-        })?
-    };
+
+    let sql = format!(
+        r#"SELECT n.* FROM notes n
+           INNER JOIN notes_fts fts ON n.rowid = fts.rowid
+           WHERE notes_fts MATCH ?
+           ORDER BY n.updated_at DESC {};"#,
+        pagination
+    );
+
+    let rows = query_all(conn, &sql, &[&fts_query.as_str()], |row| {
+        map_note(row, false)
+    })?;
     Ok(rows)
+}
+
+/// Escape special FTS5 characters and format query for substring matching
+fn escape_fts_query(query: &str) -> Option<String> {
+    // FTS5 special characters that need escaping: " * ^ - + ( ) : OR AND NOT
+    // For substring matching, we wrap each word with * for prefix matching
+    let escaped: String = query
+        .chars()
+        .map(|c| match c {
+            '"' | '*' | '^' | '-' | '+' | '(' | ')' | ':' => ' ',
+            _ => c,
+        })
+        .collect();
+
+    // Split into words and add prefix matching
+    let terms: Vec<String> = escaped
+        .split_whitespace()
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("\"{}\"*", s))
+        .collect();
+
+    if terms.is_empty() {
+        None
+    } else {
+        Some(terms.join(" OR "))
+    }
+}
+
+fn escape_fts_literal(value: &str) -> String {
+    value.replace('"', "\"\"")
 }
 
 /// Find all notes that link TO the given note (backlinks).

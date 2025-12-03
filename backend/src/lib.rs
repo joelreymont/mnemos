@@ -305,8 +305,16 @@ pub fn handle(req: Request, db: &Connection) -> Response {
         }
         "notes/list-project" => {
             if let Some(proj) = req.params.get("projectRoot").and_then(|v| v.as_str()) {
-                let limit = req.params.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
-                let offset = req.params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let limit = req
+                    .params
+                    .get("limit")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as usize);
+                let offset = req
+                    .params
+                    .get("offset")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as usize;
                 match notes::list_project(db, proj, limit, offset) {
                     Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
@@ -322,8 +330,16 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
-            let limit = req.params.get("limit").and_then(|v| v.as_u64()).map(|v| v as usize);
-            let offset = req.params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            let limit = req
+                .params
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize);
+            let offset = req
+                .params
+                .get("offset")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
             match notes::search(db, query, proj, limit, offset) {
                 Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
                 Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
@@ -380,7 +396,18 @@ pub fn handle(req: Request, db: &Connection) -> Response {
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
                 let git = info_for_file(file);
-                match notes::create(db, file, proj, line, column, node_path, tags, text, git, node_text_hash) {
+                match notes::create(
+                    db,
+                    file,
+                    proj,
+                    line,
+                    column,
+                    node_path,
+                    tags,
+                    text,
+                    git,
+                    node_text_hash,
+                ) {
                     Ok(n) => Response::result(id, serde_json::to_value(n).unwrap()),
                     Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }

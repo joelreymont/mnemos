@@ -54,12 +54,8 @@ fn framed_needs_more(buf: &[u8]) -> bool {
 
 /// Get the default database path (~/.hemis/hemis.db).
 fn default_db_path() -> String {
-    std::env::var("HEMIS_DB_PATH").unwrap_or_else(|_| {
-        hemis_dir()
-            .join("hemis.db")
-            .to_string_lossy()
-            .into_owned()
-    })
+    std::env::var("HEMIS_DB_PATH")
+        .unwrap_or_else(|_| hemis_dir().join("hemis.db").to_string_lossy().into_owned())
 }
 
 /// Get the hemis directory (~/.hemis or HEMIS_DIR), creating it if needed.

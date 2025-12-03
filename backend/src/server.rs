@@ -57,10 +57,7 @@ impl Server {
 
         // Create the socket
         let listener = UnixListener::bind(&self.socket_path)?;
-        eprintln!(
-            "Hemis server listening on {}",
-            self.socket_path.display()
-        );
+        eprintln!("Hemis server listening on {}", self.socket_path.display());
 
         // Write PID to lock file
         fs::write(
@@ -129,12 +126,7 @@ impl Server {
             eprintln!("Client disconnected ({} remaining)", remaining);
 
             if remaining == 0 {
-                schedule_shutdown_check(
-                    connections,
-                    shutdown_scheduled,
-                    socket_path,
-                    lock_path,
-                );
+                schedule_shutdown_check(connections, shutdown_scheduled, socket_path, lock_path);
             }
         });
     }

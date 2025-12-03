@@ -85,9 +85,136 @@ fn migrate(conn: &Connection) -> Result<()> {
         ("notes", "blob_sha", "TEXT"),
         ("notes", "node_text_hash", "TEXT"),
         ("files", "content_hash", "TEXT"),
+        ("embeddings", "binary_hash", "BLOB"),
+        ("embeddings", "norm", "REAL"),
     ] {
         ensure_column(conn, table, col, ty)?;
     }
+    // Create FTS5 tables for full-text search
+    create_fts_tables(conn)?;
+    Ok(())
+}
+
+fn table_sql(conn: &Connection, name: &str) -> Result<Option<String>> {
+    let mut stmt =
+        conn.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?1 LIMIT 1;")?;
+    let mut rows = stmt.query([name])?;
+    if let Some(row) = rows.next()? {
+        let sql: String = row.get(0)?;
+        Ok(Some(sql))
+    } else {
+        Ok(None)
+    }
+}
+
+fn drop_notes_fts(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        r#"
+        DROP TRIGGER IF EXISTS notes_fts_insert;
+        DROP TRIGGER IF EXISTS notes_fts_delete;
+        DROP TRIGGER IF EXISTS notes_fts_update;
+        DROP TABLE IF EXISTS notes_fts;
+        "#,
+    )?;
+    Ok(())
+}
+
+fn drop_files_fts(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        r#"
+        DROP TRIGGER IF EXISTS files_fts_insert;
+        DROP TRIGGER IF EXISTS files_fts_delete;
+        DROP TRIGGER IF EXISTS files_fts_update;
+        DROP TABLE IF EXISTS files_fts;
+        "#,
+    )?;
+    Ok(())
+}
+
+fn create_fts_tables(conn: &Connection) -> Result<()> {
+    // Rebuild FTS tables if missing or if project_root was UNINDEXED (prevents indexed filtering).
+    let notes_fts_sql = table_sql(conn, "notes_fts")?;
+    let notes_needs_rebuild = notes_fts_sql
+        .as_ref()
+        .map(|sql| sql.contains("project_root UNINDEXED"))
+        .unwrap_or(true);
+    if notes_needs_rebuild {
+        drop_notes_fts(conn)?;
+        conn.execute_batch(
+            r#"
+            CREATE VIRTUAL TABLE notes_fts USING fts5(
+                id UNINDEXED,
+                project_root,
+                text,
+                summary,
+                file,
+                content='notes',
+                content_rowid='rowid'
+            );
+
+            CREATE TRIGGER notes_fts_insert AFTER INSERT ON notes BEGIN
+                INSERT INTO notes_fts(rowid, id, project_root, text, summary, file)
+                VALUES (NEW.rowid, NEW.id, NEW.project_root, NEW.text, NEW.summary, NEW.file);
+            END;
+
+            CREATE TRIGGER notes_fts_delete AFTER DELETE ON notes BEGIN
+                INSERT INTO notes_fts(notes_fts, rowid, id, project_root, text, summary, file)
+                VALUES ('delete', OLD.rowid, OLD.id, OLD.project_root, OLD.text, OLD.summary, OLD.file);
+            END;
+
+            CREATE TRIGGER notes_fts_update AFTER UPDATE ON notes BEGIN
+                INSERT INTO notes_fts(notes_fts, rowid, id, project_root, text, summary, file)
+                VALUES ('delete', OLD.rowid, OLD.id, OLD.project_root, OLD.text, OLD.summary, OLD.file);
+                INSERT INTO notes_fts(rowid, id, project_root, text, summary, file)
+                VALUES (NEW.rowid, NEW.id, NEW.project_root, NEW.text, NEW.summary, NEW.file);
+            END;
+
+            INSERT INTO notes_fts(rowid, id, project_root, text, summary, file)
+            SELECT rowid, id, project_root, text, summary, file FROM notes;
+            "#,
+        )?;
+    }
+
+    let files_fts_sql = table_sql(conn, "files_fts")?;
+    let files_needs_rebuild = files_fts_sql
+        .as_ref()
+        .map(|sql| sql.contains("project_root UNINDEXED"))
+        .unwrap_or(true);
+    if files_needs_rebuild {
+        drop_files_fts(conn)?;
+        conn.execute_batch(
+            r#"
+            CREATE VIRTUAL TABLE files_fts USING fts5(
+                file UNINDEXED,
+                project_root,
+                content,
+                content='files',
+                content_rowid='rowid'
+            );
+
+            CREATE TRIGGER files_fts_insert AFTER INSERT ON files BEGIN
+                INSERT INTO files_fts(rowid, file, project_root, content)
+                VALUES (NEW.rowid, NEW.file, NEW.project_root, NEW.content);
+            END;
+
+            CREATE TRIGGER files_fts_delete AFTER DELETE ON files BEGIN
+                INSERT INTO files_fts(files_fts, rowid, file, project_root, content)
+                VALUES ('delete', OLD.rowid, OLD.file, OLD.project_root, OLD.content);
+            END;
+
+            CREATE TRIGGER files_fts_update AFTER UPDATE ON files BEGIN
+                INSERT INTO files_fts(files_fts, rowid, file, project_root, content)
+                VALUES ('delete', OLD.rowid, OLD.file, OLD.project_root, OLD.content);
+                INSERT INTO files_fts(rowid, file, project_root, content)
+                VALUES (NEW.rowid, NEW.file, NEW.project_root, NEW.content);
+            END;
+
+            INSERT INTO files_fts(rowid, file, project_root, content)
+            SELECT rowid, file, project_root, content FROM files;
+            "#,
+        )?;
+    }
+
     Ok(())
 }
 
@@ -191,14 +318,11 @@ pub fn counts(conn: &Connection, project_root: Option<&str>) -> Result<Counts> {
         )?;
         (notes, files, embeddings, edges)
     } else {
-        let notes: i64 =
-            conn.query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0))?;
-        let files: i64 =
-            conn.query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))?;
+        let notes: i64 = conn.query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0))?;
+        let files: i64 = conn.query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))?;
         let embeddings: i64 =
             conn.query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))?;
-        let edges: i64 =
-            conn.query_row("SELECT COUNT(*) FROM edges", [], |row| row.get(0))?;
+        let edges: i64 = conn.query_row("SELECT COUNT(*) FROM edges", [], |row| row.get(0))?;
         (notes, files, embeddings, edges)
     };
     Ok(Counts {
