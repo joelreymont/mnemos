@@ -20,6 +20,7 @@ pub struct FileInfo {
 }
 
 pub mod ai_cli;
+pub mod config;
 pub mod preload;
 pub mod server;
 pub mod snapshot;

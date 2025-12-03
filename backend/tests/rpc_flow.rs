@@ -3334,3 +3334,97 @@ pub fn validate_port(port: u16) -> bool {
 
     Ok(())
 }
+
+// Test explain-region with real AI provider (claude or codex)
+// This test is skipped if no AI CLI is available
+#[test]
+fn explain_region_with_real_ai() -> anyhow::Result<()> {
+    // Check for AI CLI availability - prefer claude, fall back to codex
+    let ai_provider = if std::process::Command::new("claude")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        Some("claude")
+    } else if std::process::Command::new("codex")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        Some("codex")
+    } else {
+        None
+    };
+
+    let Some(provider) = ai_provider else {
+        eprintln!("Skipping explain_region_with_real_ai: no AI CLI (claude or codex) found");
+        return Ok(());
+    };
+
+    eprintln!("Running explain_region_with_real_ai with provider: {}", provider);
+
+    let db = NamedTempFile::new()?;
+    let tmpdir = tempfile::tempdir()?;
+    let file_path = tmpdir.path().join("test.rs");
+
+    let content = r#"fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+"#;
+    std::fs::write(&file_path, content)?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/explain-region",
+        "params": {
+            "file": file_path.to_string_lossy(),
+            "projectRoot": tmpdir.path().to_string_lossy(),
+            "startLine": 1,
+            "endLine": 3,
+            "useAI": true
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+
+    // Run with the detected AI provider
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .env("HEMIS_AI_PROVIDER", provider)
+        .timeout(std::time::Duration::from_secs(120))
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("decode response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    if let Some(err) = resp.error {
+        panic!("RPC error: {:?}", err);
+    }
+
+    let result = resp.result.expect("should have result");
+
+    // Should return the snippet
+    let snippet = result.get("content").and_then(|v| v.as_str()).expect("should have content");
+    assert!(snippet.contains("fn add"), "snippet should contain the function");
+
+    // Should have AI explanation
+    let explanation = result.get("explanation").and_then(|v| v.as_str());
+    assert!(explanation.is_some(), "should have AI explanation");
+    let explanation = explanation.unwrap();
+    assert!(!explanation.is_empty(), "explanation should not be empty");
+    eprintln!("AI explanation ({} chars): {}...", explanation.len(), &explanation[..explanation.len().min(200)]);
+
+    // Should have AI info
+    let ai_info = result.get("ai").expect("should have ai info");
+    let returned_provider = ai_info.get("provider").and_then(|v| v.as_str());
+    assert_eq!(returned_provider, Some(provider), "should return correct provider");
+
+    Ok(())
+}

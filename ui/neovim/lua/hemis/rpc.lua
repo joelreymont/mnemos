@@ -206,33 +206,18 @@ local function start_server()
   -- Ensure hemis directory exists
   vim.fn.mkdir(hemis_dir, "p")
 
-  -- Build environment - HEMIS_DIR and HEMIS_DB_PATH
-  -- Priority: shell env > config backend_env > default
-  local env_config = config.get("backend_env") or {}
-  local db_path = vim.env.HEMIS_DB_PATH
-    or env_config.HEMIS_DB_PATH
-    or (hemis_dir .. "/hemis.db")
-
-  local env_parts = {
-    "HEMIS_DIR=" .. vim.fn.shellescape(hemis_dir),
-    "HEMIS_DB_PATH=" .. vim.fn.shellescape(db_path),
-  }
-
-  -- Add any additional env from config (skip HEMIS_DB_PATH, already handled)
-  for k, v in pairs(env_config) do
-    if type(k) == "number" then
-      table.insert(env_parts, v)
-    elseif k ~= "HEMIS_DB_PATH" then
-      table.insert(env_parts, k .. "=" .. v)
-    end
+  -- Build command with optional --config flag
+  local config_path = config.get("config_path")
+  local config_arg = ""
+  if config_path then
+    config_arg = " --config " .. vim.fn.shellescape(config_path)
   end
-  local env_str = table.concat(env_parts, " ")
 
   -- Start server in background (detached)
   local cmd = string.format(
-    "%s %s --serve >> %s/hemis.log 2>&1 &",
-    env_str,
+    "%s --serve%s >> %s/hemis.log 2>&1 &",
     vim.fn.shellescape(backend),
+    config_arg,
     hemis_dir
   )
   log("debug", "Starting server: " .. cmd)

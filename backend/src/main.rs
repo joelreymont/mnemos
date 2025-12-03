@@ -22,6 +22,7 @@ use std::process::Command;
 use std::str;
 
 use anyhow::{anyhow, Result};
+use backend::config::ResolvedConfig;
 use backend::{create_parser_service, parse_and_handle};
 use backend::server::Server;
 use rpc::{decode_framed, encode_response, Response};
@@ -93,29 +94,16 @@ fn framed_needs_more(buf: &[u8]) -> bool {
     true
 }
 
-/// Get the default database path (~/.hemis/hemis.db).
-fn default_db_path() -> String {
-    std::env::var("HEMIS_DB_PATH")
-        .unwrap_or_else(|_| hemis_dir().join("hemis.db").to_string_lossy().into_owned())
-}
-
-/// Get the hemis directory (~/.hemis or HEMIS_DIR), creating it if needed.
+/// Get the hemis data directory (~/.hemis or HEMIS_DIR), creating it if needed.
 fn hemis_dir() -> PathBuf {
-    let dir = std::env::var("HEMIS_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            dirs::home_dir()
-                .map(|h| h.join(".hemis"))
-                .unwrap_or_else(|| PathBuf::from(".hemis"))
-        });
+    let dir = backend::config::data_dir();
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
 
 /// Run in stdio mode (reads from stdin, writes to stdout).
-fn run_stdio_mode() -> Result<()> {
-    let db_path = std::env::var("HEMIS_DB_PATH").unwrap_or_else(|_| default_db_path());
-    let conn = connect(&db_path)?;
+fn run_stdio_mode(config: &ResolvedConfig) -> Result<()> {
+    let conn = connect(&config.db_path)?;
     backend::preload::sanity_check(&conn)?;
 
     let mut parser = create_parser_service();
@@ -195,11 +183,9 @@ fn run_stdio_mode() -> Result<()> {
 }
 
 /// Run in server mode (Unix domain socket).
-fn run_server_mode() -> Result<()> {
-    let db_path = default_db_path();
+fn run_server_mode(config: &ResolvedConfig) -> Result<()> {
     let hdir = hemis_dir();
-
-    let server = Server::new(hdir, db_path);
+    let server = Server::new(hdir, config.db_path.clone());
     server.run()
 }
 
@@ -634,17 +620,38 @@ fn print_help() {
     println!("    grammar        Manage tree-sitter grammars (list, fetch, build)");
     println!();
     println!("OPTIONS:");
-    println!("    --serve, -s    Run as server (Unix socket at ~/.hemis/hemis.sock)");
-    println!("    --stdio        Run in stdio mode (for testing/debugging)");
-    println!("    --version, -v  Print version information");
-    println!("    --help, -h     Print this help message");
+    println!("    --serve, -s        Run as server (Unix socket at ~/.hemis/hemis.sock)");
+    println!("    --stdio            Run in stdio mode (for testing/debugging)");
+    println!("    --config <PATH>    Path to config file (default: ~/.config/hemis/config.toml)");
+    println!("    --version, -v      Print version information");
+    println!("    --help, -h         Print this help message");
     println!();
-    println!("ENVIRONMENT:");
-    println!("    HEMIS_DB_PATH  Override database path (default: ~/.hemis/hemis.db)");
+    println!("CONFIG FILE:");
+    println!("    db-path = \"/path/to/hemis.db\"");
+    println!("    ai-provider = \"claude\"  # or \"codex\", \"none\"");
     println!();
     println!("Without flags, auto-detects mode:");
     println!("    - TTY stdin → server mode");
     println!("    - Pipe stdin → stdio mode");
+}
+
+/// Parse a value argument (--flag value or --flag=value)
+fn parse_arg_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+    for (i, arg) in args.iter().enumerate() {
+        // Handle --flag=value format
+        if let Some(value) = arg.strip_prefix(&format!("{}=", flag)) {
+            return Some(value);
+        }
+        // Handle --flag value format
+        if arg == flag {
+            if let Some(value) = args.get(i + 1) {
+                if !value.starts_with('-') {
+                    return Some(value);
+                }
+            }
+        }
+    }
+    None
 }
 
 fn main() -> Result<()> {
@@ -665,8 +672,14 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    // Parse CLI arguments
+    let config_path = parse_arg_value(&args, "--config");
+
+    // Build resolved config (CLI config path > default config path)
+    let config = ResolvedConfig::new(config_path);
+
     match detect_mode() {
-        Mode::Server => run_server_mode(),
-        Mode::Stdio => run_stdio_mode(),
+        Mode::Server => run_server_mode(&config),
+        Mode::Stdio => run_stdio_mode(&config),
     }
 }

@@ -44,11 +44,6 @@ function M.add_note()
     end
 
     -- Pass captured position to create
-    local f = io.open("/tmp/hemis-debug.log", "a")
-    if f then
-      f:write(os.date("%H:%M:%S") .. " Creating note with hash: " .. tostring(node_text_hash) .. "\n")
-      f:close()
-    end
     notes.create(text, {
       anchor = anchor,
       node_path = node_path,
@@ -631,9 +626,8 @@ function M.view_file()
   end)
 end
 
--- Explain region (copy visual selection for LLM)
--- If use_ai is true, will use AI to generate explanation
-function M.explain_region(use_ai)
+-- Explain region using AI
+function M.explain_region()
   local start_pos = vim.fn.getpos("'<")
   local end_pos = vim.fn.getpos("'>")
   local start_line = start_pos[2]
@@ -646,14 +640,15 @@ function M.explain_region(use_ai)
 
   local file = vim.fn.expand("%:p")
 
-  notes.explain_region(file, start_line, end_line, use_ai, function(err, result)
-    if err then
-      vim.notify("Failed to explain region: " .. (err.message or "unknown"), vim.log.levels.ERROR)
-      return
-    end
+  notes.explain_region(file, start_line, end_line, true, function(err, result)
+    vim.schedule(function()
+      if err then
+        vim.notify("Failed to explain region: " .. (err.message or vim.inspect(err)), vim.log.levels.ERROR)
+        return
+      end
 
-    -- If AI explanation is available, show it in a buffer
-    if result.explanation then
+      -- Show AI explanation in a buffer
+      if result.explanation then
       local buf = vim.api.nvim_create_buf(false, true)
       local lines = {}
       table.insert(lines, string.format("Explanation for %s:%d-%d", file, start_line, end_line))
@@ -676,20 +671,10 @@ function M.explain_region(use_ai)
       vim.cmd("split")
       vim.api.nvim_win_set_buf(0, buf)
     else
-      -- Copy to clipboard (original behavior)
-      vim.fn.setreg("+", result.content or "")
-      vim.fn.setreg("*", result.content or "")
-      vim.notify(
-        string.format("Copied %d lines to clipboard (LLM-ready)", end_line - start_line + 1),
-        vim.log.levels.INFO
-      )
+      vim.notify("No AI explanation available", vim.log.levels.WARN)
     end
+    end)
   end)
-end
-
--- Explain region with AI
-function M.explain_region_ai()
-  M.explain_region(true)
 end
 
 -- Show project metadata
@@ -804,7 +789,6 @@ function M.setup_commands()
   vim.api.nvim_create_user_command("HemisListFiles", M.list_files, {})
   vim.api.nvim_create_user_command("HemisViewFile", M.view_file, {})
   vim.api.nvim_create_user_command("HemisExplainRegion", M.explain_region, { range = true })
-  vim.api.nvim_create_user_command("HemisExplainRegionAI", M.explain_region_ai, { range = true })
   vim.api.nvim_create_user_command("HemisIndexProjectAI", M.index_project_ai, {})
   vim.api.nvim_create_user_command("HemisProjectMeta", M.project_meta, {})
   vim.api.nvim_create_user_command("HemisSaveSnapshot", M.save_snapshot, {})
@@ -845,8 +829,7 @@ function M.setup_keymaps()
   end
 
   -- Visual mode mapping for explain region
-  vim.keymap.set("v", prefix .. "x", M.explain_region, { desc = "Hemis: Explain region" })
-  vim.keymap.set("v", prefix .. "X", M.explain_region_ai, { desc = "Hemis: Explain region (AI)" })
+  vim.keymap.set("v", prefix .. "x", M.explain_region, { desc = "Hemis: Explain region (AI)" })
 end
 
 -- Debounce timer for buffer updates

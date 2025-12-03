@@ -110,6 +110,7 @@ dependencies = [
  "storage",
  "tempfile",
  "thiserror",
+ "toml",
  "treesitter",
  "uuid",
 ]
