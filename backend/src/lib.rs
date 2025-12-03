@@ -208,11 +208,15 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             }
             // Cap line range to prevent excessive memory usage (use checked_sub for overflow safety)
             const MAX_LINE_RANGE: u64 = 10_000;
+            const MAX_LINE_NUMBER: u64 = 10_000_000;
+            if start_line > MAX_LINE_NUMBER || end_line > MAX_LINE_NUMBER {
+                return Response::error(id, INVALID_PARAMS, format!("line number too large (max {})", MAX_LINE_NUMBER));
+            }
             let line_range = end_line.checked_sub(start_line).unwrap_or(0);
             if line_range > MAX_LINE_RANGE {
                 return Response::error(id, INVALID_PARAMS, format!("line range too large (max {} lines)", MAX_LINE_RANGE));
             }
-            // Safe conversion after validation (values are reasonable after checks)
+            // Safe conversion after validation (values bounded by MAX_LINE_NUMBER which fits in usize)
             let start_line = start_line as usize;
             let end_line = end_line as usize;
 
@@ -316,14 +320,22 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 .get("includeNotes")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true);
+            // Validate vector array size (typical embedding dimensions: 384-4096)
+            const MAX_VECTOR_DIM: usize = 8192;
             let query_vec: Option<Vec<f32>> = req
                 .params
                 .get("vector")
                 .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|x| x.as_f64().map(|f| f as f32))
-                        .collect::<Vec<f32>>()
+                .and_then(|arr| {
+                    if arr.len() > MAX_VECTOR_DIM {
+                        None // Reject oversized vectors
+                    } else {
+                        Some(
+                            arr.iter()
+                                .filter_map(|x| x.as_f64().map(|f| f as f32))
+                                .collect::<Vec<f32>>(),
+                        )
+                    }
                 });
             // Reject empty queries to avoid returning all indexed content
             if query.trim().is_empty() && query_vec.is_none() {

@@ -164,7 +164,8 @@ impl FileWatcher {
     ///
     /// Returns an error if the mutex is poisoned (indicates a previous panic).
     pub fn watch(&mut self, path: &Path) -> notify::Result<()> {
-        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let canonical = path.canonicalize()
+            .map_err(|_| notify::Error::generic("failed to canonicalize path"))?;
 
         let mut watched = self.watched_dirs.lock()
             .map_err(|_| notify::Error::generic("internal state corrupted (mutex poisoned)"))?;
@@ -181,7 +182,8 @@ impl FileWatcher {
     ///
     /// Returns an error if the mutex is poisoned (indicates a previous panic).
     pub fn unwatch(&mut self, path: &Path) -> notify::Result<()> {
-        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let canonical = path.canonicalize()
+            .map_err(|_| notify::Error::generic("failed to canonicalize path"))?;
 
         let mut watched = self.watched_dirs.lock()
             .map_err(|_| notify::Error::generic("internal state corrupted (mutex poisoned)"))?;

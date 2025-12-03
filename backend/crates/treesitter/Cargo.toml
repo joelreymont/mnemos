@@ -7,6 +7,7 @@ authors.workspace = true
 [dependencies]
 tree-sitter = "0.24"
 sha2 = { workspace = true }
+subtle = "2.5"
 thiserror = { workspace = true }
 serde = { workspace = true }
 toml = "0.8"

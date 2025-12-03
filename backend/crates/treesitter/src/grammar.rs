@@ -226,34 +226,36 @@ impl GrammarRegistry {
         })?;
 
         use sha2::{Digest, Sha256};
+        use subtle::ConstantTimeEq;
         let actual_hash = format!("{:x}", Sha256::digest(&lib_bytes));
 
-        if actual_hash != expected_hash {
+        // Use constant-time comparison to prevent timing attacks
+        if actual_hash.as_bytes().ct_eq(expected_hash.as_bytes()).unwrap_u8() != 1 {
             return Err(TreeSitterError::GrammarLoadFailed {
                 path: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
                 reason: "hash verification failed (library may have been tampered with)".to_string(),
             });
         }
 
-        // Security: Check file permissions - warn if world-writable
+        // Security: Block loading of world-writable or group-writable libraries
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
             if let Ok(meta) = path.metadata() {
                 let mode = meta.mode();
-                // Check if world-writable (o+w = 0o002)
+                // Block world-writable (o+w = 0o002)
                 if mode & 0o002 != 0 {
-                    eprintln!(
-                        "Security warning: Grammar library is world-writable. \
-                         This is a security risk. Run: chmod o-w <library>"
-                    );
+                    return Err(TreeSitterError::GrammarLoadFailed {
+                        path: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                        reason: "library is world-writable (security risk)".to_string(),
+                    });
                 }
-                // Check if group-writable (g+w = 0o020)
+                // Block group-writable (g+w = 0o020)
                 if mode & 0o020 != 0 {
-                    eprintln!(
-                        "Security warning: Grammar library is group-writable. \
-                         Consider restricting permissions."
-                    );
+                    return Err(TreeSitterError::GrammarLoadFailed {
+                        path: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                        reason: "library is group-writable (security risk)".to_string(),
+                    });
                 }
             }
         }

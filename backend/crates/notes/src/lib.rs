@@ -340,22 +340,26 @@ pub fn search(
         base_query
     };
 
-    let pagination = match limit {
-        Some(lim) => format!("LIMIT {} OFFSET {}", lim, offset),
-        None => format!("LIMIT -1 OFFSET {}", offset),
-    };
+    // Cap limit and offset to prevent DoS via excessive memory allocation
+    const MAX_LIMIT: i64 = 10000;
+    const DEFAULT_LIMIT: i64 = 100;
+    const MAX_OFFSET: i64 = 1_000_000;
+    let limit_val: i64 = limit.map(|l| (l as i64).min(MAX_LIMIT)).unwrap_or(DEFAULT_LIMIT);
+    let offset_val: i64 = (offset as i64).min(MAX_OFFSET);
 
-    let sql = format!(
-        r#"SELECT n.* FROM notes n
+    // Use parameterized query for pagination to prevent SQL injection
+    let sql = r#"SELECT n.* FROM notes n
            INNER JOIN notes_fts fts ON n.rowid = fts.rowid
            WHERE notes_fts MATCH ?
-           ORDER BY n.updated_at DESC {};"#,
-        pagination
-    );
+           ORDER BY n.updated_at DESC LIMIT ? OFFSET ?;"#;
 
-    let rows = query_all(conn, &sql, &[&fts_query.as_str()], |row| {
-        map_note(row, false)
-    })?;
+    let mut stmt = conn.prepare(sql)?;
+    let mut rows_iter = stmt.query(rusqlite::params![fts_query, limit_val, offset_val])?;
+    let mut results = Vec::new();
+    while let Some(row) = rows_iter.next()? {
+        results.push(map_note(row, false)?);
+    }
+    let rows = results;
     Ok(rows)
 }
 
