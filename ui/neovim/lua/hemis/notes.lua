@@ -124,10 +124,7 @@ function M.create(text, opts, callback)
   rpc.request("notes/create", params, function(err, result)
     if callback then
       callback(err, result)
-    end
-    if not err then
-      vim.notify("Note created", vim.log.levels.INFO)
-    else
+    elseif err then
       vim.notify("Failed to create note: " .. (err.message or "unknown error"), vim.log.levels.ERROR)
     end
   end)
@@ -278,7 +275,9 @@ end
 -- List project files
 function M.list_files(callback)
   local root = get_project_root()
-  rpc.request("hemis/list-files", { projectRoot = root }, callback)
+  rpc.request("hemis/list-files", { projectRoot = root }, function(err, result)
+    callback(err, result, root)
+  end)
 end
 
 -- Get file content
@@ -288,7 +287,8 @@ end
 
 -- Explain region (for LLM context)
 -- If use_ai is true, will use AI to generate explanation
-function M.explain_region(file, start_line, end_line, use_ai, callback)
+-- If detailed is true, will generate a comprehensive explanation
+function M.explain_region(file, start_line, end_line, use_ai, detailed, callback)
   local bufnr = vim.fn.bufnr(file)
   local content = nil
   if bufnr ~= -1 then
@@ -306,6 +306,9 @@ function M.explain_region(file, start_line, end_line, use_ai, callback)
   end
   if use_ai then
     params.useAI = true
+  end
+  if detailed then
+    params.detailed = true
   end
   rpc.request("hemis/explain-region", params, callback)
 end

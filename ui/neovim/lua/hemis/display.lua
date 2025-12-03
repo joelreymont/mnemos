@@ -51,16 +51,71 @@ local function get_comment_prefix()
   return prefixes[ft] or "// "
 end
 
+-- Wrap text at specified width
+local function wrap_text(text, width)
+  if width <= 0 or #text <= width then
+    return { text }
+  end
+
+  local lines = {}
+  local remaining = text
+
+  while #remaining > width do
+    -- Find last space within width
+    local break_pos = width
+    for i = width, 1, -1 do
+      if remaining:sub(i, i) == " " then
+        break_pos = i
+        break
+      end
+    end
+
+    -- If no space found, hard break at width
+    if break_pos == width and remaining:sub(width, width) ~= " " then
+      -- Check if we're in the middle of a word
+      local has_space = false
+      for i = width, 1, -1 do
+        if remaining:sub(i, i) == " " then
+          has_space = true
+          break_pos = i
+          break
+        end
+      end
+      if not has_space then
+        break_pos = width
+      end
+    end
+
+    local line = remaining:sub(1, break_pos):gsub("%s+$", "")
+    table.insert(lines, line)
+    remaining = remaining:sub(break_pos + 1):gsub("^%s+", "")
+  end
+
+  if #remaining > 0 then
+    table.insert(lines, remaining)
+  end
+
+  return lines
+end
+
 -- Format note text as comment lines
 local function format_note_lines(note, prefix)
   local lines = {}
   local text = note.text or note.summary or ""
   local hl = note.stale and "HemisNoteStale" or "HemisNote"
 
+  -- Get wrap width from config or use window width minus prefix
+  local wrap_width = config.get("note_wrap_width") or 70
+  local effective_width = wrap_width - #prefix
+
   for line in text:gmatch("[^\n]+") do
     -- Skip lines that are only whitespace (prevents extra blank virtual lines)
     if not line:match("^%s*$") then
-      table.insert(lines, { { prefix .. line, hl } })
+      -- Wrap long lines
+      local wrapped = wrap_text(line, effective_width)
+      for _, wrapped_line in ipairs(wrapped) do
+        table.insert(lines, { { prefix .. wrapped_line, hl } })
+      end
     end
   end
 

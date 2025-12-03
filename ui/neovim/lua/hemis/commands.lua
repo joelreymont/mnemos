@@ -19,7 +19,6 @@ function M.refresh()
 
     M.buffer_notes = result or {}
     display.render_notes(nil, M.buffer_notes)
-    vim.notify(string.format("%d notes loaded", #M.buffer_notes), vim.log.levels.INFO)
   end)
 end
 
@@ -569,7 +568,7 @@ end
 
 -- List project files
 function M.list_files()
-  notes.list_files(function(err, result)
+  notes.list_files(function(err, result, project_root)
     if err then
       vim.notify("Failed to list files: " .. (err.message or "unknown"), vim.log.levels.ERROR)
       return
@@ -580,9 +579,15 @@ function M.list_files()
       return
     end
 
+    -- Make paths relative to project root
+    local prefix = project_root and (project_root .. "/") or ""
     local items = {}
     for _, f in ipairs(result) do
-      table.insert(items, string.format("%s (%d bytes)", f.file, f.size or 0))
+      local display_path = f.file
+      if prefix ~= "" and display_path:sub(1, #prefix) == prefix then
+        display_path = display_path:sub(#prefix + 1)
+      end
+      table.insert(items, string.format("%s (%d bytes)", display_path, f.size or 0))
     end
 
     vim.ui.select(items, { prompt = "Select file:" }, function(choice, idx)
@@ -626,8 +631,14 @@ function M.view_file()
   end)
 end
 
--- Explain region using AI
+-- Explain region using AI and create a note
 function M.explain_region()
+  -- Exit visual mode first to set '< and '> marks
+  local mode = vim.fn.mode()
+  if mode:match("[vV]") then
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+  end
+
   local start_pos = vim.fn.getpos("'<")
   local end_pos = vim.fn.getpos("'>")
   local start_line = start_pos[2]
@@ -638,43 +649,159 @@ function M.explain_region()
     return
   end
 
+  -- Capture tree-sitter info at the start of the selection
+  local ts = require("hemis.treesitter")
+  vim.api.nvim_win_set_cursor(0, { start_line, 0 })
+  local anchor = ts.get_anchor_position()
+  local node_path = ts.get_node_path()
+  local node_text_hash = ts.get_node_text_hash()
+  local source_buf = vim.api.nvim_get_current_buf()
   local file = vim.fn.expand("%:p")
 
-  notes.explain_region(file, start_line, end_line, true, function(err, result)
-    vim.schedule(function()
-      if err then
-        vim.notify("Failed to explain region: " .. (err.message or vim.inspect(err)), vim.log.levels.ERROR)
-        return
-      end
+  -- Use polling approach so UI stays responsive
+  local done = false
+  local ai_err = nil
+  local ai_result = nil
 
-      -- Show AI explanation in a buffer
-      if result.explanation then
-      local buf = vim.api.nvim_create_buf(false, true)
-      local lines = {}
-      table.insert(lines, string.format("Explanation for %s:%d-%d", file, start_line, end_line))
-      if result.ai then
-        local ai_info = result.ai
-        if ai_info.provider then
-          local suffix = ai_info.hadContext and " + project context" or ""
-          table.insert(lines, string.format("[AI: %s%s]", ai_info.provider, suffix))
-        elseif ai_info.error then
-          table.insert(lines, string.format("[AI error: %s]", ai_info.error))
-        end
-      end
-      table.insert(lines, "")
-      for line in result.explanation:gmatch("[^\n]+") do
-        table.insert(lines, line)
-      end
-      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-      vim.api.nvim_buf_set_option(buf, "modifiable", false)
-      vim.api.nvim_buf_set_option(buf, "filetype", "markdown")
-      vim.cmd("split")
-      vim.api.nvim_win_set_buf(0, buf)
-    else
-      vim.notify("No AI explanation available", vim.log.levels.WARN)
-    end
-    end)
+  notes.explain_region(file, start_line, end_line, true, false, function(err, result)
+    ai_err = err
+    ai_result = result
+    done = true
   end)
+
+  -- Poll with status updates until AI responds
+  local elapsed = 0
+  while not done and elapsed < 120000 do
+    local msg = string.format("AI thinking... (%ds)", math.floor(elapsed / 1000))
+    vim.api.nvim_echo({{msg, "Comment"}}, false, {})
+    vim.cmd("redraw")
+    vim.wait(500, function() return done end)
+    elapsed = elapsed + 500
+  end
+  vim.api.nvim_echo({{""}}, false, {})
+
+  if ai_err then
+    vim.notify("Failed to explain region: " .. (ai_err.message or vim.inspect(ai_err)), vim.log.levels.ERROR)
+    return
+  end
+
+  if not ai_result or not ai_result.explanation then
+    vim.notify("No AI explanation available", vim.log.levels.WARN)
+    return
+  end
+
+
+  -- Create note synchronously using coroutine-style wait
+  local create_done = false
+  local create_err = nil
+
+  local provider = ai_result.ai and ai_result.ai.provider or "AI"
+  local text = string.format("[%s] %s", provider, ai_result.explanation)
+
+  notes.create(text, {
+    anchor = anchor,
+    node_path = node_path,
+    node_text_hash = node_text_hash,
+    source_buf = source_buf,
+  }, function(err, _)
+    create_err = err
+    create_done = true
+  end)
+
+  vim.wait(5000, function() return create_done end)
+
+  if create_err then
+    vim.notify("Failed to create note: " .. (create_err.message or "unknown"), vim.log.levels.ERROR)
+    return
+  end
+
+  M.refresh()
+end
+
+-- Explain region using AI with detailed/comprehensive explanation
+function M.explain_region_full()
+  -- Exit visual mode first to set '< and '> marks
+  local mode = vim.fn.mode()
+  if mode:match("[vV]") then
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+  end
+
+  local start_pos = vim.fn.getpos("'<")
+  local end_pos = vim.fn.getpos("'>")
+  local start_line = start_pos[2]
+  local end_line = end_pos[2]
+
+  if start_line == 0 or end_line == 0 then
+    vim.notify("Select a region first", vim.log.levels.WARN)
+    return
+  end
+
+  -- Capture tree-sitter info at the start of the selection
+  local ts = require("hemis.treesitter")
+  vim.api.nvim_win_set_cursor(0, { start_line, 0 })
+  local anchor = ts.get_anchor_position()
+  local node_path = ts.get_node_path()
+  local node_text_hash = ts.get_node_text_hash()
+  local source_buf = vim.api.nvim_get_current_buf()
+  local file = vim.fn.expand("%:p")
+
+  -- Use polling approach so UI stays responsive
+  local done = false
+  local ai_err = nil
+  local ai_result = nil
+
+  notes.explain_region(file, start_line, end_line, true, true, function(err, result)
+    ai_err = err
+    ai_result = result
+    done = true
+  end)
+
+  -- Poll with status updates until AI responds
+  local elapsed = 0
+  while not done and elapsed < 120000 do
+    local msg = string.format("AI thinking deeply... (%ds)", math.floor(elapsed / 1000))
+    vim.api.nvim_echo({{msg, "Comment"}}, false, {})
+    vim.cmd("redraw")
+    vim.wait(500, function() return done end)
+    elapsed = elapsed + 500
+  end
+  vim.api.nvim_echo({{""}}, false, {})
+
+  if ai_err then
+    vim.notify("Failed to explain region: " .. (ai_err.message or vim.inspect(ai_err)), vim.log.levels.ERROR)
+    return
+  end
+
+  if not ai_result or not ai_result.explanation then
+    vim.notify("No AI explanation available", vim.log.levels.WARN)
+    return
+  end
+
+  -- Create note synchronously using coroutine-style wait
+  local create_done = false
+  local create_err = nil
+
+  local provider = ai_result.ai and ai_result.ai.provider or "AI"
+  local text = string.format("[%s detailed] %s", provider, ai_result.explanation)
+
+  notes.create(text, {
+    anchor = anchor,
+    node_path = node_path,
+    node_text_hash = node_text_hash,
+    source_buf = source_buf,
+  }, function(err, _)
+    create_err = err
+    create_done = true
+  end)
+
+  vim.wait(5000, function() return create_done end)
+
+  if create_err then
+    vim.notify("Failed to create note: " .. (create_err.message or "unknown"), vim.log.levels.ERROR)
+    return
+  end
+
+  M.refresh()
 end
 
 -- Show project metadata
@@ -789,6 +916,7 @@ function M.setup_commands()
   vim.api.nvim_create_user_command("HemisListFiles", M.list_files, {})
   vim.api.nvim_create_user_command("HemisViewFile", M.view_file, {})
   vim.api.nvim_create_user_command("HemisExplainRegion", M.explain_region, { range = true })
+  vim.api.nvim_create_user_command("HemisExplainRegionFull", M.explain_region_full, { range = true })
   vim.api.nvim_create_user_command("HemisIndexProjectAI", M.index_project_ai, {})
   vim.api.nvim_create_user_command("HemisProjectMeta", M.project_meta, {})
   vim.api.nvim_create_user_command("HemisSaveSnapshot", M.save_snapshot, {})
@@ -828,8 +956,9 @@ function M.setup_keymaps()
     vim.keymap.set("n", prefix .. m[1], m[2], { desc = "Hemis: " .. m[3] })
   end
 
-  -- Visual mode mapping for explain region
+  -- Visual mode mappings for explain region
   vim.keymap.set("v", prefix .. "x", M.explain_region, { desc = "Hemis: Explain region (AI)" })
+  vim.keymap.set("v", prefix .. "X", M.explain_region_full, { desc = "Hemis: Explain region (AI detailed)" })
 end
 
 -- Debounce timer for buffer updates
