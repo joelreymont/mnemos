@@ -123,16 +123,6 @@ export async function shutdown(): Promise<void> {
   await client.request<void>('shutdown', {});
 }
 
-export interface FileInfo {
-  file: string;
-  size: number;
-}
-
-export async function listFiles(projectRoot: string): Promise<FileInfo[]> {
-  const client = getRpcClient();
-  return client.request<FileInfo[]>('hemis/list-files', { projectRoot });
-}
-
 export async function getFile(file: string): Promise<{ content: string }> {
   const client = getRpcClient();
   return client.request<{ content: string }>('hemis/get-file', { file });

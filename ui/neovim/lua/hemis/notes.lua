@@ -272,14 +272,6 @@ function M.backlinks(id, callback)
   rpc.request("notes/backlinks", { id = id }, callback)
 end
 
--- List project files
-function M.list_files(callback)
-  local root = get_project_root()
-  rpc.request("hemis/list-files", { projectRoot = root }, function(err, result)
-    callback(err, result, root)
-  end)
-end
-
 -- Get file content
 function M.get_file(file, callback)
   rpc.request("hemis/get-file", { file = file }, callback)

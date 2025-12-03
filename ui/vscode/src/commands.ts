@@ -12,7 +12,6 @@ import {
   getStatus,
   getBacklinks,
   shutdown,
-  listFiles,
   getFile,
   explainRegion,
   saveSnapshot,
@@ -22,7 +21,6 @@ import {
   getProjectMeta,
   Note,
   SearchHit,
-  FileInfo,
 } from './notes';
 import { refreshNotes, refreshAllEditors } from './decorations';
 
@@ -506,42 +504,6 @@ export async function shutdownCommand(): Promise<void> {
   }
 }
 
-export async function listFilesCommand(): Promise<void> {
-  const projectRoot = getProjectRoot();
-  if (!projectRoot) {
-    vscode.window.showErrorMessage('No workspace folder open');
-    return;
-  }
-
-  try {
-    const files = await listFiles(projectRoot);
-
-    if (files.length === 0) {
-      vscode.window.showInformationMessage('No files found');
-      return;
-    }
-
-    const items = files.map((f: FileInfo) => ({
-      label: path.relative(projectRoot, f.file),
-      description: `${f.size} bytes`,
-      file: f.file,
-    }));
-
-    const selected = await vscode.window.showQuickPick(items, {
-      placeHolder: 'Select a file to open',
-    });
-
-    if (selected) {
-      const uri = vscode.Uri.file(selected.file);
-      const document = await vscode.workspace.openTextDocument(uri);
-      await vscode.window.showTextDocument(document);
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    vscode.window.showErrorMessage(`Failed to list files: ${message}`);
-  }
-}
-
 export async function viewFileCommand(): Promise<void> {
   const filePath = await vscode.window.showInputBox({
     prompt: 'Enter file path',
@@ -831,7 +793,6 @@ export function registerCommands(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('hemis.viewNote', viewNoteCommand),
     vscode.commands.registerCommand('hemis.help', helpCommand),
     vscode.commands.registerCommand('hemis.shutdown', shutdownCommand),
-    vscode.commands.registerCommand('hemis.listFiles', listFilesCommand),
     vscode.commands.registerCommand('hemis.viewFile', viewFileCommand),
     vscode.commands.registerCommand('hemis.explainRegion', explainRegionCommand),
     vscode.commands.registerCommand('hemis.explainRegionAI', explainRegionAICommand),

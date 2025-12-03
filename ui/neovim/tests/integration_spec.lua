@@ -526,34 +526,6 @@ describe("hemis integration", function()
     end)
   end)
 
-  describe("hemis/list-files", function()
-    it("lists project files", function()
-      local env = get_test_env()
-      local done = false
-      local files = nil
-      local connect_ok = false
-
-      env.rpc.start(function(ok)
-        if not ok then
-          done = true
-          return
-        end
-        connect_ok = true
-
-        env.rpc.request("hemis/list-files", { projectRoot = env.dir }, function(err, res)
-          files = res
-          done = true
-        end)
-      end)
-
-      helpers.wait_for(function() return done end, 5000)
-      env.cleanup()
-      assert.truthy(connect_ok, "Backend connection failed")
-      assert.is_not_nil(files, "Should return files")
-      assert.is_table(files)
-    end)
-  end)
-
   describe("hemis/save-snapshot and load-snapshot", function()
     it("saves and loads snapshots", function()
       local env = get_test_env()

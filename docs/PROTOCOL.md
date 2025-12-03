@@ -39,7 +39,6 @@ Protocol: **JSON-RPC 2.0**.
 - `index/search` → naive text search across indexed files
 - `shutdown` → cleanly terminate the backend
 - `hemis/open-project` → select a project root
-- `hemis/list-files` → recursively list project files (ignores common dirs)
 - `hemis/get-file` → fetch file contents
 - `hemis/explain-region` → return a snippet for a file range (LLM-ready hook)
 - `hemis/search` → semantic/text search (scores; blends notes when includeNotes=true, accepts optional `vector` for semantic query)

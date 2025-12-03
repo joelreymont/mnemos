@@ -940,27 +940,6 @@ With prefix arg or INCLUDE-AI non-nil, also run AI analysis."
                   `((projectRoot . ,hemis--project-root-override)))
   (message "Hemis: project set to %s" hemis--project-root-override))
 
-(defun hemis-list-files (&optional root)
-  "List files under ROOT (defaults to current project)."
-  (interactive)
-  (let* ((root (or root (hemis--project-root) default-directory))
-         (files (let ((r (hemis--request "hemis/list-files"
-                                         `((projectRoot . ,root)))))
-                  (if (vectorp r) (append r nil) r)))
-         (buf (get-buffer-create "*Hemis Files*")))
-    (with-current-buffer buf
-      (setq buffer-read-only nil)
-      (erase-buffer)
-      (let ((inhibit-read-only t))
-        (insert (format "Hemis files in %s\n\n" root))
-        (dolist (f files)
-          (let ((path (alist-get 'file f))
-                (size (alist-get 'size f)))
-            (insert (format "%s (%d bytes)\n" path (or size 0))))))
-      (goto-char (point-min))
-      (special-mode))
-    (display-buffer buf)))
-
 (defun hemis-view-file (file)
   "Fetch FILE content via backend and display in a temp buffer."
   (interactive "FFile: ")

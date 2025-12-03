@@ -160,14 +160,7 @@ M-x hemis-explain-region
 → Returns code snippet ready for LLM context
 ```
 
-### 1.12 Browse Project Files
-```
-M-x hemis-list-files
-→ Shows all files in project
-→ Select to view content
-```
-
-### 1.13 Save/Load Snapshot
+### 1.12 Save/Load Snapshot
 ```
 M-x hemis-save-snapshot
 → Enter path: /tmp/hemis-backup.json
@@ -303,14 +296,7 @@ Move cursor to note line
 → Note removed
 ```
 
-### 2.14 Browse Project Files
-```
-:HemisListFiles
-→ Shows all files in project
-→ Select to open file
-```
-
-### 2.15 Explain Region (LLM Hook)
+### 2.14 Explain Region (LLM Hook)
 ```
 Select lines 12-16 (Server struct) in visual mode
 :HemisExplainRegion

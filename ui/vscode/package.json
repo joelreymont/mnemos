@@ -79,10 +79,6 @@
         "title": "Hemis: Shutdown Backend"
       },
       {
-        "command": "hemis.listFiles",
-        "title": "Hemis: List Project Files"
-      },
-      {
         "command": "hemis.viewFile",
         "title": "Hemis: View File"
       },

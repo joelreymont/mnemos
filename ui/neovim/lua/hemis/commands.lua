@@ -550,7 +550,6 @@ function M.help()
     "",
     ":HemisStatus       - Show backend status",
     ":HemisShutdown     - Stop backend",
-    ":HemisListFiles    - Browse project files",
     ":HemisViewFile     - View file content",
     ":HemisExplainRegion - Copy region for LLM",
     ":HemisSaveSnapshot - Save notes backup",
@@ -564,39 +563,6 @@ end
 function M.shutdown()
   rpc.stop()
   vim.notify("Hemis backend stopped", vim.log.levels.INFO)
-end
-
--- List project files
-function M.list_files()
-  notes.list_files(function(err, result, project_root)
-    if err then
-      vim.notify("Failed to list files: " .. (err.message or "unknown"), vim.log.levels.ERROR)
-      return
-    end
-
-    if not result or #result == 0 then
-      vim.notify("No files found", vim.log.levels.INFO)
-      return
-    end
-
-    -- Make paths relative to project root
-    local prefix = project_root and (project_root .. "/") or ""
-    local items = {}
-    for _, f in ipairs(result) do
-      local display_path = f.file
-      if prefix ~= "" and display_path:sub(1, #prefix) == prefix then
-        display_path = display_path:sub(#prefix + 1)
-      end
-      table.insert(items, string.format("%s (%d bytes)", display_path, f.size or 0))
-    end
-
-    vim.ui.select(items, { prompt = "Select file:" }, function(choice, idx)
-      if choice and idx then
-        local file = result[idx].file
-        vim.cmd("edit " .. file)
-      end
-    end)
-  end)
 end
 
 -- View file content (via backend)
@@ -913,7 +879,6 @@ function M.setup_commands()
   vim.api.nvim_create_user_command("HemisStatus", M.status, {})
   vim.api.nvim_create_user_command("HemisHelp", M.help, {})
   vim.api.nvim_create_user_command("HemisShutdown", M.shutdown, {})
-  vim.api.nvim_create_user_command("HemisListFiles", M.list_files, {})
   vim.api.nvim_create_user_command("HemisViewFile", M.view_file, {})
   vim.api.nvim_create_user_command("HemisExplainRegion", M.explain_region, { range = true })
   vim.api.nvim_create_user_command("HemisExplainRegionFull", M.explain_region_full, { range = true })
@@ -944,7 +909,6 @@ function M.setup_keymaps()
     { "p", M.index_project, "Index project" },
     { "k", M.insert_link, "Insert link" },
     { "b", M.show_backlinks, "Show backlinks" },
-    { "f", M.list_files, "List files" },
     { "S", M.save_snapshot, "Save snapshot" },
     { "L", M.load_snapshot, "Load snapshot" },
     { "t", M.status, "Status" },

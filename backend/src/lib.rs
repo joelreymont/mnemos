@@ -4,7 +4,6 @@ use index as idx;
 use notes::{self, NoteFilters};
 use rpc::{Request, Response, INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, PARSE_ERROR};
 use rusqlite::Connection;
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
 use std::path::Path;
@@ -13,10 +12,12 @@ use treesitter::{
     GrammarRegistry, ParserService,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileInfo {
-    pub file: String,
-    pub size: u64,
+/// Internal struct for file listing (used by index-project)
+#[derive(Debug, Clone)]
+struct FileInfo {
+    file: String,
+    #[allow(dead_code)]
+    size: u64,
 }
 
 pub mod ai_cli;
@@ -121,16 +122,6 @@ fn list_files(root: &Path) -> anyhow::Result<Vec<FileInfo>> {
 pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Response {
     let id = req.id.clone();
     match req.method.as_str() {
-        "hemis/list-files" => {
-            if let Some(root) = req.params.get("projectRoot").and_then(|v| v.as_str()) {
-                match list_files(Path::new(root)) {
-                    Ok(files) => Response::result_from(id, files),
-                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
-                }
-            } else {
-                Response::error(id, INVALID_PARAMS, "missing projectRoot")
-            }
-        }
         "hemis/get-file" => {
             let file_path = req.params.get("file").and_then(|v| v.as_str());
             let project_root = req.params.get("projectRoot").and_then(|v| v.as_str());
@@ -233,6 +224,11 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 .get("useAI")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
+            let detailed = req
+                .params
+                .get("detailed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let content_param = req.params.get("content").and_then(|v| v.as_str());
             if let Some(file) = file {
                 // Read content from param or file
@@ -282,7 +278,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                 .unwrap_or(false);
 
                             // Try AI explanation (works with or without project index)
-                            match ai_cli::explain_region(&root_path, file, start_line, end_line, &snippet) {
+                            match ai_cli::explain_region(&root_path, file, start_line, end_line, &snippet, detailed) {
                                 Ok((provider, explanation, had_context)) => {
                                     Response::result(id, json!({
                                         "content": snippet,
@@ -410,6 +406,16 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         // Update project_meta with indexing info
                         let commit_sha = git::head_commit(Path::new(root));
                         let _ = storage::set_project_indexed(db, root, commit_sha.as_deref());
+
+                        // Pre-warm the Claude process in background for faster explain-region
+                        if ai_cli::CliProvider::from_env() == Some(ai_cli::CliProvider::Claude) {
+                            let root_path = Path::new(root).to_path_buf();
+                            std::thread::spawn(move || {
+                                if let Err(e) = ai_cli::warm_up_claude(&root_path) {
+                                    eprintln!("[hemis] Claude warm-up failed: {}", e);
+                                }
+                            });
+                        }
 
                         // Optionally run AI analysis
                         let mut ai_result: Option<serde_json::Value> = None;
