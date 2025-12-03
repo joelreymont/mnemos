@@ -169,7 +169,7 @@ pub fn upsert_embedding_for_file(
     upsert_embedding(conn, file, project_root, &vector, &input)
 }
 
-/// Add or update a file in the index. Returns None if content unchanged.
+/// Add or update a file in the index. Returns None if content unchanged and embeddings exist.
 pub fn add_file(
     conn: &Connection,
     file: &str,
@@ -188,7 +188,22 @@ pub fn add_file(
         .ok();
 
     if existing_hash.as_ref() == Some(&hash) {
-        return Ok(None); // Content unchanged, skip re-indexing
+        // Content unchanged - but check if embeddings are missing or incomplete
+        // This can happen after snapshot restore or previous embedder failure
+        let has_embedding: bool = conn
+            .query_row(
+                "SELECT 1 FROM embeddings WHERE file = ? AND binary_hash IS NOT NULL AND norm IS NOT NULL;",
+                [file],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+
+        if has_embedding {
+            return Ok(None); // Content unchanged and embeddings exist
+        }
+        // Embeddings missing - recompute them below
+        upsert_embedding_for_file(conn, file, project_root, content)?;
+        return Ok(None); // Content unchanged, just fixed embeddings
     }
 
     let updated = now_unix();
@@ -272,13 +287,21 @@ pub fn search(
 
     let mut hits = Vec::new();
     let query_lower = query.to_lowercase();
+    // Tokenize query for multi-term matching: a line matches if it contains ALL terms
+    let query_terms: Vec<&str> = query_lower.split_whitespace().collect();
     while let Some(row) = rows.next()? {
         let file: String = row.get(0)?;
         let content: String = row.get(1)?;
-        // Scan matching files for exact line positions (case-insensitive to match FTS5)
+        // Scan matching files for line positions (case-insensitive to match FTS5)
         for (idx, line) in content.lines().enumerate() {
             let line_lower = line.to_lowercase();
-            if let Some(pos) = line_lower.find(&query_lower) {
+            // Check if all query terms appear in the line
+            let all_terms_match = query_terms.iter().all(|term| line_lower.contains(term));
+            if all_terms_match {
+                // Find position of first term for column
+                let pos = query_terms.first()
+                    .and_then(|term| line_lower.find(term))
+                    .unwrap_or(0);
                 hits.push(SearchHit {
                     file: file.clone(),
                     line: idx + 1,

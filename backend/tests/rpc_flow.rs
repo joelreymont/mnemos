@@ -1582,6 +1582,7 @@ fn create_with_content_computes_hash() -> anyhow::Result<()> {
     let root_str = root.path().to_string_lossy().to_string();
 
     // Create note with content - server should compute hash
+    // Line 5 (1-based) is "fn helper() {" in the test content
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -1589,7 +1590,7 @@ fn create_with_content_computes_hash() -> anyhow::Result<()> {
         "params": {
             "file": file_str,
             "projectRoot": root_str,
-            "line": 4,
+            "line": 5,
             "column": 0,
             "text": "Note on helper function",
             "content": content,
@@ -1644,7 +1645,8 @@ fn list_with_content_computes_positions() -> anyhow::Result<()> {
     let file_str = file.to_string_lossy().to_string();
     let root_str = root.path().to_string_lossy().to_string();
 
-    // Create note with content at line 2 (helper function)
+    // Create note with content at line 3 (1-based: helper function)
+    // Original content: line 1 = "fn main() {}", line 2 = "", line 3 = "fn helper() {"
     let req_create = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -1652,7 +1654,7 @@ fn list_with_content_computes_positions() -> anyhow::Result<()> {
         "params": {
             "file": file_str,
             "projectRoot": root_str,
-            "line": 2,
+            "line": 3,
             "column": 0,
             "text": "Note on helper",
             "content": original_content,
@@ -1712,9 +1714,10 @@ fn list_with_content_computes_positions() -> anyhow::Result<()> {
 
     assert_eq!(notes.len(), 1, "should have one note");
     let note = &notes[0];
-    // Note should have moved to line 4 (0-indexed: helper is at line 4)
+    // Note should have moved to line 5 (1-based: helper is at line 5 in new content)
+    // New content: line 1 = "fn main() {}", 2 = "", 3 = "// Comment 1", 4 = "// Comment 2", 5 = "fn helper() {"
     let display_line = note.get("line").and_then(|v| v.as_i64()).expect("line");
-    assert_eq!(display_line, 4, "note should follow helper to line 4");
+    assert_eq!(display_line, 5, "note should follow helper to line 5");
     // Note should NOT be stale (hash still matches)
     let stale = note.get("stale").and_then(|v| v.as_bool()).unwrap_or(true);
     assert!(!stale, "note should not be stale when code moves");
@@ -1734,7 +1737,8 @@ fn buffer_update_recomputes_positions() -> anyhow::Result<()> {
     let file_str = file.to_string_lossy().to_string();
     let root_str = root.path().to_string_lossy().to_string();
 
-    // Create note on helper function
+    // Create note on helper function (line 3, 1-based)
+    // Original content: line 1 = "fn main() {}", line 2 = "", line 3 = "fn helper() {"
     let req_create = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -1742,7 +1746,7 @@ fn buffer_update_recomputes_positions() -> anyhow::Result<()> {
         "params": {
             "file": file_str,
             "projectRoot": root_str,
-            "line": 2,
+            "line": 3,
             "column": 0,
             "text": "Note on helper",
             "content": original_content,

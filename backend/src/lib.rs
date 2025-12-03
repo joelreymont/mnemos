@@ -168,27 +168,16 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                     .to_path_buf()
                             };
 
-                            // Check if project is indexed; auto-index if not
-                            let is_indexed = storage::get_project_meta(db, root_path.to_string_lossy().as_ref())
+                            // Check if project is indexed (used for AI context)
+                            // Note: We don't auto-index here as it would block on large repos
+                            // The AI explanation will work without context, just less informed
+                            let _is_indexed = storage::get_project_meta(db, root_path.to_string_lossy().as_ref())
                                 .ok()
                                 .flatten()
                                 .map(|m| m.indexed_at.is_some())
                                 .unwrap_or(false);
 
-                            if !is_indexed {
-                                // Auto-index first (without AI analysis)
-                                if let Ok(files) = list_files(&root_path) {
-                                    for f in files {
-                                        if let Ok(fc) = fs::read_to_string(&f.file) {
-                                            let _ = idx::add_file(db, &f.file, root_path.to_string_lossy().as_ref(), &fc);
-                                        }
-                                    }
-                                    let commit = git::head_commit(&root_path);
-                                    let _ = storage::set_project_indexed(db, root_path.to_string_lossy().as_ref(), commit.as_deref());
-                                }
-                            }
-
-                            // Try AI explanation
+                            // Try AI explanation (works with or without project index)
                             match ai_cli::explain_region(&root_path, file, start_line, end_line, &snippet) {
                                 Ok((provider, explanation, had_context)) => {
                                     Response::result(id, json!({
@@ -467,16 +456,19 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         if let Some(content) = req.params.get("content").and_then(|v| v.as_str()) {
                             let file_path = Path::new(file);
                             for note in &mut notes_list {
+                                // Convert from 1-based (database) to 0-based (tree-sitter)
+                                let ts_line = (note.line - 1).max(0) as u32;
                                 let pos = compute_display_position(
                                     parser,
                                     file_path,
                                     content,
-                                    note.line as u32,
+                                    ts_line,
                                     note.column as u32,
                                     note.node_text_hash.as_deref(),
                                     20, // search_radius
                                 );
-                                note.line = pos.line as i64;
+                                // Convert result back from 0-based to 1-based
+                                note.line = (pos.line + 1) as i64;
                                 note.stale = pos.stale;
                             }
                         }
@@ -579,8 +571,10 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 let content = req.params.get("content").and_then(|v| v.as_str());
                 let (node_path, node_text_hash) = if let Some(content) = content {
                     let file_path = Path::new(file);
-                    let computed_path = compute_node_path(parser, file_path, content, line as u32, column as u32);
-                    let computed_hash = compute_hash_at_position(parser, file_path, content, line as u32, column as u32);
+                    // Convert from 1-based (client) to 0-based (tree-sitter)
+                    let ts_line = (line - 1).max(0) as u32;
+                    let computed_path = compute_node_path(parser, file_path, content, ts_line, column as u32);
+                    let computed_hash = compute_hash_at_position(parser, file_path, content, ts_line, column as u32);
                     let node_path_value = if computed_path.is_empty() {
                         None
                     } else {
@@ -673,8 +667,10 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 let content = req.params.get("content").and_then(|v| v.as_str());
                 let (node_path, node_text_hash) = if let (Some(content), Some(file)) = (content, file) {
                     let file_path = Path::new(file);
-                    let computed_path = compute_node_path(parser, file_path, content, line as u32, column as u32);
-                    let computed_hash = compute_hash_at_position(parser, file_path, content, line as u32, column as u32);
+                    // Convert from 1-based (client) to 0-based (tree-sitter)
+                    let ts_line = (line - 1).max(0) as u32;
+                    let computed_path = compute_node_path(parser, file_path, content, ts_line, column as u32);
+                    let computed_hash = compute_hash_at_position(parser, file_path, content, ts_line, column as u32);
                     let node_path_value = if computed_path.is_empty() {
                         None
                     } else {
@@ -718,16 +714,19 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     Ok(mut notes_list) => {
                         let file_path = Path::new(file);
                         for note in &mut notes_list {
+                            // Convert from 1-based (database) to 0-based (tree-sitter)
+                            let ts_line = (note.line - 1).max(0) as u32;
                             let pos = compute_display_position(
                                 parser,
                                 file_path,
                                 content,
-                                note.line as u32,
+                                ts_line,
                                 note.column as u32,
                                 note.node_text_hash.as_deref(),
                                 20,
                             );
-                            note.line = pos.line as i64;
+                            // Convert result back from 0-based to 1-based
+                            note.line = (pos.line + 1) as i64;
                             note.stale = pos.stale;
                         }
                         Response::result(id, serde_json::to_value(notes_list).unwrap())

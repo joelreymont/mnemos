@@ -130,6 +130,8 @@ pub fn restore(conn: &Connection, snapshot: &serde_json::Value) -> Result<serde_
         exec(conn, "DELETE FROM files;", &[])?;
         exec(conn, "DELETE FROM embeddings;", &[])?;
         exec(conn, "DELETE FROM edges;", &[])?;
+        // Clear project_meta to avoid stale indexing/analysis timestamps
+        exec(conn, "DELETE FROM project_meta;", &[])?;
         if let Some(notes) = snapshot.get("notes").and_then(|v| v.as_array()) {
             for n in notes {
                 let id = n.get("id").and_then(|v| v.as_str()).unwrap_or("");
