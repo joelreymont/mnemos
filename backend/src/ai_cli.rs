@@ -293,24 +293,26 @@ Output ONLY the Markdown document. Do not wrap in code blocks.
 fn clean_markdown_output(s: &str) -> String {
     let trimmed = s.trim();
 
-    // Remove ```markdown ... ``` wrapper
-    if trimmed.starts_with("```markdown") {
-        if let Some(end) = trimmed.rfind("```") {
-            let inner = &trimmed[11..end]; // skip "```markdown"
-            return inner.trim().to_string();
+    // Remove ```markdown ... ``` wrapper (using safe string methods)
+    if let Some(inner) = trimmed.strip_prefix("```markdown") {
+        if let Some(end) = inner.rfind("```") {
+            // end is a byte offset into inner, which is safe since we're finding "```"
+            return inner.get(..end).unwrap_or(inner).trim().to_string();
         }
     }
 
     // Remove ``` ... ``` wrapper
-    if trimmed.starts_with("```") && trimmed.ends_with("```") && trimmed.len() > 6 {
-        let inner = &trimmed[3..trimmed.len()-3];
-        // Skip language identifier on first line if present
-        let inner = if let Some(idx) = inner.find('\n') {
-            &inner[idx+1..]
-        } else {
-            inner
-        };
-        return inner.trim().to_string();
+    if let Some(inner) = trimmed.strip_prefix("```") {
+        if let Some(stripped) = inner.strip_suffix("```") {
+            // Skip language identifier on first line if present
+            let inner = if let Some(idx) = stripped.find('\n') {
+                // idx is a byte offset to ASCII newline, safe to slice at idx+1
+                stripped.get(idx + 1..).unwrap_or(stripped)
+            } else {
+                stripped
+            };
+            return inner.trim().to_string();
+        }
     }
 
     trimmed.to_string()
