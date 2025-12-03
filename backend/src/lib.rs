@@ -107,19 +107,41 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             }
         }
         "hemis/get-file" => {
-            if let Some(path) = req.params.get("file").and_then(|v| v.as_str()) {
-                match fs::read_to_string(path) {
-                    Ok(content) => {
-                        let resp = json!({
-                            "file": path,
-                            "content": content,
-                        });
-                        Response::result(id, resp)
+            let file_path = req.params.get("file").and_then(|v| v.as_str());
+            let project_root = req.params.get("projectRoot").and_then(|v| v.as_str());
+
+            match (file_path, project_root) {
+                (Some(file), Some(root)) => {
+                    // Validate file is within project root
+                    let file_path = Path::new(file);
+                    let root_path = Path::new(root);
+
+                    match (file_path.canonicalize(), root_path.canonicalize()) {
+                        (Ok(canonical_file), Ok(canonical_root)) => {
+                            if !canonical_file.starts_with(&canonical_root) {
+                                return Response::error(
+                                    id,
+                                    INVALID_PARAMS,
+                                    "file must be within projectRoot",
+                                );
+                            }
+                            match fs::read_to_string(&canonical_file) {
+                                Ok(content) => {
+                                    let resp = json!({
+                                        "file": canonical_file.to_string_lossy(),
+                                        "content": content,
+                                    });
+                                    Response::result(id, resp)
+                                }
+                                Err(e) => Response::error(id, INTERNAL_ERROR, format!("failed to read file: {}", e)),
+                            }
+                        }
+                        (Err(e), _) => Response::error(id, INVALID_PARAMS, format!("invalid file path: {}", e)),
+                        (_, Err(e)) => Response::error(id, INVALID_PARAMS, format!("invalid projectRoot: {}", e)),
                     }
-                    Err(e) => Response::error(id, INTERNAL_ERROR, e.to_string()),
                 }
-            } else {
-                Response::error(id, INVALID_PARAMS, "missing file")
+                (None, _) => Response::error(id, INVALID_PARAMS, "missing file"),
+                (_, None) => Response::error(id, INVALID_PARAMS, "missing projectRoot"),
             }
         }
         "hemis/open-project" => {
@@ -387,7 +409,24 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             }
         }
         "hemis/load-snapshot" => {
+            // Size limit for snapshot files (100MB)
+            const MAX_SNAPSHOT_SIZE: u64 = 100 * 1024 * 1024;
+
             if let Some(path) = req.params.get("path").and_then(|v| v.as_str()) {
+                // Check file size before reading
+                match fs::metadata(path) {
+                    Ok(meta) if meta.len() > MAX_SNAPSHOT_SIZE => {
+                        return Response::error(
+                            id,
+                            INVALID_PARAMS,
+                            format!("snapshot file too large: {} bytes (max {})", meta.len(), MAX_SNAPSHOT_SIZE),
+                        );
+                    }
+                    Err(e) => {
+                        return Response::error(id, INTERNAL_ERROR, format!("failed to stat snapshot file: {}", e));
+                    }
+                    _ => {}
+                }
                 match fs::read_to_string(path) {
                     Ok(contents) => match serde_json::from_str::<serde_json::Value>(&contents) {
                         Ok(val) => match snapshot::restore(db, &val) {

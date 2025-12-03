@@ -476,7 +476,7 @@ fn lists_and_reads_files() -> anyhow::Result<()> {
         "jsonrpc": "2.0",
         "id": 2,
         "method": "hemis/get-file",
-        "params": { "file": file_str }
+        "params": { "file": file_str, "projectRoot": root_str }
     })
     .to_string();
     let input = format!(

@@ -2,14 +2,19 @@
 //!
 //! Handles parsing files and caching parse trees.
 
+use lru::LruCache;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use crate::config::LanguageSettings;
 use crate::grammar::GrammarRegistry;
 use crate::{Result, TreeSitterError};
+
+/// Maximum number of parse trees to cache (LRU eviction when exceeded)
+const MAX_CACHED_TREES: usize = 100;
 
 /// Cached parse tree
 struct CachedTree {
@@ -24,8 +29,8 @@ pub struct ParserService {
     /// Grammar registry
     registry: GrammarRegistry,
 
-    /// Cached parse trees by file path
-    tree_cache: HashMap<PathBuf, CachedTree>,
+    /// LRU cache for parse trees by file path (bounded to prevent memory exhaustion)
+    tree_cache: LruCache<PathBuf, CachedTree>,
 
     /// Parser instances by language (reusable)
     parsers: HashMap<String, tree_sitter::Parser>,
@@ -36,7 +41,7 @@ impl ParserService {
     pub fn new(registry: GrammarRegistry) -> Self {
         Self {
             registry,
-            tree_cache: HashMap::new(),
+            tree_cache: LruCache::new(NonZeroUsize::new(MAX_CACHED_TREES).unwrap()),
             parsers: HashMap::new(),
         }
     }
@@ -44,11 +49,12 @@ impl ParserService {
     /// Parse file content, returning cached tree if content unchanged
     pub fn parse(&mut self, file: &Path, content: &str) -> Result<&tree_sitter::Tree> {
         let content_hash = Self::hash_content(content);
+        let file_buf = file.to_path_buf();
 
-        // Check cache
-        if let Some(cached) = self.tree_cache.get(file) {
+        // Check cache - LRU's get() promotes the entry
+        if let Some(cached) = self.tree_cache.get(&file_buf) {
             if cached.content_hash == content_hash {
-                return Ok(&self.tree_cache.get(file).unwrap().tree);
+                return Ok(&self.tree_cache.get(&file_buf).unwrap().tree);
             }
         }
 
@@ -78,9 +84,9 @@ impl ParserService {
             .parse(content, None)
             .ok_or_else(|| TreeSitterError::ParseFailed("Parser returned None".to_string()))?;
 
-        // Cache the result
-        self.tree_cache.insert(
-            file.to_path_buf(),
+        // Cache the result (LRU will evict oldest if at capacity)
+        self.tree_cache.put(
+            file_buf.clone(),
             CachedTree {
                 tree,
                 content_hash,
@@ -88,7 +94,7 @@ impl ParserService {
             },
         );
 
-        Ok(&self.tree_cache.get(file).unwrap().tree)
+        Ok(&self.tree_cache.get(&file_buf).unwrap().tree)
     }
 
     /// Find the significant node at a position

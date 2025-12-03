@@ -12,6 +12,7 @@ serde = { workspace = true }
 toml = "0.8"
 dirs = "5"
 libloading = "0.8"
+lru = "0.12"
 
 # Bundled grammars (compiled into binary)
 tree-sitter-rust = "0.23"

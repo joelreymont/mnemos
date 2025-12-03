@@ -70,11 +70,55 @@ fn embedding_input(content: &str) -> String {
     content.lines().take(64).collect::<Vec<_>>().join("\n")
 }
 
+/// Validate embedder URL to prevent SSRF attacks
+fn validate_embedder_url(url: &str) -> Result<()> {
+    // Must be HTTPS for security (unless localhost for development)
+    let parsed = url::Url::parse(url).map_err(|e| anyhow!("invalid embedder URL: {e}"))?;
+
+    let scheme = parsed.scheme();
+    let host = parsed.host_str().unwrap_or("");
+
+    // Allow HTTP only for localhost/127.0.0.1 (development)
+    let is_localhost = host == "localhost" || host == "127.0.0.1" || host == "::1";
+
+    if scheme != "https" && !(scheme == "http" && is_localhost) {
+        return Err(anyhow!("embedder URL must use HTTPS (or HTTP for localhost)"));
+    }
+
+    // Block internal/private IP ranges to prevent SSRF
+    if !is_localhost {
+        // Block common internal hostnames
+        let blocked_hosts = ["metadata", "metadata.google.internal", "169.254.169.254"];
+        if blocked_hosts.contains(&host) {
+            return Err(anyhow!("embedder URL points to blocked internal host"));
+        }
+
+        // Block private IP ranges (basic check - proper check would resolve DNS)
+        if host.starts_with("10.")
+            || host.starts_with("192.168.")
+            || host.starts_with("172.16.")
+            || host.starts_with("172.17.")
+            || host.starts_with("172.18.")
+            || host.starts_with("172.19.")
+            || host.starts_with("172.2")
+            || host.starts_with("172.30.")
+            || host.starts_with("172.31.")
+        {
+            return Err(anyhow!("embedder URL points to private IP range"));
+        }
+    }
+
+    Ok(())
+}
+
 fn call_embedder(text: &str) -> Result<Vec<f32>> {
     if text.is_empty() {
         return Err(anyhow!("empty text"));
     }
     if let Ok(url) = env::var("HEMIS_EMBED_URL") {
+        // Validate URL before making request (SSRF protection)
+        validate_embedder_url(&url)?;
+
         #[derive(Deserialize)]
         struct EmbedResp {
             vector: Vec<f32>,
@@ -88,7 +132,7 @@ fn call_embedder(text: &str) -> Result<Vec<f32>> {
             .build()
             .map_err(|e| anyhow!("embed client build failed: {e}"))?;
         let resp: EmbedResp = client
-            .post(url)
+            .post(&url)
             .json(&serde_json::json!({ "text": text }))
             .send()
             .map_err(|e| anyhow!("embed request failed: {e}"))?
@@ -287,6 +331,12 @@ pub fn search(
         base_query
     };
 
+    // Limits to prevent DoS via expensive searches
+    const MAX_FILE_SIZE: usize = 10 * 1024 * 1024; // 10MB
+    const MAX_LINES_PER_FILE: usize = 100_000;
+    const MAX_TOTAL_HITS: usize = 1_000;
+    const MAX_FILES_TO_SCAN: usize = 1_000;
+
     // FTS5 gives us matching files, then we scan those files for line positions
     let mut stmt;
     let mut rows;
@@ -301,11 +351,30 @@ pub fn search(
     let query_lower = query.to_lowercase();
     // Tokenize query for multi-term matching: a line matches if it contains ALL terms
     let query_terms: Vec<&str> = query_lower.split_whitespace().collect();
+    let mut files_scanned = 0;
+
     while let Some(row) = rows.next()? {
+        // Limit total files scanned
+        if files_scanned >= MAX_FILES_TO_SCAN {
+            break;
+        }
+        files_scanned += 1;
+
         let file: String = row.get(0)?;
         let content: String = row.get(1)?;
+
+        // Skip oversized files to prevent memory/CPU exhaustion
+        if content.len() > MAX_FILE_SIZE {
+            continue;
+        }
+
         // Scan matching files for line positions (case-insensitive to match FTS5)
-        for (idx, line) in content.lines().enumerate() {
+        for (idx, line) in content.lines().take(MAX_LINES_PER_FILE).enumerate() {
+            // Stop if we have enough hits
+            if hits.len() >= MAX_TOTAL_HITS {
+                break;
+            }
+
             let line_lower = line.to_lowercase();
             // Check if all query terms appear in the line
             let all_terms_match = query_terms.iter().all(|term| line_lower.contains(term));
@@ -325,6 +394,11 @@ pub fn search(
                     note_summary: None,
                 });
             }
+        }
+
+        // Early exit if we have enough hits
+        if hits.len() >= MAX_TOTAL_HITS {
+            break;
         }
     }
     Ok(hits)
@@ -426,6 +500,10 @@ pub fn semantic_search(
         };
         // Skip vectors with non-finite values (NaN/Infinity from corrupted data)
         if validate_vector(&vector).is_err() {
+            continue;
+        }
+        // Skip vectors with mismatched dimensions (comparing different embedding models)
+        if vector.len() != query_vector.len() {
             continue;
         }
         let score = dot(&vector, query_vector);

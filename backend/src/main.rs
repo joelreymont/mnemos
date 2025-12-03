@@ -21,12 +21,42 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::str;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use backend::{create_parser_service, parse_and_handle};
 use backend::server::Server;
 use rpc::{decode_framed, encode_response, Response};
 use storage::connect;
 use treesitter::{load_config, GrammarSource, GrammarSourceLocation};
+
+/// Validate a git URL to prevent command injection.
+/// Only allows https:// and git:// protocols.
+fn validate_git_url(url: &str) -> Result<()> {
+    // Must start with safe protocol
+    if !url.starts_with("https://") && !url.starts_with("git://") {
+        return Err(anyhow!("Only https:// and git:// URLs are allowed"));
+    }
+    // Basic validation: no shell metacharacters
+    if url.contains(|c: char| c == ';' || c == '|' || c == '&' || c == '$' || c == '`' || c == '\n' || c == '\r') {
+        return Err(anyhow!("Git URL contains invalid characters"));
+    }
+    Ok(())
+}
+
+/// Validate a git branch/tag name to prevent command injection.
+fn validate_git_ref(ref_name: &str) -> Result<()> {
+    // Git ref names: alphanumeric, dash, underscore, slash, dot
+    // Also reject refs starting with - to prevent option injection
+    if ref_name.starts_with('-') {
+        return Err(anyhow!("Git ref cannot start with '-'"));
+    }
+    if !ref_name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '/' || c == '.') {
+        return Err(anyhow!("Git ref contains invalid characters"));
+    }
+    if ref_name.is_empty() || ref_name.len() > 256 {
+        return Err(anyhow!("Git ref must be 1-256 characters"));
+    }
+    Ok(())
+}
 
 fn write_response<W: Write>(out: &mut W, resp: Response, framed: bool) -> io::Result<()> {
     let bytes = encode_response(&resp);
@@ -362,6 +392,12 @@ fn grammar_fetch(name: &str) -> Result<()> {
             return Ok(());
         }
     };
+
+    // Validate git URL and ref to prevent command injection
+    validate_git_url(git_url)?;
+    if let Some(ref rev) = grammar.source.rev {
+        validate_git_ref(rev)?;
+    }
 
     let sources_dir = config.grammars_dir().join("sources");
     std::fs::create_dir_all(&sources_dir)?;

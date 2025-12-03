@@ -244,15 +244,23 @@ Keep the explanation focused and practical. Output plain text only.
 /// Timeout for AI CLI subprocess execution (5 minutes)
 const AI_CLI_TIMEOUT_SECS: u64 = 300;
 
+/// RAII guard to ensure temp file cleanup on all exit paths.
+struct TempFileGuard(std::path::PathBuf);
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
 /// Helper: run Codex CLI with a prompt in the given project root.
 fn run_codex(project_root: &Path, prompt: &str) -> Result<String> {
     // Create unique temp file for output since codex prints progress/diagnostics to stdout
-    // Use UUID to avoid races between concurrent calls in the same process
     let tmp_dir = std::env::temp_dir();
     let output_path = tmp_dir.join(format!("hemis-codex-{}.txt", uuid::Uuid::new_v4()));
+    let _temp_guard = TempFileGuard(output_path.clone());
 
     // codex exec <prompt> --output-last-message <file>
-    // The prompt is passed as a positional argument, not with -p (that's for profile)
     let mut child = Command::new("codex")
         .arg("exec")
         .arg("--skip-git-repo-check")
@@ -262,48 +270,50 @@ fn run_codex(project_root: &Path, prompt: &str) -> Result<String> {
         .arg(&output_path)
         .arg(prompt)
         .current_dir(project_root)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        // Inherit stdout/stderr to avoid pipe buffer deadlock
+        // Codex writes its actual output to the temp file
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()
         .with_context(|| "failed to spawn `codex` CLI")?;
 
-    // Wait with timeout
+    // Wait with timeout, properly reaping the process
     let start = std::time::Instant::now();
-    let status = loop {
+    loop {
         match child.try_wait() {
-            Ok(Some(status)) => break status,
+            Ok(Some(status)) => {
+                // Process exited, read output file
+                let result = std::fs::read_to_string(&output_path)
+                    .with_context(|| format!("failed to read codex output from {}", output_path.display()))?;
+                if !status.success() {
+                    return Err(anyhow!("`codex exec` failed with status {:?}", status.code()));
+                }
+                return Ok(result);
+            }
             Ok(None) => {
                 if start.elapsed().as_secs() > AI_CLI_TIMEOUT_SECS {
+                    // Kill and wait to reap (prevent zombie)
                     let _ = child.kill();
-                    let _ = std::fs::remove_file(&output_path);
+                    let _ = child.wait(); // Reap the zombie
                     return Err(anyhow!("codex CLI timed out after {} seconds", AI_CLI_TIMEOUT_SECS));
                 }
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
             Err(e) => {
-                let _ = std::fs::remove_file(&output_path);
+                // Try to kill and reap on error
+                let _ = child.kill();
+                let _ = child.wait();
                 return Err(anyhow!("failed to wait for codex CLI: {}", e));
             }
         }
-    };
-
-    // Read output before checking status (file may exist even on failure)
-    let result = std::fs::read_to_string(&output_path);
-    // Clean up temp file
-    let _ = std::fs::remove_file(&output_path);
-
-    if !status.success() {
-        return Err(anyhow!(
-            "`codex exec` failed with status {:?}",
-            status.code(),
-        ));
     }
-
-    result.with_context(|| format!("failed to read codex output from {}", output_path.display()))
 }
 
 /// Helper: run Claude Code CLI with a prompt in the given project root.
 fn run_claude(project_root: &Path, prompt: &str) -> Result<String> {
+    use std::io::Read;
+    use std::sync::mpsc;
+
     let mut child = Command::new("claude")
         .arg("-p")
         .arg(prompt)
@@ -313,6 +323,30 @@ fn run_claude(project_root: &Path, prompt: &str) -> Result<String> {
         .spawn()
         .with_context(|| "failed to spawn `claude` CLI")?;
 
+    // Take ownership of stdout/stderr to drain in background threads
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    // Spawn threads to drain pipes (prevents deadlock if buffer fills)
+    let (stdout_tx, stdout_rx) = mpsc::channel();
+    let (stderr_tx, stderr_rx) = mpsc::channel();
+
+    let stdout_thread = std::thread::spawn(move || {
+        let mut output = String::new();
+        if let Some(mut out) = stdout {
+            let _ = out.read_to_string(&mut output);
+        }
+        let _ = stdout_tx.send(output);
+    });
+
+    let stderr_thread = std::thread::spawn(move || {
+        let mut output = String::new();
+        if let Some(mut err) = stderr {
+            let _ = err.read_to_string(&mut output);
+        }
+        let _ = stderr_tx.send(output);
+    });
+
     // Wait with timeout
     let start = std::time::Instant::now();
     let status = loop {
@@ -320,34 +354,43 @@ fn run_claude(project_root: &Path, prompt: &str) -> Result<String> {
             Ok(Some(status)) => break status,
             Ok(None) => {
                 if start.elapsed().as_secs() > AI_CLI_TIMEOUT_SECS {
+                    // Kill and wait to reap (prevent zombie)
                     let _ = child.kill();
+                    let _ = child.wait(); // Reap the zombie
+                    // Wait for drain threads to finish
+                    let _ = stdout_thread.join();
+                    let _ = stderr_thread.join();
                     return Err(anyhow!("claude CLI timed out after {} seconds", AI_CLI_TIMEOUT_SECS));
                 }
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
-            Err(e) => return Err(anyhow!("failed to wait for claude CLI: {}", e)),
+            Err(e) => {
+                // Try to kill and reap on error
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stdout_thread.join();
+                let _ = stderr_thread.join();
+                return Err(anyhow!("failed to wait for claude CLI: {}", e));
+            }
         }
     };
 
+    // Wait for drain threads and get output
+    let _ = stdout_thread.join();
+    let _ = stderr_thread.join();
+
+    let stdout_output = stdout_rx.recv().unwrap_or_default();
+    let stderr_output = stderr_rx.recv().unwrap_or_default();
+
     if !status.success() {
-        let mut stderr = String::new();
-        if let Some(mut err) = child.stderr {
-            use std::io::Read;
-            let _ = err.read_to_string(&mut stderr);
-        }
         return Err(anyhow!(
             "`claude -p` failed with status {:?}: {}",
             status.code(),
-            stderr
+            stderr_output
         ));
     }
 
-    let mut stdout = String::new();
-    if let Some(mut out) = child.stdout {
-        use std::io::Read;
-        out.read_to_string(&mut stdout)?;
-    }
-    Ok(stdout)
+    Ok(stdout_output)
 }
 
 #[cfg(test)]
