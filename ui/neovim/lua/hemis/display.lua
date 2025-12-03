@@ -204,12 +204,19 @@ local function find_node_in_range(bufnr, target_hash, min_line, max_line)
 
   -- Traverse tree looking for matching node
   -- Track any significant node, return immediately on exact hash match
+  -- Optimization: skip subtrees entirely outside the search range
   local function search_node(node)
-    local start_row = node:start()
-    local line = start_row + 1 -- Convert to 1-indexed
+    local start_row, _, end_row, _ = node:range()
+    local node_start_line = start_row + 1 -- Convert to 1-indexed
+    local node_end_line = end_row + 1
 
-    -- Only check significant named nodes within the search range
-    if line >= min_line and line <= max_line and node:named() then
+    -- Skip subtrees entirely outside the search range
+    if node_end_line < min_line or node_start_line > max_line then
+      return nil
+    end
+
+    -- Check this node if it's within range and significant
+    if node_start_line >= min_line and node_start_line <= max_line and node:named() then
       local node_type = node:type()
       if is_significant_type(node_type) then
         any_node_found = true -- Track that we found at least one node
@@ -218,13 +225,13 @@ local function find_node_in_range(bufnr, target_hash, min_line, max_line)
         if text then
           local hash = vim.fn.sha256(text)
           if hash == target_hash then
-            return line -- Exact match - return immediately
+            return node_start_line -- Exact match - return immediately
           end
         end
       end
     end
 
-    -- Recurse into children
+    -- Recurse into children (only if subtree overlaps range - already checked above)
     for child in node:iter_children() do
       local result = search_node(child)
       if result then

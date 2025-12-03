@@ -163,9 +163,10 @@ pub fn upsert_embedding_for_file(
     project_root: &str,
     content: &str,
 ) -> Result<()> {
-    let vector =
-        call_embedder(&embedding_input(content)).unwrap_or_else(|_| derive_vector(content));
-    upsert_embedding(conn, file, project_root, &vector, content)
+    let input = embedding_input(content);
+    // Use input (first 64 lines) for both embedder and fallback to keep vector/text consistent
+    let vector = call_embedder(&input).unwrap_or_else(|_| derive_vector(&input));
+    upsert_embedding(conn, file, project_root, &vector, &input)
 }
 
 /// Add or update a file in the index. Returns None if content unchanged.
@@ -270,12 +271,14 @@ pub fn search(
     rows = stmt.query([fts_query.as_str()])?;
 
     let mut hits = Vec::new();
+    let query_lower = query.to_lowercase();
     while let Some(row) = rows.next()? {
         let file: String = row.get(0)?;
         let content: String = row.get(1)?;
-        // Scan matching files for exact line positions
+        // Scan matching files for exact line positions (case-insensitive to match FTS5)
         for (idx, line) in content.lines().enumerate() {
-            if let Some(pos) = line.find(query) {
+            let line_lower = line.to_lowercase();
+            if let Some(pos) = line_lower.find(&query_lower) {
                 hits.push(SearchHit {
                     file: file.clone(),
                     line: idx + 1,
@@ -338,7 +341,8 @@ pub fn semantic_search(
     // for most candidates. No early termination - SQL order is arbitrary.
 
     let dim_bits = query_vector.len();
-    let hamming_threshold = (dim_bits as f32 * 0.4) as u32;
+    // Allow up to 40% of bits different, but minimum of 1 for small vectors
+    let hamming_threshold = ((dim_bits as f32 * 0.4) as u32).max(1);
 
     let mut heap: BinaryHeap<ScoredHit> = BinaryHeap::with_capacity(top_k + 1);
 
