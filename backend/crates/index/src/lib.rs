@@ -3,6 +3,8 @@
 use anyhow::{anyhow, Result};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 use std::env;
 use storage::{exec, now_unix, query_all};
 
@@ -205,39 +207,80 @@ pub fn search(
     Ok(hits)
 }
 
+/// Wrapper for min-heap ordering (we want top-k highest scores)
+struct ScoredHit {
+    score: f32,
+    hit: SearchHit,
+}
+
+impl PartialEq for ScoredHit {
+    fn eq(&self, other: &Self) -> bool {
+        self.score == other.score
+    }
+}
+
+impl Eq for ScoredHit {}
+
+impl PartialOrd for ScoredHit {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ScoredHit {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Reverse order for min-heap (lowest score at top)
+        other.score.total_cmp(&self.score)
+    }
+}
+
 pub fn semantic_search(
     conn: &Connection,
     query_vector: &[f32],
     project_root: Option<&str>,
     top_k: usize,
 ) -> Result<Vec<SearchHit>> {
-    let rows = if let Some(root) = project_root {
-        query_all(
-            conn,
-            "SELECT * FROM embeddings WHERE project_root = ?;",
-            &[&root],
-            embedding_from_row,
-        )?
+    // Use min-heap to maintain only top-k results (avoids full sort)
+    let mut heap: BinaryHeap<ScoredHit> = BinaryHeap::with_capacity(top_k + 1);
+
+    // Stream rows to avoid loading all embeddings into a Vec first
+    let mut stmt;
+    let mut rows;
+    if let Some(root) = project_root {
+        stmt = conn.prepare("SELECT * FROM embeddings WHERE project_root = ?;")?;
+        rows = stmt.query([root])?;
     } else {
-        query_all(conn, "SELECT * FROM embeddings;", &[], embedding_from_row)?
-    };
-    let mut hits = Vec::new();
-    for emb in rows {
+        stmt = conn.prepare("SELECT * FROM embeddings;")?;
+        rows = stmt.query([])?;
+    }
+
+    while let Some(row) = rows.next()? {
+        let emb = embedding_from_row(row)?;
         let score = dot(&emb.vector, query_vector);
-        hits.push(SearchHit {
-            file: emb.file.clone(),
+
+        let hit = SearchHit {
+            file: emb.file,
             line: 1,
             column: 0,
-            text: emb.text.clone(),
+            text: emb.text,
             score,
             kind: Some("semantic".into()),
             note_id: None,
             note_summary: None,
-        });
+        };
+
+        if heap.len() < top_k {
+            heap.push(ScoredHit { score, hit });
+        } else if let Some(min) = heap.peek() {
+            if score > min.score {
+                heap.pop();
+                heap.push(ScoredHit { score, hit });
+            }
+        }
     }
+
+    // Extract results in descending score order
+    let mut hits: Vec<_> = heap.into_iter().map(|sh| sh.hit).collect();
     hits.sort_by(|a, b| b.score.total_cmp(&a.score));
-    if hits.len() > top_k {
-        hits.truncate(top_k);
-    }
     Ok(hits)
 }
