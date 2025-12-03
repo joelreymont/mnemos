@@ -4,8 +4,18 @@ local ts = require("hemis.treesitter")
 
 local M = {}
 
--- Get git info for current file
-local function get_git_info(file)
+-- Cache for git info per buffer (cleared on buffer write)
+local git_cache = {}
+
+-- Get git info for file (cached per buffer)
+local function get_git_info(file, bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+
+  -- Check cache first
+  if git_cache[bufnr] and git_cache[bufnr].file == file then
+    return git_cache[bufnr].commit, git_cache[bufnr].blob
+  end
+
   local dir = vim.fn.fnamemodify(file, ":h")
 
   -- Get commit SHA
@@ -19,20 +29,47 @@ local function get_git_info(file)
     blob = blob_result[1]:match("^%d+%s+(%x+)")
   end
 
+  -- Cache the result
+  git_cache[bufnr] = { file = file, commit = commit, blob = blob }
+
   return commit, blob
 end
 
--- Get project root (git root or cwd)
+-- Cache for project root per directory
+local project_root_cache = {}
+
+-- Get project root (git root or cwd) - cached per directory
 local function get_project_root()
   local file = vim.fn.expand("%:p")
   local dir = vim.fn.fnamemodify(file, ":h")
 
-  local result = vim.fn.systemlist({ "git", "-C", dir, "rev-parse", "--show-toplevel" })
-  if result[1] and not result[1]:match("^fatal") then
-    return result[1]
+  -- Check cache first
+  if project_root_cache[dir] then
+    return project_root_cache[dir]
   end
 
-  return vim.fn.getcwd()
+  local result = vim.fn.systemlist({ "git", "-C", dir, "rev-parse", "--show-toplevel" })
+  local root
+  if result[1] and not result[1]:match("^fatal") then
+    root = result[1]
+  else
+    root = vim.fn.getcwd()
+  end
+
+  -- Cache the result
+  project_root_cache[dir] = root
+  return root
+end
+
+-- Clear git cache for a buffer (call on BufWritePost)
+function M.clear_git_cache(bufnr)
+  git_cache[bufnr] = nil
+end
+
+-- Clear all caches (for testing)
+function M.clear_all_caches()
+  git_cache = {}
+  project_root_cache = {}
 end
 
 -- Build params for current buffer
