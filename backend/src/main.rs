@@ -125,6 +125,11 @@ fn run_stdio_mode() -> Result<()> {
     let mut read_buf = [0u8; 8192];
 
     loop {
+        // Prevent unbounded buffer growth (limit to MAX_MESSAGE_SIZE + 1KB for headers)
+        if buffer.len() > rpc::MAX_MESSAGE_SIZE + 1024 {
+            return Err(anyhow::anyhow!("input buffer too large, possible DoS attempt"));
+        }
+
         if buffer.is_empty() {
             let n = stdin.read(&mut read_buf)?;
             if n == 0 {

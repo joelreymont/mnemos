@@ -260,6 +260,14 @@ impl GrammarRegistry {
             }
         }
 
+        // Validate grammar name (must be alphanumeric/underscore for safe symbol lookup)
+        if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+            return Err(TreeSitterError::GrammarLoadFailed {
+                path: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                reason: format!("invalid grammar name '{}' (must be alphanumeric, underscore, or hyphen)", name),
+            });
+        }
+
         // Safety: Loading shared libraries is inherently unsafe
         // We've verified the hash, so we trust the library content
         unsafe {
@@ -271,7 +279,9 @@ impl GrammarRegistry {
             })?;
 
             // Tree-sitter grammars export a function named tree_sitter_<name>
-            let func_name = format!("tree_sitter_{}", name);
+            // For names with hyphens, the symbol uses underscores
+            let symbol_name = name.replace('-', "_");
+            let func_name = format!("tree_sitter_{}", symbol_name);
             let func: libloading::Symbol<unsafe extern "C" fn() -> tree_sitter::Language> =
                 lib.get(func_name.as_bytes()).map_err(|e| {
                     TreeSitterError::GrammarLoadFailed {

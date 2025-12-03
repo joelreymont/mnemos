@@ -145,12 +145,19 @@ fn handle_connection(
 ) -> Result<()> {
     let mut buffer = Vec::new();
     let mut read_buf = [0u8; 8192];
+    // Max buffer size: MAX_MESSAGE_SIZE + 1KB for headers
+    let max_buffer_size = rpc::MAX_MESSAGE_SIZE + 1024;
 
     loop {
         match stream.read(&mut read_buf) {
             Ok(0) => break, // Client disconnected
             Ok(n) => {
                 buffer.extend_from_slice(&read_buf[..n]);
+
+                // Prevent unbounded buffer growth (DoS protection)
+                if buffer.len() > max_buffer_size {
+                    return Err(anyhow::anyhow!("client buffer too large"));
+                }
 
                 // Process complete messages
                 while let Some((body, consumed)) = decode_framed(&buffer) {

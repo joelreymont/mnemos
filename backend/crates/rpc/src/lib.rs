@@ -89,9 +89,12 @@ pub fn encode_response(resp: &Response) -> Vec<u8> {
     serde_json::to_vec(resp).unwrap_or_default()
 }
 
+/// Maximum message size (100MB - prevents memory exhaustion attacks)
+pub const MAX_MESSAGE_SIZE: usize = 100 * 1024 * 1024;
+
 /// Simple Content-Length framing for stdin/stdout.
 /// Decode a Content-Length framed message from BUF.
-/// Returns (body, total_consumed_bytes).
+/// Returns (body, total_consumed_bytes) or None if incomplete/invalid.
 pub fn decode_framed(buf: &[u8]) -> Option<(Vec<u8>, usize)> {
     let s = std::str::from_utf8(buf).ok()?;
     let mut parts = s.split("\r\n\r\n");
@@ -101,6 +104,10 @@ pub fn decode_framed(buf: &[u8]) -> Option<(Vec<u8>, usize)> {
         .lines()
         .find_map(|l| l.strip_prefix("Content-Length:"))
         .and_then(|v| v.trim().parse::<usize>().ok())?;
+    // Reject oversized messages to prevent DoS
+    if len > MAX_MESSAGE_SIZE {
+        return None;
+    }
     let header_len = header.len() + 4; // include separating CRLFCRLF
     let body_bytes = body.as_bytes();
     if body_bytes.len() >= len {

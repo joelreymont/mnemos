@@ -316,9 +316,16 @@ pub fn add_file(
 /// Escape a literal string for use in FTS5 column filter (e.g., project_root:"value")
 /// FTS5 requires escaping double quotes within quoted strings
 fn escape_fts_literal(value: &str) -> String {
+    // Truncate to prevent query explosion (each quote doubles)
+    const MAX_LITERAL_LEN: usize = 1000;
+    let truncated = if value.len() > MAX_LITERAL_LEN {
+        &value[..MAX_LITERAL_LEN]
+    } else {
+        value
+    };
     // In FTS5 double-quoted strings, double quotes are escaped by doubling them
     // Other special chars (* ^ etc.) are treated literally inside quotes
-    value.replace('"', "\"\"")
+    truncated.replace('"', "\"\"")
 }
 
 fn escape_fts_query(query: &str) -> Option<String> {

@@ -216,9 +216,15 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             if line_range > MAX_LINE_RANGE {
                 return Response::error(id, INVALID_PARAMS, format!("line range too large (max {} lines)", MAX_LINE_RANGE));
             }
-            // Safe conversion after validation (values bounded by MAX_LINE_NUMBER which fits in usize)
-            let start_line = start_line as usize;
-            let end_line = end_line as usize;
+            // Use TryFrom for safe conversion (defensive against platform differences)
+            let start_line = match usize::try_from(start_line) {
+                Ok(n) => n,
+                Err(_) => return Response::error(id, INVALID_PARAMS, "line number out of range"),
+            };
+            let end_line = match usize::try_from(end_line) {
+                Ok(n) => n,
+                Err(_) => return Response::error(id, INVALID_PARAMS, "line number out of range"),
+            };
 
             let use_ai = req
                 .params
