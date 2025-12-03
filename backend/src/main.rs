@@ -4,6 +4,11 @@
 //! - Server mode (default): Listens on Unix domain socket ~/.hemis/hemis.sock
 //! - Stdio mode: Reads from stdin, writes to stdout (for testing/debugging)
 //!
+//! Subcommands:
+//! - `grammar list`: List available grammars (bundled and user-installed)
+//! - `grammar fetch <name>`: Fetch a grammar source from git
+//! - `grammar build <name>`: Build a grammar from source
+//!
 //! Auto-detection:
 //! - `--serve`: Force server mode
 //! - `--stdio`: Force stdio mode
@@ -13,6 +18,7 @@
 use std::collections::VecDeque;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
+use std::process::Command;
 use std::str;
 
 use anyhow::Result;
@@ -20,6 +26,7 @@ use backend::{create_parser_service, parse_and_handle};
 use backend::server::Server;
 use rpc::{decode_framed, encode_response, Response};
 use storage::connect;
+use treesitter::{load_config, GrammarSource, GrammarSourceLocation};
 
 fn write_response<W: Write>(out: &mut W, resp: Response, framed: bool) -> io::Result<()> {
     let bytes = encode_response(&resp);
@@ -185,6 +192,384 @@ fn detect_mode() -> Mode {
     }
 }
 
+/// List of bundled grammars that are compiled into the binary
+const BUNDLED_GRAMMARS: &[&str] = &[
+    "rust", "python", "javascript", "typescript", "go", "lua", "c", "cpp", "java",
+];
+
+/// Run the grammar subcommand
+fn run_grammar_command(args: &[String]) -> Result<()> {
+    if args.is_empty() {
+        print_grammar_help();
+        return Ok(());
+    }
+
+    match args[0].as_str() {
+        "list" => grammar_list(),
+        "fetch" => {
+            if args.len() < 2 {
+                eprintln!("Usage: hemis grammar fetch <name>");
+                eprintln!("       hemis grammar fetch --all");
+                std::process::exit(1);
+            }
+            if args[1] == "--all" {
+                grammar_fetch_all()
+            } else {
+                grammar_fetch(&args[1])
+            }
+        }
+        "build" => {
+            if args.len() < 2 {
+                eprintln!("Usage: hemis grammar build <name>");
+                eprintln!("       hemis grammar build --all");
+                std::process::exit(1);
+            }
+            if args[1] == "--all" {
+                grammar_build_all()
+            } else {
+                grammar_build(&args[1])
+            }
+        }
+        "help" | "--help" | "-h" => {
+            print_grammar_help();
+            Ok(())
+        }
+        _ => {
+            eprintln!("Unknown grammar subcommand: {}", args[0]);
+            print_grammar_help();
+            std::process::exit(1);
+        }
+    }
+}
+
+fn print_grammar_help() {
+    println!("hemis grammar - Manage tree-sitter grammars");
+    println!();
+    println!("USAGE:");
+    println!("    hemis grammar <COMMAND>");
+    println!();
+    println!("COMMANDS:");
+    println!("    list              List available grammars (bundled and user-installed)");
+    println!("    fetch <name>      Fetch grammar source from git");
+    println!("    fetch --all       Fetch all grammars defined in languages.toml");
+    println!("    build <name>      Build a grammar from source");
+    println!("    build --all       Build all fetched grammars");
+    println!("    help              Show this help message");
+    println!();
+    println!("CONFIGURATION:");
+    println!("    Grammars are configured in ~/.config/hemis/languages.toml");
+    println!("    Fetched sources are stored in ~/.config/hemis/grammars/sources/");
+    println!("    Built libraries are stored in ~/.config/hemis/grammars/");
+}
+
+/// List available grammars
+fn grammar_list() -> Result<()> {
+    let config = load_config()?;
+    let grammars_dir = config.grammars_dir();
+
+    println!("Bundled grammars (always available):");
+    for name in BUNDLED_GRAMMARS {
+        println!("  {} (built-in)", name);
+    }
+    println!();
+
+    // Check for user-installed grammars
+    let mut user_grammars = Vec::new();
+    if grammars_dir.exists() {
+        for entry in std::fs::read_dir(&grammars_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    if ext == "so" || ext == "dylib" {
+                        if let Some(name) = path.file_stem() {
+                            let name = name.to_string_lossy();
+                            // Strip "libtree-sitter-" prefix if present
+                            let name = name
+                                .strip_prefix("libtree-sitter-")
+                                .or_else(|| name.strip_prefix("tree-sitter-"))
+                                .unwrap_or(&name);
+                            user_grammars.push(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !user_grammars.is_empty() {
+        println!("User-installed grammars:");
+        for name in &user_grammars {
+            println!("  {} ({})", name, grammars_dir.display());
+        }
+        println!();
+    }
+
+    // Show configured grammar sources
+    if !config.grammars.is_empty() {
+        println!("Configured grammar sources (from languages.toml):");
+        for grammar in &config.grammars {
+            let status = if user_grammars.contains(&grammar.name) {
+                "installed"
+            } else {
+                "not built"
+            };
+            println!("  {} [{}]", grammar.name, status);
+            if let Some(ref git) = grammar.source.git {
+                println!("    git: {}", git);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Fetch a grammar source from git
+fn grammar_fetch(name: &str) -> Result<()> {
+    let config = load_config()?;
+
+    // Find grammar in config
+    let grammar = config.grammars.iter().find(|g| g.name == name);
+    let grammar = match grammar {
+        Some(g) => g,
+        None => {
+            // Check if it's a bundled grammar
+            if BUNDLED_GRAMMARS.contains(&name) {
+                println!("'{}' is a bundled grammar (no fetch needed)", name);
+                return Ok(());
+            }
+
+            // Try to use default tree-sitter grammar URL
+            println!("Grammar '{}' not in config, trying default source...", name);
+            &GrammarSource {
+                name: name.to_string(),
+                source: GrammarSourceLocation {
+                    git: Some(format!(
+                        "https://github.com/tree-sitter/tree-sitter-{}",
+                        name
+                    )),
+                    rev: None,
+                    path: None,
+                },
+            }
+        }
+    };
+
+    let git_url = match &grammar.source.git {
+        Some(url) => url,
+        None => {
+            eprintln!("Grammar '{}' has no git source configured", name);
+            return Ok(());
+        }
+    };
+
+    let sources_dir = config.grammars_dir().join("sources");
+    std::fs::create_dir_all(&sources_dir)?;
+
+    let target_dir = sources_dir.join(name);
+
+    if target_dir.exists() {
+        println!("Updating {}...", name);
+        let status = Command::new("git")
+            .args(["pull", "--ff-only"])
+            .current_dir(&target_dir)
+            .status()?;
+        if !status.success() {
+            eprintln!("Warning: git pull failed, trying fresh clone...");
+            std::fs::remove_dir_all(&target_dir)?;
+        } else {
+            println!("Updated {}", name);
+            return Ok(());
+        }
+    }
+
+    println!("Fetching {} from {}...", name, git_url);
+    let mut cmd = Command::new("git");
+    cmd.args(["clone", "--depth", "1"]);
+    if let Some(ref rev) = grammar.source.rev {
+        cmd.args(["--branch", rev]);
+    }
+    cmd.arg(git_url).arg(&target_dir);
+
+    let status = cmd.status()?;
+    if !status.success() {
+        anyhow::bail!("git clone failed for {}", name);
+    }
+
+    println!("Fetched {} to {}", name, target_dir.display());
+    Ok(())
+}
+
+/// Fetch all configured grammars
+fn grammar_fetch_all() -> Result<()> {
+    let config = load_config()?;
+
+    if config.grammars.is_empty() {
+        println!("No grammars configured in languages.toml");
+        println!();
+        println!("Add grammar sources like:");
+        println!("  [[grammar]]");
+        println!("  name = \"zig\"");
+        println!("  source = {{ git = \"https://github.com/tree-sitter-grammars/tree-sitter-zig\" }}");
+        return Ok(());
+    }
+
+    for grammar in &config.grammars {
+        if let Err(e) = grammar_fetch(&grammar.name) {
+            eprintln!("Error fetching {}: {}", grammar.name, e);
+        }
+    }
+
+    Ok(())
+}
+
+/// Build a grammar from source
+fn grammar_build(name: &str) -> Result<()> {
+    let config = load_config()?;
+
+    // Check if it's bundled
+    if BUNDLED_GRAMMARS.contains(&name) {
+        println!("'{}' is a bundled grammar (no build needed)", name);
+        return Ok(());
+    }
+
+    let sources_dir = config.grammars_dir().join("sources");
+    let source_dir = sources_dir.join(name);
+
+    if !source_dir.exists() {
+        anyhow::bail!(
+            "Source not found for '{}'. Run 'hemis grammar fetch {}' first.",
+            name,
+            name
+        );
+    }
+
+    // Find the src directory (may be at root or in a subdirectory)
+    let src_dir = if source_dir.join("src").exists() {
+        source_dir.join("src")
+    } else if source_dir.join("grammar.js").exists() {
+        // Need to generate parser first
+        println!("Generating parser for {}...", name);
+        let status = Command::new("npx")
+            .args(["tree-sitter", "generate"])
+            .current_dir(&source_dir)
+            .status();
+
+        match status {
+            Ok(s) if s.success() => source_dir.join("src"),
+            _ => {
+                anyhow::bail!(
+                    "Failed to generate parser. Make sure tree-sitter-cli is installed: npm install -g tree-sitter-cli"
+                );
+            }
+        }
+    } else {
+        anyhow::bail!("Cannot find src directory or grammar.js in {}", source_dir.display());
+    };
+
+    let parser_c = src_dir.join("parser.c");
+    if !parser_c.exists() {
+        anyhow::bail!("parser.c not found in {}", src_dir.display());
+    }
+
+    // Determine output filename based on platform
+    let lib_ext = if cfg!(target_os = "macos") {
+        "dylib"
+    } else {
+        "so"
+    };
+    let output_name = format!("libtree-sitter-{}.{}", name, lib_ext);
+    let output_path = config.grammars_dir().join(&output_name);
+
+    std::fs::create_dir_all(config.grammars_dir())?;
+
+    println!("Building {}...", name);
+
+    // Compile parser.c (and scanner.c if present)
+    let scanner_c = src_dir.join("scanner.c");
+    let scanner_cc = src_dir.join("scanner.cc");
+
+    let mut cc_args = vec![
+        "-shared".to_string(),
+        "-fPIC".to_string(),
+        "-O2".to_string(),
+        "-I".to_string(),
+        src_dir.to_string_lossy().to_string(),
+        parser_c.to_string_lossy().to_string(),
+        "-o".to_string(),
+        output_path.to_string_lossy().to_string(),
+    ];
+
+    // Add scanner if present
+    if scanner_c.exists() {
+        cc_args.insert(4, scanner_c.to_string_lossy().to_string());
+    }
+
+    // Use cc for C files
+    let status = Command::new("cc").args(&cc_args).status()?;
+
+    if !status.success() {
+        // If C++ scanner, try g++
+        if scanner_cc.exists() {
+            let mut cxx_args = vec![
+                "-shared".to_string(),
+                "-fPIC".to_string(),
+                "-O2".to_string(),
+                "-I".to_string(),
+                src_dir.to_string_lossy().to_string(),
+                parser_c.to_string_lossy().to_string(),
+                scanner_cc.to_string_lossy().to_string(),
+                "-o".to_string(),
+                output_path.to_string_lossy().to_string(),
+            ];
+
+            // Add C++ stdlib on macOS
+            if cfg!(target_os = "macos") {
+                cxx_args.push("-lc++".to_string());
+            } else {
+                cxx_args.push("-lstdc++".to_string());
+            }
+
+            let status = Command::new("c++").args(&cxx_args).status()?;
+            if !status.success() {
+                anyhow::bail!("Compilation failed for {}", name);
+            }
+        } else {
+            anyhow::bail!("Compilation failed for {}", name);
+        }
+    }
+
+    println!("Built {} -> {}", name, output_path.display());
+    Ok(())
+}
+
+/// Build all fetched grammars
+fn grammar_build_all() -> Result<()> {
+    let config = load_config()?;
+    let sources_dir = config.grammars_dir().join("sources");
+
+    if !sources_dir.exists() {
+        println!("No grammar sources found. Run 'hemis grammar fetch --all' first.");
+        return Ok(());
+    }
+
+    let mut built = 0;
+    for entry in std::fs::read_dir(&sources_dir)? {
+        let entry = entry?;
+        if entry.path().is_dir() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            match grammar_build(&name) {
+                Ok(()) => built += 1,
+                Err(e) => eprintln!("Error building {}: {}", name, e),
+            }
+        }
+    }
+
+    println!();
+    println!("Built {} grammars", built);
+    Ok(())
+}
+
 fn print_version() {
     println!(
         "hemis {} ({})",
@@ -198,6 +583,10 @@ fn print_help() {
     println!();
     println!("USAGE:");
     println!("    hemis [OPTIONS]");
+    println!("    hemis grammar <COMMAND>");
+    println!();
+    println!("SUBCOMMANDS:");
+    println!("    grammar        Manage tree-sitter grammars (list, fetch, build)");
     println!();
     println!("OPTIONS:");
     println!("    --serve, -s    Run as server (Unix socket at ~/.hemis/hemis.sock)");
@@ -215,6 +604,11 @@ fn print_help() {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
+
+    // Check for grammar subcommand first
+    if args.len() > 1 && args[1] == "grammar" {
+        return run_grammar_command(&args[2..]);
+    }
 
     if args.contains(&"--version".to_string()) || args.contains(&"-v".to_string()) {
         print_version();
