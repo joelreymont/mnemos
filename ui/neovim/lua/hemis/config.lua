@@ -26,6 +26,10 @@ M.defaults = {
 
   -- Note display style: "full" (comment block) or "minimal" (single line indicator)
   display_style = "full",
+
+  -- Real-time position tracking: update note positions as you type (debounced)
+  -- Set to false to disable (reduces RPC traffic during editing)
+  realtime_tracking = true,
 }
 
 M.options = {}

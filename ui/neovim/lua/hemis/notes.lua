@@ -72,36 +72,54 @@ function M.clear_all_caches()
   project_root_cache = {}
 end
 
+-- Get buffer content as a single string
+local function get_buffer_content(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  return table.concat(lines, "\n")
+end
+
 -- Build params for current buffer
-local function buffer_params()
+local function buffer_params(include_content)
   local file = vim.fn.expand("%:p")
   local commit, blob = get_git_info(file)
 
-  return {
+  local params = {
     file = file,
     projectRoot = get_project_root(),
     commit = commit,
     blob = blob,
     includeStale = true,
   }
+
+  -- Include content for server-side position tracking
+  if include_content then
+    params.content = get_buffer_content()
+  end
+
+  return params
 end
 
 -- Create a note at cursor
+-- Server computes nodeTextHash and nodePath from content when provided
 function M.create(text, opts, callback)
   opts = opts or {}
 
   -- Use pre-captured position if provided, otherwise capture now
   local anchor = opts.anchor or ts.get_anchor_position()
-  local node_path = opts.node_path or ts.get_node_path()
-  local node_text_hash = opts.node_text_hash or ts.get_node_text_hash()
-  local params = buffer_params()
+  -- Send content so server can compute hash/nodePath (fallback to UI-computed if no content)
+  local params = buffer_params(true) -- include content
 
   params.line = anchor.line
   params.column = anchor.column
   params.text = text
   params.tags = opts.tags
-  params.nodePath = node_path
-  params.nodeTextHash = node_text_hash
+
+  -- Only send UI-computed values as fallback (server prefers to compute from content)
+  if not params.content then
+    params.nodePath = opts.node_path or ts.get_node_path()
+    params.nodeTextHash = opts.node_text_hash or ts.get_node_text_hash()
+  end
 
   rpc.request("notes/create", params, function(err, result)
     if callback then
@@ -116,8 +134,13 @@ function M.create(text, opts, callback)
 end
 
 -- List notes for current buffer
-function M.list_for_buffer(callback)
-  local params = buffer_params()
+-- Server computes displayLine and computedStale from content when provided
+function M.list_for_buffer(callback, include_content)
+  -- Default to including content for position tracking
+  if include_content == nil then
+    include_content = true
+  end
+  local params = buffer_params(include_content)
   rpc.request("notes/list-for-file", params, callback)
 end
 
@@ -280,18 +303,24 @@ function M.reattach(id, opts, callback)
   -- Use pre-captured position if provided, otherwise capture now
   local ts = require("hemis.treesitter")
   local anchor = opts.anchor or ts.get_anchor_position()
-  local node_path = opts.node_path or ts.get_node_path()
-  local node_text_hash = opts.node_text_hash or ts.get_node_text_hash()
   local file = vim.fn.expand("%:p")
+
+  -- Send content so server can compute hash (fallback to UI-computed if needed)
+  local content = get_buffer_content()
 
   local params = {
     id = id,
     file = file,
     line = anchor.line,
     column = anchor.column,
-    nodePath = node_path,
-    nodeTextHash = node_text_hash,
+    content = content,
   }
+
+  -- Only send UI-computed values as fallback
+  if not content then
+    params.nodePath = opts.node_path or ts.get_node_path()
+    params.nodeTextHash = opts.node_text_hash or ts.get_node_text_hash()
+  end
 
   rpc.request("notes/reattach", params, function(err, result)
     if callback then
@@ -303,6 +332,18 @@ function M.reattach(id, opts, callback)
       vim.notify("Failed to reattach note: " .. (err.message or "unknown error"), vim.log.levels.ERROR)
     end
   end)
+end
+
+-- Send buffer update for real-time position tracking
+-- Called on TextChanged with debouncing (see commands.lua)
+function M.buffer_update(callback)
+  local file = vim.fn.expand("%:p")
+  local content = get_buffer_content()
+
+  rpc.request("notes/buffer-update", {
+    file = file,
+    content = content,
+  }, callback)
 end
 
 return M

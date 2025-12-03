@@ -771,6 +771,46 @@ function M.setup_keymaps()
   vim.keymap.set("v", prefix .. "x", M.explain_region, { desc = "Hemis: Explain region" })
 end
 
+-- Debounce timer for buffer updates
+local buffer_update_timer = nil
+local BUFFER_UPDATE_DEBOUNCE_MS = 200
+
+-- Send buffer update to server for real-time position tracking
+local function send_buffer_update()
+  if buffer_update_timer then
+    buffer_update_timer:stop()
+    buffer_update_timer = nil
+  end
+
+  -- Only update if we have notes cached for this buffer
+  if not M.buffer_notes or #M.buffer_notes == 0 then
+    return
+  end
+
+  notes.buffer_update(function(err, result)
+    if err then
+      -- Silently ignore errors (don't spam user during typing)
+      return
+    end
+
+    if result and #result > 0 then
+      -- Update cached notes with new positions
+      M.buffer_notes = result
+      -- Re-render with server-computed positions
+      display.render_notes(nil, M.buffer_notes)
+    end
+  end)
+end
+
+-- Schedule debounced buffer update
+local function schedule_buffer_update()
+  if buffer_update_timer then
+    buffer_update_timer:stop()
+  end
+
+  buffer_update_timer = vim.defer_fn(send_buffer_update, BUFFER_UPDATE_DEBOUNCE_MS)
+end
+
 -- Setup autocommands
 function M.setup_autocommands()
   local group = vim.api.nvim_create_augroup("hemis", { clear = true })
@@ -783,6 +823,19 @@ function M.setup_autocommands()
         if vim.bo.buftype == "" and vim.fn.expand("%:p") ~= "" then
           -- Delay to let buffer load
           vim.defer_fn(M.refresh, 100)
+        end
+      end,
+    })
+  end
+
+  -- Real-time position tracking: update note positions as user types
+  if config.get("realtime_tracking") ~= false then
+    vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+      group = group,
+      pattern = "*",
+      callback = function()
+        if vim.bo.buftype == "" and vim.fn.expand("%:p") ~= "" then
+          schedule_buffer_update()
         end
       end,
     })

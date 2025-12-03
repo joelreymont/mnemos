@@ -390,10 +390,19 @@ function M.render_notes(bufnr, notes)
   end
 
   -- Compute display position and staleness for each note
-  -- Notes follow their code when it moves (hash-based tracking)
+  -- Prefer server-computed displayLine/computedStale when available
+  -- Fall back to client-side computation for backwards compatibility
   local display_notes = {}
   for _, note in ipairs(notes) do
-    local display_line, is_stale = find_note_position(bufnr, note)
+    local display_line, is_stale
+    if note.displayLine then
+      -- Server computed position (when content was sent)
+      display_line = note.displayLine
+      is_stale = note.computedStale or note.stale or false
+    else
+      -- Client-side fallback (tree-sitter based)
+      display_line, is_stale = find_note_position(bufnr, note)
+    end
     table.insert(display_notes, {
       note = note,
       display_line = display_line,
@@ -446,8 +455,14 @@ function M.get_note_at_cursor(notes, bufnr)
   local cursor_line = cursor[1]
 
   -- Find note whose display position matches cursor
+  -- Prefer server-computed displayLine when available
   for _, note in ipairs(notes) do
-    local display_line, _ = find_note_position(bufnr, note)
+    local display_line
+    if note.displayLine then
+      display_line = note.displayLine
+    else
+      display_line, _ = find_note_position(bufnr, note)
+    end
     if display_line == cursor_line then
       return note
     end
