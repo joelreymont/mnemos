@@ -103,6 +103,9 @@ fn update_edges(conn: &Connection, src: &str, project_root: &str, text: &str) ->
     Ok(())
 }
 
+/// Maximum note text length (1MB - prevents DoS via huge notes)
+const MAX_NOTE_TEXT_LEN: usize = 1_000_000;
+
 pub fn create(
     conn: &Connection,
     file: &str,
@@ -115,6 +118,11 @@ pub fn create(
     git: Option<GitInfo>,
     node_text_hash: Option<String>,
 ) -> Result<Note> {
+    // Validate text length
+    if text.len() > MAX_NOTE_TEXT_LEN {
+        return Err(anyhow::anyhow!("note text too long ({} bytes, max {})", text.len(), MAX_NOTE_TEXT_LEN));
+    }
+
     let id = Uuid::new_v4().to_string();
     let ts = now_unix();
     let summary = summarize(text);
@@ -272,6 +280,13 @@ pub fn update(
     text: Option<&str>,
     tags: Option<serde_json::Value>,
 ) -> Result<Note> {
+    // Validate text length if provided
+    if let Some(t) = text {
+        if t.len() > MAX_NOTE_TEXT_LEN {
+            return Err(anyhow::anyhow!("note text too long ({} bytes, max {})", t.len(), MAX_NOTE_TEXT_LEN));
+        }
+    }
+
     let mut note = get(conn, id)?;
     let new_text = text.unwrap_or(&note.text).to_string();
     let new_tags = tags.unwrap_or(note.tags.clone());

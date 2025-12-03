@@ -11,22 +11,63 @@
 //! simpler behaviour (e.g. returning the raw snippet).
 
 use anyhow::{anyhow, Context, Result};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Instant, Duration};
 
 /// Maximum concurrent AI CLI processes (prevents resource exhaustion)
 const MAX_CONCURRENT_AI_CALLS: usize = 2;
 
+/// Rate limit: maximum AI calls per minute
+const MAX_CALLS_PER_MINUTE: usize = 10;
+
 /// Global counter for active AI CLI processes
 static ACTIVE_AI_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+/// Rate limiting state
+use std::sync::Mutex;
+static RATE_LIMIT_STATE: Mutex<Option<RateLimitState>> = Mutex::new(None);
+
+struct RateLimitState {
+    window_start: Instant,
+    call_count: usize,
+}
+
+/// Check and update rate limit. Returns error if rate exceeded.
+fn check_rate_limit() -> Result<()> {
+    let mut state = RATE_LIMIT_STATE.lock().map_err(|_| anyhow!("rate limit lock poisoned"))?;
+
+    let now = Instant::now();
+    let window = Duration::from_secs(60);
+
+    match state.as_mut() {
+        Some(s) if now.duration_since(s.window_start) < window => {
+            if s.call_count >= MAX_CALLS_PER_MINUTE {
+                return Err(anyhow!("rate limit exceeded (max {} calls per minute)", MAX_CALLS_PER_MINUTE));
+            }
+            s.call_count += 1;
+        }
+        _ => {
+            *state = Some(RateLimitState {
+                window_start: now,
+                call_count: 1,
+            });
+        }
+    }
+    Ok(())
+}
 
 /// RAII guard to track active AI calls
 struct AiCallGuard;
 
 impl AiCallGuard {
     fn try_acquire() -> Result<Self> {
+        // Check rate limit first
+        check_rate_limit()?;
+
         let current = ACTIVE_AI_CALLS.fetch_add(1, Ordering::SeqCst);
         if current >= MAX_CONCURRENT_AI_CALLS {
             ACTIVE_AI_CALLS.fetch_sub(1, Ordering::SeqCst);
@@ -43,6 +84,53 @@ impl Drop for AiCallGuard {
     fn drop(&mut self) {
         ACTIVE_AI_CALLS.fetch_sub(1, Ordering::SeqCst);
     }
+}
+
+/// Validate project_root is a safe directory for AI CLI execution.
+/// Returns canonicalized path or error.
+fn validate_project_root(project_root: &Path) -> Result<PathBuf> {
+    // Canonicalize to resolve symlinks and relative paths
+    let canonical = project_root.canonicalize()
+        .with_context(|| "invalid project root path")?;
+
+    // Must be a directory
+    if !canonical.is_dir() {
+        return Err(anyhow!("project root is not a directory"));
+    }
+
+    // Reject system paths
+    let path_str = canonical.to_string_lossy();
+    if path_str == "/" || path_str.starts_with("/etc") || path_str.starts_with("/var")
+        || path_str.starts_with("/usr") || path_str.starts_with("/bin")
+        || path_str.starts_with("/sbin") || path_str.starts_with("/System")
+        || path_str.starts_with("/Library") || path_str.starts_with("C:\\Windows")
+    {
+        return Err(anyhow!("refusing to run AI CLI in system directory"));
+    }
+
+    Ok(canonical)
+}
+
+/// Build minimal, safe environment for AI CLI subprocess.
+fn build_safe_env() -> HashMap<String, String> {
+    let mut env = HashMap::new();
+
+    // Only pass through essential environment variables
+    let allowed_vars = [
+        "PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM",
+        "SHELL", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+    ];
+
+    for var in &allowed_vars {
+        if let Ok(val) = std::env::var(var) {
+            env.insert(var.to_string(), val);
+        }
+    }
+
+    // Set safe defaults
+    env.insert("LC_ALL".to_string(), "C.UTF-8".to_string());
+
+    env
 }
 
 /// Which CLI to use for AI calls.
@@ -285,13 +373,19 @@ impl Drop for TempFileGuard {
 
 /// Helper: run Codex CLI with a prompt in the given project root.
 fn run_codex(project_root: &Path, prompt: &str) -> Result<String> {
-    // Acquire concurrency guard (limits parallel AI calls)
+    // Acquire concurrency guard (limits parallel AI calls and rate limiting)
     let _concurrency_guard = AiCallGuard::try_acquire()?;
+
+    // Validate project root
+    let safe_project_root = validate_project_root(project_root)?;
 
     // Create unique temp file for output since codex prints progress/diagnostics to stdout
     let tmp_dir = std::env::temp_dir();
     let output_path = tmp_dir.join(format!("hemis-codex-{}.txt", uuid::Uuid::new_v4()));
     let _temp_guard = TempFileGuard(output_path.clone());
+
+    // Build safe environment (minimal variables)
+    let safe_env = build_safe_env();
 
     // codex exec <prompt> --output-last-message <file>
     let mut child = Command::new("codex")
@@ -302,7 +396,9 @@ fn run_codex(project_root: &Path, prompt: &str) -> Result<String> {
         .arg("--output-last-message")
         .arg(&output_path)
         .arg(prompt)
-        .current_dir(project_root)
+        .current_dir(&safe_project_root)
+        .env_clear()
+        .envs(&safe_env)
         // Inherit stdout/stderr to avoid pipe buffer deadlock
         // Codex writes its actual output to the temp file
         .stdout(std::process::Stdio::null())
@@ -344,8 +440,14 @@ fn run_codex(project_root: &Path, prompt: &str) -> Result<String> {
 
 /// Helper: run Claude Code CLI with a prompt in the given project root.
 fn run_claude(project_root: &Path, prompt: &str) -> Result<String> {
-    // Acquire concurrency guard (limits parallel AI calls)
+    // Acquire concurrency guard (limits parallel AI calls and rate limiting)
     let _concurrency_guard = AiCallGuard::try_acquire()?;
+
+    // Validate project root
+    let safe_project_root = validate_project_root(project_root)?;
+
+    // Build safe environment (minimal variables)
+    let safe_env = build_safe_env();
 
     use std::io::Read;
     use std::sync::mpsc;
@@ -353,7 +455,9 @@ fn run_claude(project_root: &Path, prompt: &str) -> Result<String> {
     let mut child = Command::new("claude")
         .arg("-p")
         .arg(prompt)
-        .current_dir(project_root)
+        .current_dir(&safe_project_root)
+        .env_clear()
+        .envs(&safe_env)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()

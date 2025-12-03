@@ -153,6 +153,37 @@ pub fn restore(conn: &Connection, snapshot: &serde_json::Value) -> Result<serde_
         }
     }
 
+    // Validate project_root consistency - all records should belong to same project
+    let expected_project = snapshot.get("projectRoot").and_then(|v| v.as_str());
+    if let Some(expected) = expected_project {
+        // Validate notes belong to expected project
+        if let Some(notes) = snapshot.get("notes").and_then(|v| v.as_array()) {
+            for (i, n) in notes.iter().enumerate() {
+                if let Some(proj) = n.get("projectRoot").and_then(|v| v.as_str()) {
+                    if proj != expected {
+                        return Err(anyhow::anyhow!(
+                            "snapshot note[{}] has mismatched projectRoot (expected: {}, got: {})",
+                            i, expected, proj
+                        ));
+                    }
+                }
+            }
+        }
+        // Validate files belong to expected project
+        if let Some(files) = snapshot.get("files").and_then(|v| v.as_array()) {
+            for (i, f) in files.iter().enumerate() {
+                if let Some(proj) = f.get("projectRoot").and_then(|v| v.as_str()) {
+                    if proj != expected {
+                        return Err(anyhow::anyhow!(
+                            "snapshot file[{}] has mismatched projectRoot",
+                            i
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
     transaction(conn, || {
         exec(conn, "DELETE FROM notes;", &[])?;
         exec(conn, "DELETE FROM files;", &[])?;

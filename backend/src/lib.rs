@@ -78,21 +78,27 @@ fn list_files(root: &Path) -> anyhow::Result<Vec<FileInfo>> {
         for entry in fs::read_dir(&dir)? {
             let entry = entry?;
             let path = entry.path();
+            let file_type = entry.file_type()?;
 
-            // Ensure traversed paths stay within the original root (symlink protection)
+            // Skip symbolic links entirely (TOCTOU protection)
+            if file_type.is_symlink() {
+                continue;
+            }
+
+            // Ensure traversed paths stay within the original root (additional safety)
             if let Ok(canonical_path) = path.canonicalize() {
                 if !canonical_path.starts_with(&canonical_root) {
-                    continue; // Skip paths that escape the root via symlinks
+                    continue; // Skip paths that escape the root
                 }
             }
 
             let name = entry.file_name().to_string_lossy().to_string();
-            if entry.file_type()?.is_dir() {
+            if file_type.is_dir() {
                 if IGNORE_DIRS.contains(&name.as_str()) {
                     continue;
                 }
                 stack.push((path, depth + 1));
-            } else if entry.file_type()?.is_file() {
+            } else if file_type.is_file() {
                 // Check file count limit
                 if files.len() >= MAX_FILE_COUNT {
                     // Return early with what we have
@@ -200,9 +206,10 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             if end_line < start_line {
                 return Response::error(id, INVALID_PARAMS, "endLine must be >= startLine");
             }
-            // Cap line range to prevent excessive memory usage
+            // Cap line range to prevent excessive memory usage (use checked_sub for overflow safety)
             const MAX_LINE_RANGE: u64 = 10_000;
-            if end_line - start_line > MAX_LINE_RANGE {
+            let line_range = end_line.checked_sub(start_line).unwrap_or(0);
+            if line_range > MAX_LINE_RANGE {
                 return Response::error(id, INVALID_PARAMS, format!("line range too large (max {} lines)", MAX_LINE_RANGE));
             }
             // Safe conversion after validation (values are reasonable after checks)

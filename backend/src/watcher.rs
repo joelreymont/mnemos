@@ -66,10 +66,13 @@ impl FileWatcher {
                     };
 
                     if let Some(kind) = kind {
-                        // Recover from poisoned mutex (previous panic) by taking the inner data
+                        // Try to acquire lock; skip event if mutex poisoned (previous panic)
                         let mut pending = match pending_for_handler.lock() {
                             Ok(guard) => guard,
-                            Err(poisoned) => poisoned.into_inner(),
+                            Err(_) => {
+                                eprintln!("Warning: file watcher mutex poisoned, skipping event");
+                                return;
+                            }
                         };
                         for path in event.paths {
                             // Only track files, not directories
@@ -99,7 +102,10 @@ impl FileWatcher {
                 let ready_changes: Vec<FileChange> = {
                     let mut pending = match pending_for_processor.lock() {
                         Ok(guard) => guard,
-                        Err(poisoned) => poisoned.into_inner(),
+                        Err(_) => {
+                            eprintln!("Warning: file watcher pending mutex poisoned, skipping cycle");
+                            continue;
+                        }
                     };
                     let ready: Vec<_> = pending
                         .iter()
@@ -124,7 +130,10 @@ impl FileWatcher {
                     let callbacks: Vec<_> = {
                         let guard = match callbacks_for_processor.lock() {
                             Ok(g) => g,
-                            Err(poisoned) => poisoned.into_inner(),
+                            Err(_) => {
+                                eprintln!("Warning: file watcher callbacks mutex poisoned, skipping notifications");
+                                continue;
+                            }
                         };
                         guard.clone()
                     };

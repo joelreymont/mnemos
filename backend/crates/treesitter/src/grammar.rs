@@ -1,6 +1,10 @@
 //! Grammar registry for tree-sitter languages
 //!
 //! Manages bundled and dynamically loaded grammars.
+//!
+//! # Security
+//! User-installed grammars require a `.sha256` hash file for integrity verification.
+//! The hash file must contain the SHA-256 hash of the library file.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -178,10 +182,59 @@ impl GrammarRegistry {
 
     /// Load a grammar from a shared library
     ///
-    /// # Security Warning
-    /// Loading shared libraries is inherently unsafe. A malicious library can
-    /// execute arbitrary code. Only load libraries you trust.
+    /// # Security
+    /// - Requires a `.sha256` hash file for integrity verification
+    /// - Checks file permissions (warns on world/group-writable)
+    /// - Loading shared libraries is inherently unsafe
     fn load_grammar_from_path(&self, name: &str, path: &Path) -> Result<Language> {
+        // Security: Verify integrity via SHA-256 hash file
+        let hash_path = path.with_extension(
+            path.extension()
+                .and_then(|e| e.to_str())
+                .map(|e| format!("{}.sha256", e))
+                .unwrap_or_else(|| "sha256".to_string()),
+        );
+
+        if !hash_path.exists() {
+            return Err(TreeSitterError::GrammarLoadFailed {
+                path: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                reason: "missing .sha256 hash file (required for security verification)".to_string(),
+            });
+        }
+
+        // Read expected hash
+        let expected_hash = std::fs::read_to_string(&hash_path)
+            .map_err(|e| TreeSitterError::GrammarLoadFailed {
+                path: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                reason: format!("failed to read hash file: {}", e),
+            })?
+            .trim()
+            .to_lowercase();
+
+        // Validate hash format (64 hex chars)
+        if expected_hash.len() != 64 || !expected_hash.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(TreeSitterError::GrammarLoadFailed {
+                path: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                reason: "invalid hash format (expected 64 hex characters)".to_string(),
+            });
+        }
+
+        // Compute actual hash of library file
+        let lib_bytes = std::fs::read(path).map_err(|e| TreeSitterError::GrammarLoadFailed {
+            path: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+            reason: format!("failed to read library: {}", e),
+        })?;
+
+        use sha2::{Digest, Sha256};
+        let actual_hash = format!("{:x}", Sha256::digest(&lib_bytes));
+
+        if actual_hash != expected_hash {
+            return Err(TreeSitterError::GrammarLoadFailed {
+                path: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                reason: "hash verification failed (library may have been tampered with)".to_string(),
+            });
+        }
+
         // Security: Check file permissions - warn if world-writable
         #[cfg(unix)]
         {
@@ -191,28 +244,26 @@ impl GrammarRegistry {
                 // Check if world-writable (o+w = 0o002)
                 if mode & 0o002 != 0 {
                     eprintln!(
-                        "Security warning: Grammar library {:?} is world-writable. \
-                         This is a security risk. Run: chmod o-w {:?}",
-                        path, path
+                        "Security warning: Grammar library is world-writable. \
+                         This is a security risk. Run: chmod o-w <library>"
                     );
                 }
                 // Check if group-writable (g+w = 0o020)
                 if mode & 0o020 != 0 {
                     eprintln!(
-                        "Security warning: Grammar library {:?} is group-writable. \
-                         Consider restricting permissions.",
-                        path
+                        "Security warning: Grammar library is group-writable. \
+                         Consider restricting permissions."
                     );
                 }
             }
         }
 
         // Safety: Loading shared libraries is inherently unsafe
-        // We trust that grammars in the user's config directory are safe
+        // We've verified the hash, so we trust the library content
         unsafe {
             let lib = libloading::Library::new(path).map_err(|e| {
                 TreeSitterError::GrammarLoadFailed {
-                    path: path.display().to_string(),
+                    path: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
                     reason: e.to_string(),
                 }
             })?;
@@ -222,8 +273,8 @@ impl GrammarRegistry {
             let func: libloading::Symbol<unsafe extern "C" fn() -> tree_sitter::Language> =
                 lib.get(func_name.as_bytes()).map_err(|e| {
                     TreeSitterError::GrammarLoadFailed {
-                        path: path.display().to_string(),
-                        reason: format!("Symbol {} not found: {}", func_name, e),
+                        path: path.file_name().unwrap_or_default().to_string_lossy().to_string(),
+                        reason: format!("symbol {} not found: {}", func_name, e),
                     }
                 })?;
 
