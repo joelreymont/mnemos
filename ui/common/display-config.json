@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Display configuration for Hemis note rendering across editors",
+
+  "note_format": {
+    "wrap_width": 70,
+    "show_id": true,
+    "id_format": "[{id:0:8}]",
+    "line_prefix": "comment",
+    "stale_prefix": "[STALE] ",
+    "multiline_separator": "---"
+  },
+
+  "colors": {
+    "note_text": {
+      "description": "Normal note text color",
+      "hex": "#87ceeb",
+      "name": "SteelBlue"
+    },
+    "note_id": {
+      "description": "Note ID color (dimmed)",
+      "hex": "#6c757d",
+      "name": "Gray"
+    },
+    "stale_note": {
+      "description": "Stale note indicator",
+      "hex": "#cc6666",
+      "name": "IndianRed"
+    },
+    "link": {
+      "description": "Internal link color",
+      "hex": "#98c379",
+      "name": "LightGreen"
+    }
+  },
+
+  "highlight_groups": {
+    "neovim": {
+      "HemisNote": { "fg": "#87ceeb", "italic": true },
+      "HemisNoteId": { "fg": "#6c757d" },
+      "HemisNoteStale": { "fg": "#cc6666", "italic": true },
+      "HemisNoteLink": { "fg": "#98c379", "underline": true }
+    },
+    "emacs": {
+      "hemis-note-face": { "foreground": "#87ceeb", "slant": "italic" },
+      "hemis-note-id-face": { "foreground": "#6c757d" },
+      "hemis-note-stale-face": { "foreground": "#cc6666", "slant": "italic" },
+      "hemis-note-link-face": { "foreground": "#98c379", "underline": true }
+    },
+    "vscode": {
+      "hemis.note": { "color": "#87ceeb", "fontStyle": "italic" },
+      "hemis.noteId": { "color": "#6c757d" },
+      "hemis.noteStale": { "color": "#cc6666", "fontStyle": "italic" },
+      "hemis.noteLink": { "color": "#98c379", "textDecoration": "underline" }
+    }
+  },
+
+  "icons": {
+    "note": "",
+    "stale": "",
+    "link": "",
+    "ai": ""
+  },
+
+  "list_view": {
+    "columns": ["line", "summary", "stale"],
+    "line_format": "{line:4d}",
+    "summary_max_length": 60,
+    "stale_indicator": "[S]",
+    "sort_by": "line",
+    "sort_order": "asc"
+  }
+}

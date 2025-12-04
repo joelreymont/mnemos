@@ -1,0 +1,174 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Shared test fixtures for Hemis UI implementations",
+
+  "sample_note": {
+    "id": "test-note-001",
+    "file": "/tmp/test/main.rs",
+    "line": 10,
+    "column": 0,
+    "text": "This is a test note",
+    "summary": "This is a test note",
+    "stale": false,
+    "displayLine": 10,
+    "tags": [],
+    "nodePath": ["fn", "main"],
+    "nodeTextHash": "abc123def456"
+  },
+
+  "sample_stale_note": {
+    "id": "test-note-002",
+    "file": "/tmp/test/main.rs",
+    "line": 15,
+    "column": 4,
+    "text": "Stale note - code changed",
+    "summary": "Stale note - code changed",
+    "stale": true,
+    "displayLine": 17,
+    "tags": [],
+    "nodePath": ["fn", "helper"],
+    "nodeTextHash": "old-hash-value"
+  },
+
+  "sample_buffer_params": {
+    "file": "/tmp/test/main.rs",
+    "projectRoot": "/tmp/test",
+    "commit": "abc123def456789",
+    "blob": "fedcba987654321",
+    "content": "fn main() {\n    println!(\"Hello\");\n}\n",
+    "includeStale": true
+  },
+
+  "requests": {
+    "create_note": {
+      "method": "notes/create",
+      "params": {
+        "file": "/tmp/test/main.rs",
+        "projectRoot": "/tmp/test",
+        "line": 10,
+        "column": 0,
+        "text": "New note text",
+        "content": "fn main() {\n    println!(\"Hello\");\n}\n"
+      }
+    },
+    "get_note": {
+      "method": "notes/get",
+      "params": {
+        "id": "test-note-001"
+      }
+    },
+    "update_note": {
+      "method": "notes/update",
+      "params": {
+        "id": "test-note-001",
+        "text": "Updated note text"
+      }
+    },
+    "delete_note": {
+      "method": "notes/delete",
+      "params": {
+        "id": "test-note-001"
+      }
+    },
+    "list_for_file": {
+      "method": "notes/list-for-file",
+      "params": {
+        "file": "/tmp/test/main.rs",
+        "projectRoot": "/tmp/test",
+        "includeStale": true
+      }
+    },
+    "search": {
+      "method": "notes/search",
+      "params": {
+        "query": "test",
+        "projectRoot": "/tmp/test"
+      }
+    },
+    "backlinks": {
+      "method": "notes/backlinks",
+      "params": {
+        "id": "test-note-001"
+      }
+    },
+    "reattach": {
+      "method": "notes/reattach",
+      "params": {
+        "id": "test-note-002",
+        "file": "/tmp/test/main.rs",
+        "line": 17,
+        "column": 4,
+        "content": "fn main() {\n    // new line\n    println!(\"Hello\");\n}\n"
+      }
+    },
+    "index_project": {
+      "method": "hemis/index-project",
+      "params": {
+        "projectRoot": "/tmp/test"
+      }
+    },
+    "status": {
+      "method": "hemis/status",
+      "params": {}
+    }
+  },
+
+  "responses": {
+    "create_note_success": {
+      "id": "new-note-id",
+      "file": "/tmp/test/main.rs",
+      "line": 10,
+      "column": 0,
+      "text": "New note text",
+      "stale": false,
+      "nodeTextHash": "computed-hash"
+    },
+    "delete_success": {
+      "ok": true
+    },
+    "list_notes": [
+      {
+        "id": "test-note-001",
+        "file": "/tmp/test/main.rs",
+        "line": 10,
+        "text": "First note",
+        "stale": false,
+        "displayLine": 10
+      },
+      {
+        "id": "test-note-002",
+        "file": "/tmp/test/main.rs",
+        "line": 15,
+        "text": "Second note",
+        "stale": true,
+        "displayLine": 17
+      }
+    ],
+    "index_project_success": {
+      "indexed": 42
+    },
+    "status_success": {
+      "ok": true,
+      "counts": {
+        "notes": 5,
+        "files": 42,
+        "links": 3
+      }
+    }
+  },
+
+  "errors": {
+    "note_not_found": {
+      "code": -32000,
+      "message": "Note not found: test-note-999"
+    },
+    "invalid_params": {
+      "code": -32602,
+      "message": "Invalid params: missing required field 'text'"
+    },
+    "backend_error": {
+      "code": -32603,
+      "message": "Internal error: database locked"
+    }
+  }
+}
