@@ -172,7 +172,7 @@ Author: `Joel Reymont <18791+joelreymont@users.noreply.github.com>`
 - Prioritize optimal/performant solutions even if harder to implement
 - Break work into small steps; execute end-to-end
 - State assumptions briefly and continue
-- Update CONTEXT.md after major steps (stable knowledge only, not session history)
+- Update Project Reference section after major changes (stable knowledge only)
 - Use `bd` (beads) for work item tracking
 - Commit after completing major changes (don't batch unrelated work)
 
@@ -224,8 +224,52 @@ Custom commands in `.claude/commands/` for common workflows.
 - Reset module cache: `package.loaded["hemis.rpc"] = nil`
 - Always call `rpc.stop()` in test cleanup
 
-## Context Files
+## Project Reference
 
-- **CONTEXT.md** - Quick reference (test counts, RPC methods, conventions, debugging)
-- **docs/ARCHITECTURE.md** - System design, diagrams, architectural decisions
-- **beads (`bd`)** - Work item tracking; run `bd ready` to see available work
+### Status
+- Rust: 147 tests passing | All RPC methods have integration coverage
+- Work items: `bd ready`
+
+### Architecture
+See `docs/ARCHITECTURE.md` for system design and diagrams.
+
+### Key Files
+- `backend/src/lib.rs` - RPC method dispatch
+- `backend/src/ai_cli.rs` - AI provider integration (Codex/Claude CLI)
+- `backend/crates/storage/src/lib.rs` - SQLite schema and queries
+- `backend/crates/treesitter/src/lib.rs` - Parser service
+
+### RPC Methods
+`notes/` - create, get, update, delete, list-for-file, list-by-node, list-project, search, backlinks, reattach, buffer-update
+`index/` - add-file, search
+`hemis/` - search, status, index-project, list-files, get-file, explain-region, project-meta, open-project, save-snapshot, load-snapshot, shutdown
+
+### Conventions
+
+**Note Staleness:**
+- `nodeTextHash`: SHA256 of tree-sitter node text at creation
+- Position tracking: search +/-20 lines for matching hash
+- Fallback: git-based `stale` flag if no hash/tree-sitter
+
+**AI Integration:**
+- `HEMIS_AI_PROVIDER` env: codex, claude, none/disabled
+- Auto-detection: Codex preferred, Claude fallback
+- `hemis/index-project` + `includeAI` -> `.hemis/analysis.md`
+
+**Tree-sitter:**
+- Bundled: rust, python, javascript, typescript, go, lua, c, cpp, java
+- Dynamic: `~/.config/hemis/grammars/`, config `~/.config/hemis/languages.toml`
+- CLI: `hemis grammar list/fetch/build`
+
+### Quick Commands
+```sh
+# RPC connection
+ls -la ~/.hemis/hemis.sock
+pgrep -fl 'hemis.*--serve'
+pkill -f 'hemis --serve' && rm -f ~/.hemis/hemis.{sock,lock}
+
+# Tests
+cargo test                      # All tests
+cargo test --test rpc_flow      # RPC flow tests
+cargo test -p hemis-treesitter  # Treesitter tests
+```
