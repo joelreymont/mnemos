@@ -968,6 +968,64 @@ Returns list of plists with :line :before-string :face :count :texts."
           (should (equal updated-id "test-id"))
           (should (equal updated-text "new text")))))))
 
+(ert-deftest hemis-edit-note-buffer-opens-buffer ()
+  "Test that hemis-edit-note-buffer opens a dedicated edit buffer."
+  (hemis-test-with-mocked-backend
+    (cl-letf (((symbol-function 'hemis--request)
+               (lambda (method &optional params)
+                 (pcase method
+                   ("notes/update" '((id . "test-id")))
+                   ("notes/list-for-file" nil)
+                   (_ nil))))
+              ((symbol-function 'hemis-refresh-notes) #'ignore)
+              ;; Mock markdown-mode if not available
+              ((symbol-function 'markdown-mode)
+               (lambda () (setq major-mode 'markdown-mode))))
+      ;; Set up buffer with note property
+      (with-current-buffer (get-buffer-create "*Hemis Test Source*")
+        (setq buffer-read-only nil)
+        (erase-buffer)
+        (insert "test source\n")
+        (add-text-properties (point-min) (point-max)
+                             '(hemis-note ((id . "test-note-id") (text . "Original note text\nLine two"))))
+        (goto-char (point-min))
+        (hemis-edit-note-buffer)
+        ;; Should have opened an edit buffer
+        (let ((edit-buf (get-buffer "*Hemis Edit: test-not*")))
+          (should edit-buf)
+          (with-current-buffer edit-buf
+            ;; Buffer should contain the note text
+            (should (string-match-p "Original note text" (buffer-string)))
+            (should (string-match-p "Line two" (buffer-string)))
+            ;; Should have note ID stored
+            (should (equal hemis--edit-buffer-note-id "test-note-id")))
+          ;; Clean up
+          (kill-buffer edit-buf))
+        (kill-buffer)))))
+
+(ert-deftest hemis-edit-buffer-save-updates-note ()
+  "Test that saving from edit buffer calls notes/update."
+  (hemis-test-with-mocked-backend
+    (let ((updated-id nil)
+          (updated-text nil))
+      (cl-letf (((symbol-function 'hemis--request)
+                 (lambda (method &optional params)
+                   (pcase method
+                     ("notes/update"
+                      (setq updated-id (cdr (assoc 'id params)))
+                      (setq updated-text (cdr (assoc 'text params)))
+                      '((id . "test-id")))
+                     ("notes/list-for-file" nil)
+                     (_ nil))))
+                ((symbol-function 'hemis-refresh-notes) #'ignore))
+        (with-current-buffer (get-buffer-create "*Hemis Edit Test*")
+          (erase-buffer)
+          (insert "New note content")
+          (setq-local hemis--edit-buffer-note-id "test-note-id")
+          (hemis--edit-buffer-save)
+          (should (equal updated-id "test-note-id"))
+          (should (equal updated-text "New note content")))))))
+
 (ert-deftest hemis-delete-note-at-point-removes-note ()
   "Test that hemis-delete-note-at-point calls notes/delete."
   (hemis-test-with-mocked-backend

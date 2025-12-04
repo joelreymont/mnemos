@@ -1096,6 +1096,55 @@ Sends buffer content so server can compute nodeTextHash."
         (message "Note updated")
         (hemis-refresh-notes)))))
 
+(defvar-local hemis--edit-buffer-note-id nil
+  "The note ID being edited in this buffer.")
+
+(defun hemis-edit-note-buffer ()
+  "Edit the note at point in a dedicated buffer.
+Opens a new buffer with the note content for editing longer notes.
+Use C-c C-c to save, C-c C-k to cancel."
+  (interactive)
+  (let* ((note (or (get-text-property (point) 'hemis-note)
+                   (hemis--note-at-overlay (point))))
+         (id (and note (hemis--note-get note 'id)))
+         (text (and note (hemis--note-text note))))
+    (unless id
+      (user-error "No note at point"))
+    (let ((buf (get-buffer-create (format "*Hemis Edit: %s*" (substring id 0 8)))))
+      (pop-to-buffer buf)
+      (erase-buffer)
+      (insert text)
+      (goto-char (point-min))
+      (markdown-mode)
+      (setq-local hemis--edit-buffer-note-id id)
+      (local-set-key (kbd "C-c C-c") #'hemis--edit-buffer-save)
+      (local-set-key (kbd "C-c C-k") #'hemis--edit-buffer-cancel)
+      (set-buffer-modified-p nil)
+      (message "Edit note. C-c C-c to save, C-c C-k to cancel."))))
+
+(defun hemis--edit-buffer-save ()
+  "Save the note being edited in the current buffer."
+  (interactive)
+  (let ((id hemis--edit-buffer-note-id)
+        (text (string-trim (buffer-string))))
+    (unless id
+      (user-error "No note ID in this buffer"))
+    (when (string-empty-p text)
+      (user-error "Note text cannot be empty"))
+    (hemis-update-note id text)
+    (set-buffer-modified-p nil)
+    (message "Note saved")
+    (kill-buffer-and-window)
+    (hemis-refresh-notes)))
+
+(defun hemis--edit-buffer-cancel ()
+  "Cancel editing and close the buffer."
+  (interactive)
+  (when (or (not (buffer-modified-p))
+            (yes-or-no-p "Discard changes? "))
+    (set-buffer-modified-p nil)
+    (kill-buffer-and-window)))
+
 (defun hemis-delete-note-at-point ()
   "Delete the note at point (overlay or notes list)."
   (interactive)

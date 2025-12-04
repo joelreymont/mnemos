@@ -452,6 +452,77 @@ describe("hemis commands", function()
       assert.truthy(found, "Status message not shown correctly")
     end)
   end)
+
+  describe("edit_note_buffer", function()
+    it("opens note in a new split buffer", function()
+      local commands = require("hemis.commands")
+      local display = require("hemis.display")
+
+      -- Mock RPC for update
+      local update_called = false
+      local restore = helpers.mock_rpc({
+        ["notes/update"] = function(params)
+          update_called = true
+          return { id = params.id, text = params.text }
+        end,
+        ["notes/list-for-file"] = {},
+      })
+
+      -- Set up buffer_notes so get_note_at_cursor works
+      commands.buffer_notes = {
+        { id = "test-note-id", line = 1, column = 0, text = "Original note text\nSecond line" },
+      }
+
+      -- Mock get_note_at_cursor to return our note
+      local orig_get_note = display.get_note_at_cursor
+      display.get_note_at_cursor = function(notes)
+        return notes and notes[1]
+      end
+
+      -- Count windows before
+      local win_count_before = #vim.api.nvim_list_wins()
+
+      commands.edit_note_buffer()
+      helpers.wait(100)
+
+      -- Should have opened a new window
+      local win_count_after = #vim.api.nvim_list_wins()
+      assert.truthy(win_count_after > win_count_before, "Should open new window")
+
+      -- Find the hemis note buffer
+      local note_buf = nil
+      for _, b in ipairs(vim.api.nvim_list_bufs()) do
+        local name = vim.api.nvim_buf_get_name(b)
+        if string.find(name, "hemis://note/") then
+          note_buf = b
+          break
+        end
+      end
+
+      assert.is_not_nil(note_buf, "Should create note buffer")
+
+      -- Verify buffer content
+      local lines = vim.api.nvim_buf_get_lines(note_buf, 0, -1, false)
+      assert.equals("Original note text", lines[1])
+      assert.equals("Second line", lines[2])
+
+      -- Verify buffer options
+      assert.equals("acwrite", vim.bo[note_buf].buftype)
+      assert.equals("markdown", vim.bo[note_buf].filetype)
+
+      -- Cleanup
+      display.get_note_at_cursor = orig_get_note
+      restore()
+      -- Close the note buffer window
+      for _, w in ipairs(vim.api.nvim_list_wins()) do
+        local b = vim.api.nvim_win_get_buf(w)
+        local name = vim.api.nvim_buf_get_name(b)
+        if string.find(name, "hemis://note/") then
+          vim.api.nvim_win_close(w, true)
+        end
+      end
+    end)
+  end)
 end)
 
 -- Tests using the demo sample source code

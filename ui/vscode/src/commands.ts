@@ -159,6 +159,67 @@ export async function editNoteCommand(): Promise<void> {
   }
 }
 
+export async function editNoteBufferCommand(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    vscode.window.showErrorMessage('No active editor');
+    return;
+  }
+
+  const note = await getNoteAtCursor(editor);
+  if (!note) {
+    vscode.window.showInformationMessage('No note at cursor position');
+    return;
+  }
+
+  // Store note info for later
+  const noteId = note.id;
+  const originalText = note.text;
+  const originalFile = editor.document.uri;
+
+  // Create an editable document
+  const editDoc = await vscode.workspace.openTextDocument({
+    content: note.text,
+    language: 'markdown',
+  });
+
+  await vscode.window.showTextDocument(editDoc, {
+    viewColumn: vscode.ViewColumn.Beside,
+    preview: false,
+  });
+
+  // Watch for save
+  const saveDisposable = vscode.workspace.onDidSaveTextDocument(async (savedDoc) => {
+    if (savedDoc === editDoc) {
+      const newText = savedDoc.getText().trim();
+      if (newText && newText !== originalText) {
+        try {
+          await updateNote({ id: noteId, text: newText });
+          vscode.window.showInformationMessage('Note saved');
+          // Refresh the original file's notes
+          const originalEditor = vscode.window.visibleTextEditors.find(
+            e => e.document.uri.toString() === originalFile.toString()
+          );
+          if (originalEditor) {
+            await refreshNotes(originalEditor);
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          vscode.window.showErrorMessage(`Failed to save note: ${message}`);
+        }
+      }
+    }
+  });
+
+  // Clean up when document is closed
+  const closeDisposable = vscode.workspace.onDidCloseTextDocument((closedDoc) => {
+    if (closedDoc === editDoc) {
+      saveDisposable.dispose();
+      closeDisposable.dispose();
+    }
+  });
+}
+
 export async function refreshNotesCommand(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
@@ -470,6 +531,7 @@ export async function helpCommand(): Promise<void> {
     '|---------|------------|-------------|',
     '| Add Note | Cmd+Shift+H N | Create a note at cursor |',
     '| Edit Note | Cmd+Shift+H E | Edit note at cursor |',
+    '| Edit Note (Buffer) | | Edit note in side buffer |',
     '| Delete Note | Cmd+Shift+H D | Delete note at cursor |',
     '| List Notes | Cmd+Shift+H L | List notes in file |',
     '| View Note | Cmd+Shift+H V | View full note text |',
@@ -478,7 +540,6 @@ export async function helpCommand(): Promise<void> {
     '| Insert Link | Cmd+Shift+H K | Insert note link |',
     '| Index File | Cmd+Shift+H I | Index current file |',
     '| Index Project | Cmd+Shift+H P | Index all project files |',
-    '| List Files | | Browse project files |',
     '| Explain Region | | Get code snippet for LLM |',
     '| Save Snapshot | | Backup notes to file |',
     '| Load Snapshot | | Restore notes from file |',
@@ -767,6 +828,7 @@ export function registerCommands(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('hemis.projectMeta', projectMetaCommand),
     vscode.commands.registerCommand('hemis.backlinks', backlinksCommand),
     vscode.commands.registerCommand('hemis.viewNote', viewNoteCommand),
+    vscode.commands.registerCommand('hemis.editNoteBuffer', editNoteBufferCommand),
     vscode.commands.registerCommand('hemis.help', helpCommand),
     vscode.commands.registerCommand('hemis.shutdown', shutdownCommand),
     vscode.commands.registerCommand('hemis.explainRegion', explainRegionCommand),

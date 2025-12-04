@@ -71,6 +71,10 @@
         "title": "Hemis: View Note"
       },
       {
+        "command": "hemis.editNoteBuffer",
+        "title": "Hemis: Edit Note (Buffer)"
+      },
+      {
         "command": "hemis.help",
         "title": "Hemis: Help"
       },
