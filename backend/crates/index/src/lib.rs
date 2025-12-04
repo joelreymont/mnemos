@@ -590,3 +590,136 @@ pub fn semantic_search(
     hits.sort_by(|a, b| b.score.total_cmp(&a.score));
     Ok(hits)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quickcheck_macros::quickcheck;
+
+    // Property: escape_fts_query always produces valid FTS5 syntax (no unbalanced quotes)
+    #[quickcheck]
+    fn prop_escape_fts_query_balanced_quotes(input: String) -> bool {
+        match escape_fts_query(&input) {
+            None => true, // Empty result is valid
+            Some(result) => {
+                // Count quotes - should be even (balanced)
+                let quote_count = result.chars().filter(|&c| c == '"').count();
+                quote_count % 2 == 0
+            }
+        }
+    }
+
+    // Property: escape_fts_query never panics on any input
+    #[quickcheck]
+    fn prop_escape_fts_query_never_panics(input: String) -> bool {
+        let _ = escape_fts_query(&input);
+        true
+    }
+
+    // Property: escape_fts_literal never panics and produces valid output
+    #[quickcheck]
+    fn prop_escape_fts_literal_never_panics(input: String) -> bool {
+        let result = escape_fts_literal(&input);
+        // Result should not contain unescaped quotes
+        // In FTS5, quotes are escaped by doubling them
+        !result.contains("\"\"\"") // No triple quotes (would indicate bad escaping)
+    }
+
+    // Property: escape_fts_literal truncates long inputs
+    #[quickcheck]
+    fn prop_escape_fts_literal_bounded_length(input: String) -> bool {
+        let result = escape_fts_literal(&input);
+        // Output can be at most 2x input length (each char could become 2 chars if all quotes)
+        // But also bounded by MAX_LITERAL_LEN * 2
+        result.len() <= 2000 // MAX_LITERAL_LEN is 1000, worst case doubles
+    }
+
+    // Property: binary_hash is deterministic
+    #[quickcheck]
+    fn prop_binary_hash_deterministic(v: Vec<i8>) -> bool {
+        let floats: Vec<f32> = v.iter().map(|&x| x as f32).collect();
+        binary_hash(&floats) == binary_hash(&floats)
+    }
+
+    // Property: hamming_distance is symmetric
+    #[quickcheck]
+    fn prop_hamming_symmetric(a: Vec<u8>, b: Vec<u8>) -> bool {
+        hamming_distance(&a, &b) == hamming_distance(&b, &a)
+    }
+
+    // Property: hamming_distance(x, x) == 0
+    #[quickcheck]
+    fn prop_hamming_self_zero(v: Vec<u8>) -> bool {
+        hamming_distance(&v, &v) == 0
+    }
+
+    // Property: hamming_distance is bounded by min length * 8
+    #[quickcheck]
+    fn prop_hamming_bounded(a: Vec<u8>, b: Vec<u8>) -> bool {
+        let min_len = a.len().min(b.len());
+        let dist = hamming_distance(&a, &b);
+        dist <= (min_len * 8) as u32
+    }
+
+    // Property: validate_vector accepts finite vectors within dimension limit
+    #[quickcheck]
+    fn prop_validate_vector_finite_ok(v: Vec<i16>) -> bool {
+        // Convert to f32, ensuring finite values
+        let floats: Vec<f32> = v.iter().take(100).map(|&x| x as f32).collect();
+        validate_vector(&floats).is_ok()
+    }
+
+    // Property: validate_vector rejects NaN
+    #[test]
+    fn test_validate_vector_rejects_nan() {
+        let v = vec![1.0, f32::NAN, 3.0];
+        assert!(validate_vector(&v).is_err());
+    }
+
+    // Property: validate_vector rejects Infinity
+    #[test]
+    fn test_validate_vector_rejects_infinity() {
+        let v = vec![1.0, f32::INFINITY, 3.0];
+        assert!(validate_vector(&v).is_err());
+        let v = vec![1.0, f32::NEG_INFINITY, 3.0];
+        assert!(validate_vector(&v).is_err());
+    }
+
+    // Property: validate_vector rejects oversized vectors
+    #[test]
+    fn test_validate_vector_rejects_oversized() {
+        let v = vec![1.0; MAX_VECTOR_DIM + 1];
+        assert!(validate_vector(&v).is_err());
+    }
+
+    // Property: dot product is commutative
+    #[quickcheck]
+    fn prop_dot_commutative(a: Vec<i8>, b: Vec<i8>) -> bool {
+        let af: Vec<f32> = a.iter().map(|&x| x as f32).collect();
+        let bf: Vec<f32> = b.iter().map(|&x| x as f32).collect();
+        (dot(&af, &bf) - dot(&bf, &af)).abs() < 1e-6
+    }
+
+    // Property: norm is non-negative
+    #[quickcheck]
+    fn prop_norm_non_negative(v: Vec<i8>) -> bool {
+        let floats: Vec<f32> = v.iter().map(|&x| x as f32).collect();
+        norm(&floats) >= 0.0
+    }
+
+    // Property: norm of zero vector is zero
+    #[test]
+    fn test_norm_zero_vector() {
+        let v: Vec<f32> = vec![0.0; 10];
+        assert!((norm(&v) - 0.0).abs() < 1e-10);
+    }
+
+    // Property: binary_hash length matches expected
+    #[quickcheck]
+    fn prop_binary_hash_length(v: Vec<i8>) -> bool {
+        let floats: Vec<f32> = v.iter().map(|&x| x as f32).collect();
+        let hash = binary_hash(&floats);
+        let expected_len = (floats.len() + 7) / 8;
+        hash.len() == expected_len
+    }
+}

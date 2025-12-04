@@ -248,6 +248,102 @@ pub fn cleanup_event_socket(socket_path: &PathBuf) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quickcheck_macros::quickcheck;
+
+    // Property: to_json_line always produces valid JSON
+    #[quickcheck]
+    fn prop_note_created_valid_json(id: String, file: String, line: i64, project: Option<String>) -> bool {
+        let event = Event::NoteCreated {
+            id,
+            file,
+            line,
+            project_root: project,
+        };
+        let json = event.to_json_line();
+        // Should parse as valid JSON (minus the trailing newline)
+        serde_json::from_str::<serde_json::Value>(json.trim()).is_ok()
+    }
+
+    // Property: to_json_line always ends with exactly one newline
+    #[quickcheck]
+    fn prop_note_created_ends_with_single_newline(id: String, file: String, line: i64) -> bool {
+        let event = Event::NoteCreated {
+            id,
+            file,
+            line,
+            project_root: None,
+        };
+        let json = event.to_json_line();
+        json.ends_with('\n') && !json.ends_with("\n\n")
+    }
+
+    // Property: to_json_line always contains the type field
+    #[quickcheck]
+    fn prop_note_updated_has_type(id: String) -> bool {
+        let event = Event::NoteUpdated { id };
+        let json = event.to_json_line();
+        json.contains("\"type\":")
+    }
+
+    // Property: to_json_line never panics for NoteDeleted
+    #[quickcheck]
+    fn prop_note_deleted_never_panics(id: String) -> bool {
+        let event = Event::NoteDeleted { id };
+        let _ = event.to_json_line();
+        true
+    }
+
+    // Property: to_json_line for AiComplete produces valid JSON
+    #[quickcheck]
+    fn prop_ai_complete_valid_json(note_id: String, success: bool, provider: Option<String>) -> bool {
+        let event = Event::AiComplete {
+            note_id,
+            success,
+            provider,
+        };
+        let json = event.to_json_line();
+        serde_json::from_str::<serde_json::Value>(json.trim()).is_ok()
+    }
+
+    // Property: to_json_line for IndexComplete produces valid JSON
+    #[quickcheck]
+    fn prop_index_complete_valid_json(project: String, files_indexed: usize) -> bool {
+        let event = Event::IndexComplete {
+            project,
+            files_indexed,
+        };
+        let json = event.to_json_line();
+        serde_json::from_str::<serde_json::Value>(json.trim()).is_ok()
+    }
+
+    // Property: to_json_line for FileIndexed produces valid JSON
+    #[quickcheck]
+    fn prop_file_indexed_valid_json(file: String, project: String) -> bool {
+        let event = Event::FileIndexed { file, project };
+        let json = event.to_json_line();
+        serde_json::from_str::<serde_json::Value>(json.trim()).is_ok()
+    }
+
+    // Property: skip_serializing_if works - None fields are omitted
+    #[test]
+    fn test_none_fields_omitted() {
+        let event = Event::NoteCreated {
+            id: "id".to_string(),
+            file: "f".to_string(),
+            line: 1,
+            project_root: None,
+        };
+        let json = event.to_json_line();
+        assert!(!json.contains("project_root"));
+
+        let event = Event::AiComplete {
+            note_id: "id".to_string(),
+            success: true,
+            provider: None,
+        };
+        let json = event.to_json_line();
+        assert!(!json.contains("provider"));
+    }
 
     #[test]
     fn test_event_note_created_json() {

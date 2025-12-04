@@ -463,3 +463,92 @@ pub fn reattach(
     note.updated_at = now;
     Ok(note)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quickcheck_macros::quickcheck;
+
+    // Property: stale() is reflexive - same blobs => not stale
+    #[quickcheck]
+    fn prop_stale_same_blob_not_stale(blob: String) -> bool {
+        let note_blob = Some(blob.clone());
+        !stale(&None, &note_blob, None, Some(&blob))
+    }
+
+    // Property: stale() is reflexive - same commits => not stale (when no blob)
+    #[quickcheck]
+    fn prop_stale_same_commit_not_stale(commit: String) -> bool {
+        let note_commit = Some(commit.clone());
+        !stale(&note_commit, &None, Some(&commit), None)
+    }
+
+    // Property: stale() with different blobs => stale
+    #[quickcheck]
+    fn prop_stale_different_blob_is_stale(blob1: String, blob2: String) -> bool {
+        if blob1 == blob2 {
+            return true; // Skip when equal
+        }
+        let note_blob = Some(blob1);
+        stale(&None, &note_blob, None, Some(&blob2))
+    }
+
+    // Property: stale() with different commits (no blob) => stale
+    #[quickcheck]
+    fn prop_stale_different_commit_is_stale(commit1: String, commit2: String) -> bool {
+        if commit1 == commit2 {
+            return true; // Skip when equal
+        }
+        let note_commit = Some(commit1);
+        stale(&note_commit, &None, Some(&commit2), None)
+    }
+
+    // Property: stale() defaults to false when no info
+    #[test]
+    fn test_stale_no_info_defaults_to_false() {
+        // No blob, no commit on either side
+        assert!(!stale(&None, &None, None, None));
+        // Note has blob but file doesn't
+        assert!(!stale(&None, &Some("abc".into()), None, None));
+        // Note has commit but file doesn't
+        assert!(!stale(&Some("abc".into()), &None, None, None));
+        // File has info but note doesn't
+        assert!(!stale(&None, &None, Some("abc"), Some("def")));
+    }
+
+    // Property: blob comparison takes precedence over commit
+    #[test]
+    fn test_stale_blob_takes_precedence() {
+        // Same blob but different commit => NOT stale (blob wins)
+        assert!(!stale(
+            &Some("commit1".into()),
+            &Some("blob1".into()),
+            Some("commit2"),
+            Some("blob1")
+        ));
+        // Different blob but same commit => stale (blob wins)
+        assert!(stale(
+            &Some("commit1".into()),
+            &Some("blob1".into()),
+            Some("commit1"),
+            Some("blob2")
+        ));
+    }
+
+    // Property: stale() never panics on any input combination
+    #[quickcheck]
+    fn prop_stale_never_panics(
+        note_commit: Option<String>,
+        note_blob: Option<String>,
+        commit: Option<String>,
+        blob: Option<String>,
+    ) -> bool {
+        let _ = stale(
+            &note_commit,
+            &note_blob,
+            commit.as_deref(),
+            blob.as_deref(),
+        );
+        true
+    }
+}
