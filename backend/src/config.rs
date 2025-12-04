@@ -78,6 +78,13 @@ pub fn load_config_from(path: Option<&Path>) -> HemisConfig {
     }
 }
 
+/// CLI overrides for configuration
+#[derive(Debug, Clone, Default)]
+pub struct CliOverrides {
+    pub db_path: Option<String>,
+    pub ai_provider: Option<String>,
+}
+
 /// Resolved configuration after loading from config file
 #[derive(Debug, Clone)]
 pub struct ResolvedConfig {
@@ -87,21 +94,23 @@ pub struct ResolvedConfig {
 
 impl ResolvedConfig {
     /// Build resolved config.
-    /// Precedence: --config file > env vars > default config file > defaults
-    pub fn new(config_path: Option<&str>) -> Self {
+    /// Precedence: CLI flags > --config file > env vars > default config file > defaults
+    pub fn new(config_path: Option<&str>, overrides: CliOverrides) -> Self {
         let config = load_config_from(config_path.map(Path::new));
         let data_dir = data_dir();
         let _ = std::fs::create_dir_all(&data_dir);
 
-        // DB path: config file > env var > default
-        let db_path = config
+        // DB path: CLI > config file > env var > default
+        let db_path = overrides
             .db_path
+            .or(config.db_path)
             .or_else(|| std::env::var("HEMIS_DB_PATH").ok())
             .unwrap_or_else(|| data_dir.join("hemis.db").to_string_lossy().into_owned());
 
-        // AI provider: config file > env var > auto-detect
-        let ai_provider = config
+        // AI provider: CLI > config file > env var > auto-detect
+        let ai_provider = overrides
             .ai_provider
+            .or(config.ai_provider)
             .or_else(|| std::env::var("HEMIS_AI_PROVIDER").ok());
 
         // Set AI provider env var so ai_cli module can pick it up

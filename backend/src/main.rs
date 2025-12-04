@@ -22,7 +22,7 @@ use std::process::Command;
 use std::str;
 
 use anyhow::{anyhow, Result};
-use backend::config::ResolvedConfig;
+use backend::config::{CliOverrides, ResolvedConfig};
 use backend::{create_parser_service, parse_and_handle, snapshot};
 use backend::server::Server;
 use rpc::{decode_framed, encode_response, Response};
@@ -623,6 +623,8 @@ fn print_help() {
     println!("    --serve, -s            Run as server (Unix socket at ~/.hemis/hemis.sock)");
     println!("    --stdio                Run in stdio mode (for testing/debugging)");
     println!("    --config <PATH>        Path to config file (default: ~/.config/hemis/config.toml)");
+    println!("    --db-path <PATH>       Path to SQLite database (overrides config/env)");
+    println!("    --ai-provider <NAME>   AI provider: codex, claude, none (overrides config/env)");
     println!("    --save-snapshot <PATH> Save database snapshot to file and exit");
     println!("    --load-snapshot <PATH> Load database snapshot from file and exit");
     println!("    --version, -v          Print version information");
@@ -631,6 +633,8 @@ fn print_help() {
     println!("CONFIG FILE:");
     println!("    db-path = \"/path/to/hemis.db\"");
     println!("    ai-provider = \"claude\"  # or \"codex\", \"none\"");
+    println!();
+    println!("PRECEDENCE: CLI flags > config file > environment variables > defaults");
     println!();
     println!("Without flags, auto-detects mode:");
     println!("    - TTY stdin → server mode");
@@ -736,9 +740,15 @@ fn main() -> Result<()> {
 
     // Parse CLI arguments
     let config_path = parse_arg_value(&args, "--config");
+    let cli_db_path = parse_arg_value(&args, "--db-path").map(String::from);
+    let cli_ai_provider = parse_arg_value(&args, "--ai-provider").map(String::from);
 
-    // Build resolved config (CLI config path > default config path)
-    let config = ResolvedConfig::new(config_path);
+    // Build resolved config (CLI flags > config file > env vars > defaults)
+    let overrides = CliOverrides {
+        db_path: cli_db_path,
+        ai_provider: cli_ai_provider,
+    };
+    let config = ResolvedConfig::new(config_path, overrides);
 
     // Check for snapshot commands
     if let Some(path) = parse_arg_value(&args, "--save-snapshot") {
