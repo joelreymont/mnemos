@@ -114,30 +114,41 @@ fn broadcaster_loop(
         let json = event.to_json_line();
         let bytes = json.as_bytes();
 
-        // Get list of subscribers to broadcast to (recover from poisoned lock)
-        let subs = match subscribers.read() {
-            Ok(guard) => guard,
-            Err(poisoned) => {
-                eprintln!("[events] Subscriber lock poisoned, recovering");
-                poisoned.into_inner()
-            }
+        // Snapshot subscriber IDs and streams to minimize lock hold time
+        let snapshot: Vec<(SubscriberId, Arc<Mutex<UnixStream>>)> = {
+            let subs = match subscribers.read() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    eprintln!("[events] Subscriber lock poisoned, recovering");
+                    poisoned.into_inner()
+                }
+            };
+            subs.iter().map(|(&id, s)| (id, s.clone())).collect()
         };
+
         let mut failed: Vec<SubscriberId> = Vec::new();
 
-        for (&id, stream_arc) in subs.iter() {
-            let stream = stream_arc.clone();
-            // Recover from poisoned stream lock
-            let mut stream_guard = match stream.lock() {
-                Ok(guard) => guard,
-                Err(poisoned) => poisoned.into_inner(),
+        for (id, stream_arc) in snapshot {
+            // Use try_lock to avoid blocking on slow clients
+            let write_result = match stream_arc.try_lock() {
+                Ok(mut stream) => {
+                    // Socket has write timeout set, but try_lock ensures we don't
+                    // block waiting for lock if another thread is using this stream
+                    stream.write_all(bytes).and_then(|_| stream.flush())
+                }
+                Err(_) => {
+                    // Stream is locked by another operation, skip this event for this client
+                    // (not a failure, just contention)
+                    continue;
+                }
             };
-            if stream_guard.write_all(bytes).is_err() || stream_guard.flush().is_err() {
+
+            if write_result.is_err() {
                 failed.push(id);
             }
         }
-        drop(subs);
 
-        // Remove failed subscribers
+        // Remove failed subscribers immediately
         if !failed.is_empty() {
             let mut subs = match subscribers.write() {
                 Ok(guard) => guard,
