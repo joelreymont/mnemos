@@ -553,6 +553,13 @@ pub fn semantic_search(
         }
         // Skip vectors with mismatched dimensions (comparing different embedding models)
         if vector.len() != query_vector.len() {
+            let file: String = row.get("file").unwrap_or_default();
+            eprintln!(
+                "[index] Warning: embedding dimension mismatch for {}: {} vs {} (expected)",
+                file,
+                vector.len(),
+                query_vector.len()
+            );
             continue;
         }
         let score = dot(&vector, query_vector);

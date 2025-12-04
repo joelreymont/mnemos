@@ -597,8 +597,8 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                     note.node_text_hash.as_deref(),
                                     20, // search_radius
                                 );
-                                // Convert result back from 0-based to 1-based
-                                note.line = (pos.line + 1) as i64;
+                                // Convert result back from 0-based to 1-based (saturating to prevent overflow)
+                                note.line = i64::from(pos.line).saturating_add(1);
                                 note.stale = pos.stale;
                             }
                         }
@@ -684,7 +684,12 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             let file = req.params.get("file").and_then(|v| v.as_str());
             let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
             if let (Some(file), Some(proj)) = (file, proj) {
-                let line = req.params.get("line").and_then(|v| v.as_i64()).unwrap_or(1);
+                let line = req
+                    .params
+                    .get("line")
+                    .and_then(|v| v.as_i64())
+                    .map(|l| l.max(1)) // Clamp to >= 1
+                    .unwrap_or(1);
                 let column = req
                     .params
                     .get("column")
@@ -814,7 +819,12 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             let note_id = req.params.get("id").and_then(|v| v.as_str());
             let file = req.params.get("file").and_then(|v| v.as_str());
             if let Some(note_id) = note_id {
-                let line = req.params.get("line").and_then(|v| v.as_i64()).unwrap_or(1);
+                let line = req
+                    .params
+                    .get("line")
+                    .and_then(|v| v.as_i64())
+                    .map(|l| l.max(1)) // Clamp to >= 1
+                    .unwrap_or(1);
                 let column = req
                     .params
                     .get("column")
@@ -888,8 +898,8 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                 note.node_text_hash.as_deref(),
                                 20,
                             );
-                            // Convert result back from 0-based to 1-based
-                            note.line = (pos.line + 1) as i64;
+                            // Convert result back from 0-based to 1-based (saturating to prevent overflow)
+                            note.line = i64::from(pos.line).saturating_add(1);
                             note.stale = pos.stale;
                         }
                         Response::result_from(id, notes_list)

@@ -114,24 +114,38 @@ fn broadcaster_loop(
         let json = event.to_json_line();
         let bytes = json.as_bytes();
 
-        // Get list of subscribers to broadcast to
-        let subs = subscribers.read().unwrap();
+        // Get list of subscribers to broadcast to (recover from poisoned lock)
+        let subs = match subscribers.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                eprintln!("[events] Subscriber lock poisoned, recovering");
+                poisoned.into_inner()
+            }
+        };
         let mut failed: Vec<SubscriberId> = Vec::new();
 
         for (&id, stream_arc) in subs.iter() {
             let stream = stream_arc.clone();
-            let result = stream.lock();
-            if let Ok(mut s) = result {
-                if s.write_all(bytes).is_err() || s.flush().is_err() {
-                    failed.push(id);
-                }
+            // Recover from poisoned stream lock
+            let mut stream_guard = match stream.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            if stream_guard.write_all(bytes).is_err() || stream_guard.flush().is_err() {
+                failed.push(id);
             }
         }
         drop(subs);
 
         // Remove failed subscribers
         if !failed.is_empty() {
-            let mut subs = subscribers.write().unwrap();
+            let mut subs = match subscribers.write() {
+                Ok(guard) => guard,
+                Err(poisoned) => {
+                    eprintln!("[events] Subscriber lock poisoned, recovering");
+                    poisoned.into_inner()
+                }
+            };
             for id in failed {
                 subs.remove(&id);
                 eprintln!("[events] Client {} write failed, removed", id);
@@ -178,14 +192,20 @@ pub fn start_event_server(socket_path: PathBuf) {
                             let subs = broadcaster.subscribers.clone();
                             let next_id = broadcaster.next_id.clone();
 
-                            // Add subscriber
+                            // Add subscriber (recover from poisoned locks)
                             let id = {
-                                let mut id_guard = next_id.lock().unwrap();
+                                let mut id_guard = match next_id.lock() {
+                                    Ok(guard) => guard,
+                                    Err(poisoned) => poisoned.into_inner(),
+                                };
                                 let id = *id_guard;
                                 *id_guard += 1;
                                 drop(id_guard);
 
-                                let mut s = subs.write().unwrap();
+                                let mut s = match subs.write() {
+                                    Ok(guard) => guard,
+                                    Err(poisoned) => poisoned.into_inner(),
+                                };
                                 s.insert(id, Arc::new(Mutex::new(stream)));
                                 eprintln!("[events] Client {} connected ({} total)", id, s.len());
                                 id

@@ -77,7 +77,7 @@ fn cmd(dir: &Path, args: &[&str]) -> Result<String> {
         .output()?;
     if out.status.success() {
         // Validate UTF-8 explicitly instead of using lossy conversion
-        let output = String::from_utf8(out.stdout.clone())
+        let output = String::from_utf8(out.stdout)
             .map_err(|_| anyhow::anyhow!("git output is not valid UTF-8"))?
             .trim()
             .to_string();

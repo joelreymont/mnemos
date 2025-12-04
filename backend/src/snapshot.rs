@@ -130,6 +130,11 @@ const MAX_SNAPSHOT_FILES: usize = 100_000;
 const MAX_SNAPSHOT_EMBEDDINGS: usize = 100_000;
 const MAX_SNAPSHOT_EDGES: usize = 500_000;
 
+/// Maximum size for individual text fields (prevents memory exhaustion)
+const MAX_NOTE_TEXT_LEN: usize = 1_000_000; // 1MB per note text
+const MAX_FILE_CONTENT_LEN: usize = 1_000_000; // 1MB per file content
+const MAX_EMBEDDING_VECTOR_LEN: usize = 100_000; // ~100KB per embedding vector string
+
 pub fn restore(conn: &Connection, snapshot: &serde_json::Value) -> Result<serde_json::Value> {
     // Validate record counts before processing
     if let Some(notes) = snapshot.get("notes").and_then(|v| v.as_array()) {
@@ -219,7 +224,14 @@ pub fn restore(conn: &Connection, snapshot: &serde_json::Value) -> Result<serde_
                 let node_path = n.get("nodePath").and_then(|v| v.as_str());
                 let tags = n.get("tags").and_then(|v| v.as_str()).unwrap_or("[]");
                 let text = n.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                // Validate text field size to prevent memory exhaustion
+                if text.len() > MAX_NOTE_TEXT_LEN {
+                    return Err(anyhow::anyhow!("snapshot note[{}] text too large: {} bytes (max {})", i, text.len(), MAX_NOTE_TEXT_LEN));
+                }
                 let summary = n.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+                if summary.len() > MAX_NOTE_TEXT_LEN {
+                    return Err(anyhow::anyhow!("snapshot note[{}] summary too large: {} bytes (max {})", i, summary.len(), MAX_NOTE_TEXT_LEN));
+                }
                 let commit = n.get("commitSha").and_then(|v| v.as_str());
                 let blob = n.get("blobSha").and_then(|v| v.as_str());
                 let node_text_hash = n.get("nodeTextHash").and_then(|v| v.as_str());
@@ -243,6 +255,10 @@ pub fn restore(conn: &Connection, snapshot: &serde_json::Value) -> Result<serde_
                 let proj = f.get("projectRoot").and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("snapshot file[{}] missing required field: projectRoot", i))?;
                 let content = f.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                // Validate content field size
+                if content.len() > MAX_FILE_CONTENT_LEN {
+                    return Err(anyhow::anyhow!("snapshot file[{}] content too large: {} bytes (max {})", i, content.len(), MAX_FILE_CONTENT_LEN));
+                }
                 let updated_at = f
                     .get("updatedAt")
                     .and_then(|v| v.as_i64())
@@ -264,7 +280,14 @@ pub fn restore(conn: &Connection, snapshot: &serde_json::Value) -> Result<serde_
                     .get("vector")
                     .map(|v| v.to_string())
                     .unwrap_or("[]".into());
+                // Validate vector field size
+                if vector.len() > MAX_EMBEDDING_VECTOR_LEN {
+                    return Err(anyhow::anyhow!("snapshot embedding[{}] vector too large: {} bytes (max {})", i, vector.len(), MAX_EMBEDDING_VECTOR_LEN));
+                }
                 let text = e.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                if text.len() > MAX_FILE_CONTENT_LEN {
+                    return Err(anyhow::anyhow!("snapshot embedding[{}] text too large: {} bytes (max {})", i, text.len(), MAX_FILE_CONTENT_LEN));
+                }
                 let updated_at = e
                     .get("updatedAt")
                     .and_then(|v| v.as_i64())
