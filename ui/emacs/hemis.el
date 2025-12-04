@@ -73,7 +73,7 @@
   :type 'integer
   :group 'hemis)
 
-(defcustom hemis-debug nil
+(defcustom hemis-debug t
   "When non-nil, log debug information to *Hemis Debug* buffer.
 Set to t for basic logging, or 'verbose for detailed RPC payloads."
   :type '(choice (const :tag "Off" nil)
