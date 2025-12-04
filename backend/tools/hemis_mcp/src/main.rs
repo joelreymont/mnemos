@@ -1,7 +1,7 @@
 // Hemis MCP Server - Tools to reduce token usage during development.
 //
 // Tools:
-// - cargo_test_summary: Run cargo test and return compact pass/fail summary
+// - cargo_test: Run cargo test and return compact pass/fail summary
 // - cargo_clippy: Run clippy and return compact warning/error summary
 // - cargo_build: Run cargo build and return compact result
 // - swift_test: Run swift test and return compact summary
@@ -242,7 +242,7 @@ impl HemisServer {
     }
 
     #[tool(description = "Run cargo test and return compact summary with pass/fail counts. Much more compact than raw test output.")]
-    fn cargo_test_summary(
+    fn cargo_test(
         &self,
         Parameters(req): Parameters<CargoTestRequest>,
     ) -> Result<CallToolResult, McpError> {

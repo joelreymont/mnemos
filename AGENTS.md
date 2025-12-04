@@ -12,7 +12,7 @@ The hemis-mcp server provides low-token, purpose-built tools. Using MCP tools in
 |------|----------------|-----------------|
 | Check git status | `mcp__hemis-mcp__git_context` | `git status && git diff` |
 | View work items | `mcp__hemis-mcp__bd_context` | `bd ready` |
-| Run tests | `mcp__hemis-mcp__cargo_test_summary` | `cargo test` |
+| Run tests | `mcp__hemis-mcp__cargo_test` | `cargo test` |
 | Run clippy | `mcp__hemis-mcp__cargo_clippy` | `cargo clippy` |
 | Build project | `mcp__hemis-mcp__cargo_build` | `cargo build` |
 | Swift tests | `mcp__hemis-mcp__swift_test` | `swift test` |
@@ -29,7 +29,7 @@ The hemis-mcp server provides low-token, purpose-built tools. Using MCP tools in
 | `version` | Server version | `hemis-mcp v1` |
 | `git_context` | Compact git status | Branch, changed files, optional diff |
 | `bd_context` | List open beads | Work items with status and blockers |
-| `cargo_test_summary` | Run tests with summary | Pass/fail counts, first failures |
+| `cargo_test` | Run tests with summary | Pass/fail counts, first failures |
 | `cargo_clippy` | Run clippy with summary | Warning/error counts, first issues |
 | `cargo_build` | Build with summary | Success/fail, first errors |
 | `swift_test` | Run swift test with summary | Pass/fail counts, failed test names |
@@ -48,7 +48,7 @@ The hemis-mcp server provides low-token, purpose-built tools. Using MCP tools in
 **bd_context:**
 - `limit` (int, default 50): Max beads to return
 
-**cargo_test_summary:**
+**cargo_test:**
 - `package` (string): Package to test (for workspace)
 - `filter` (string): Test filter pattern
 
@@ -115,8 +115,8 @@ bd update hemis-abc --status in_progress
 
 ```
 # CORRECT - Use MCP tools
-mcp__hemis-mcp__cargo_test_summary
-mcp__hemis-mcp__cargo_test_summary with package: "hemis-storage"
+mcp__hemis-mcp__cargo_test
+mcp__hemis-mcp__cargo_test with package: "hemis-storage"
 mcp__hemis-mcp__cargo_clippy
 mcp__hemis-mcp__cargo_clippy with package: "hemis-storage", fix: true
 mcp__hemis-mcp__cargo_build
