@@ -12,6 +12,8 @@ use treesitter::{
     GrammarRegistry, ParserService,
 };
 
+use events::Event;
+
 /// Internal struct for file listing (used by index-project)
 #[derive(Debug, Clone)]
 struct FileInfo {
@@ -22,6 +24,7 @@ struct FileInfo {
 
 pub mod ai_cli;
 pub mod config;
+pub mod events;
 pub mod preload;
 pub mod server;
 pub mod snapshot;
@@ -402,6 +405,12 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                 }
                             }
                         }
+                        // Emit index-complete event
+                        events::emit(Event::IndexComplete {
+                            project: root.to_string(),
+                            files_indexed: indexed,
+                        });
+
                         let mut result = json!({
                             "ok": true,
                             "indexed": indexed,
@@ -715,7 +724,16 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     git,
                     node_text_hash,
                 ) {
-                    Ok(n) => Response::result_from(id, n),
+                    Ok(n) => {
+                        // Emit note-created event
+                        events::emit(Event::NoteCreated {
+                            id: n.id.clone(),
+                            file: file.to_string(),
+                            line,
+                            project_root: Some(proj.to_string()),
+                        });
+                        Response::result_from(id, n)
+                    }
                     Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
@@ -725,7 +743,14 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
         "notes/delete" => {
             if let Some(note_id) = req.params.get("id").and_then(|v| v.as_str()) {
                 match notes::delete(db, note_id) {
-                    Ok(ok) => Response::result(id, json!({"ok": ok})),
+                    Ok(ok) => {
+                        if ok {
+                            events::emit(Event::NoteDeleted {
+                                id: note_id.to_string(),
+                            });
+                        }
+                        Response::result(id, json!({"ok": ok}))
+                    }
                     Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
@@ -737,7 +762,12 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 let text = req.params.get("text").and_then(|v| v.as_str());
                 let tags = req.params.get("tags").cloned();
                 match notes::update(db, note_id, text, tags) {
-                    Ok(n) => Response::result_from(id, n),
+                    Ok(n) => {
+                        events::emit(Event::NoteUpdated {
+                            id: note_id.to_string(),
+                        });
+                        Response::result_from(id, n)
+                    }
                     Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {

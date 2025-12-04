@@ -1,0 +1,398 @@
+//! Event broadcasting system for hemis.
+//!
+//! Provides a push-based notification mechanism via a Unix socket.
+//! Clients connect to ~/.hemis/events.sock and receive JSON-lines events.
+
+use serde::Serialize;
+use std::collections::HashMap;
+use std::fs;
+use std::io::Write;
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex, RwLock};
+use std::thread;
+
+/// Event types that can be broadcast to listeners.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum Event {
+    /// A note was created
+    NoteCreated {
+        id: String,
+        file: String,
+        line: i64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        project_root: Option<String>,
+    },
+    /// A note was updated
+    NoteUpdated {
+        id: String,
+    },
+    /// A note was deleted
+    NoteDeleted {
+        id: String,
+    },
+    /// AI explanation completed for a note
+    AiComplete {
+        note_id: String,
+        success: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        provider: Option<String>,
+    },
+    /// Project indexing completed
+    IndexComplete {
+        project: String,
+        files_indexed: usize,
+    },
+    /// Single file was indexed
+    FileIndexed {
+        file: String,
+        project: String,
+    },
+}
+
+impl Event {
+    /// Serialize to JSON line (with newline)
+    pub fn to_json_line(&self) -> String {
+        let mut json = serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string());
+        json.push('\n');
+        json
+    }
+}
+
+/// Subscriber ID for tracking connections
+type SubscriberId = u64;
+
+/// Thread-safe event broadcaster
+pub struct EventBroadcaster {
+    /// Connected clients with their write streams
+    subscribers: Arc<RwLock<HashMap<SubscriberId, Arc<Mutex<UnixStream>>>>>,
+    /// Next subscriber ID
+    next_id: Arc<Mutex<SubscriberId>>,
+    /// Channel for sending events to broadcaster thread
+    tx: Sender<Event>,
+}
+
+impl EventBroadcaster {
+    /// Create a new event broadcaster
+    pub fn new() -> Self {
+        let subscribers: Arc<RwLock<HashMap<SubscriberId, Arc<Mutex<UnixStream>>>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+        let next_id = Arc::new(Mutex::new(0u64));
+
+        // Create channel for event broadcasting
+        let (tx, rx): (Sender<Event>, Receiver<Event>) = mpsc::channel();
+
+        // Spawn broadcaster thread
+        let subs = subscribers.clone();
+        thread::spawn(move || {
+            broadcaster_loop(rx, subs);
+        });
+
+        Self {
+            subscribers,
+            next_id,
+            tx,
+        }
+    }
+
+    /// Broadcast an event to all connected clients
+    pub fn emit(&self, event: Event) {
+        // Non-blocking send - if channel is full, event is dropped
+        let _ = self.tx.send(event);
+    }
+
+}
+
+/// Background loop that receives events and broadcasts to all subscribers
+fn broadcaster_loop(
+    rx: Receiver<Event>,
+    subscribers: Arc<RwLock<HashMap<SubscriberId, Arc<Mutex<UnixStream>>>>>,
+) {
+    for event in rx {
+        let json = event.to_json_line();
+        let bytes = json.as_bytes();
+
+        // Get list of subscribers to broadcast to
+        let subs = subscribers.read().unwrap();
+        let mut failed: Vec<SubscriberId> = Vec::new();
+
+        for (&id, stream_arc) in subs.iter() {
+            let stream = stream_arc.clone();
+            let result = stream.lock();
+            if let Ok(mut s) = result {
+                if s.write_all(bytes).is_err() || s.flush().is_err() {
+                    failed.push(id);
+                }
+            }
+        }
+        drop(subs);
+
+        // Remove failed subscribers
+        if !failed.is_empty() {
+            let mut subs = subscribers.write().unwrap();
+            for id in failed {
+                subs.remove(&id);
+                eprintln!("[events] Client {} write failed, removed", id);
+            }
+        }
+    }
+}
+
+/// Global event broadcaster instance
+static BROADCASTER: std::sync::OnceLock<EventBroadcaster> = std::sync::OnceLock::new();
+
+/// Get or initialize the global broadcaster
+pub fn broadcaster() -> &'static EventBroadcaster {
+    BROADCASTER.get_or_init(EventBroadcaster::new)
+}
+
+/// Emit an event to all connected clients
+pub fn emit(event: Event) {
+    broadcaster().emit(event);
+}
+
+/// Start the event socket server
+pub fn start_event_server(socket_path: PathBuf) {
+    // Clean up stale socket
+    if socket_path.exists() {
+        let _ = fs::remove_file(&socket_path);
+    }
+
+    let broadcaster = broadcaster();
+
+    thread::spawn(move || {
+        match UnixListener::bind(&socket_path) {
+            Ok(listener) => {
+                eprintln!("[events] Event server listening on {}", socket_path.display());
+
+                for stream in listener.incoming() {
+                    match stream {
+                        Ok(stream) => {
+                            // Set non-blocking for write operations
+                            let _ = stream.set_nonblocking(false);
+
+                            // Clone broadcaster reference for the connection handler
+                            let subs = broadcaster.subscribers.clone();
+                            let next_id = broadcaster.next_id.clone();
+
+                            // Add subscriber
+                            let id = {
+                                let mut id_guard = next_id.lock().unwrap();
+                                let id = *id_guard;
+                                *id_guard += 1;
+                                drop(id_guard);
+
+                                let mut s = subs.write().unwrap();
+                                s.insert(id, Arc::new(Mutex::new(stream)));
+                                eprintln!("[events] Client {} connected ({} total)", id, s.len());
+                                id
+                            };
+
+                            // Note: Client cleanup happens when write fails in broadcaster_loop.
+                            // We don't spawn a reader thread because the event socket is
+                            // write-only (server pushes events, clients don't send anything).
+                            let _ = id;
+                        }
+                        Err(e) => {
+                            eprintln!("[events] Connection error: {}", e);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("[events] Failed to bind socket {}: {}", socket_path.display(), e);
+            }
+        }
+    });
+}
+
+/// Clean up the event socket
+pub fn cleanup_event_socket(socket_path: &PathBuf) {
+    let _ = fs::remove_file(socket_path);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_event_note_created_json() {
+        let event = Event::NoteCreated {
+            id: "abc123".to_string(),
+            file: "/tmp/test.rs".to_string(),
+            line: 42,
+            project_root: Some("/tmp/project".to_string()),
+        };
+
+        let json = event.to_json_line();
+        assert!(json.ends_with('\n'));
+        assert!(json.contains("\"type\":\"note-created\""));
+        assert!(json.contains("\"id\":\"abc123\""));
+        assert!(json.contains("\"file\":\"/tmp/test.rs\""));
+        assert!(json.contains("\"line\":42"));
+        assert!(json.contains("\"project_root\":\"/tmp/project\""));
+    }
+
+    #[test]
+    fn test_event_note_created_without_project() {
+        let event = Event::NoteCreated {
+            id: "abc123".to_string(),
+            file: "/tmp/test.rs".to_string(),
+            line: 42,
+            project_root: None,
+        };
+
+        let json = event.to_json_line();
+        // project_root should be omitted when None
+        assert!(!json.contains("project_root"));
+    }
+
+    #[test]
+    fn test_event_note_updated_json() {
+        let event = Event::NoteUpdated {
+            id: "xyz789".to_string(),
+        };
+
+        let json = event.to_json_line();
+        assert!(json.contains("\"type\":\"note-updated\""));
+        assert!(json.contains("\"id\":\"xyz789\""));
+    }
+
+    #[test]
+    fn test_event_note_deleted_json() {
+        let event = Event::NoteDeleted {
+            id: "del456".to_string(),
+        };
+
+        let json = event.to_json_line();
+        assert!(json.contains("\"type\":\"note-deleted\""));
+        assert!(json.contains("\"id\":\"del456\""));
+    }
+
+    #[test]
+    fn test_event_ai_complete_json() {
+        let event = Event::AiComplete {
+            note_id: "note123".to_string(),
+            success: true,
+            provider: Some("claude".to_string()),
+        };
+
+        let json = event.to_json_line();
+        assert!(json.contains("\"type\":\"ai-complete\""));
+        assert!(json.contains("\"note_id\":\"note123\""));
+        assert!(json.contains("\"success\":true"));
+        assert!(json.contains("\"provider\":\"claude\""));
+    }
+
+    #[test]
+    fn test_event_ai_complete_without_provider() {
+        let event = Event::AiComplete {
+            note_id: "note123".to_string(),
+            success: false,
+            provider: None,
+        };
+
+        let json = event.to_json_line();
+        assert!(json.contains("\"success\":false"));
+        // provider should be omitted when None
+        assert!(!json.contains("provider"));
+    }
+
+    #[test]
+    fn test_event_index_complete_json() {
+        let event = Event::IndexComplete {
+            project: "/tmp/myproject".to_string(),
+            files_indexed: 100,
+        };
+
+        let json = event.to_json_line();
+        assert!(json.contains("\"type\":\"index-complete\""));
+        assert!(json.contains("\"project\":\"/tmp/myproject\""));
+        assert!(json.contains("\"files_indexed\":100"));
+    }
+
+    #[test]
+    fn test_event_file_indexed_json() {
+        let event = Event::FileIndexed {
+            file: "/tmp/test.rs".to_string(),
+            project: "/tmp/project".to_string(),
+        };
+
+        let json = event.to_json_line();
+        assert!(json.contains("\"type\":\"file-indexed\""));
+        assert!(json.contains("\"file\":\"/tmp/test.rs\""));
+        assert!(json.contains("\"project\":\"/tmp/project\""));
+    }
+
+    #[test]
+    fn test_event_json_line_ends_with_newline() {
+        let events = vec![
+            Event::NoteCreated {
+                id: "1".to_string(),
+                file: "f".to_string(),
+                line: 1,
+                project_root: None,
+            },
+            Event::NoteUpdated { id: "2".to_string() },
+            Event::NoteDeleted { id: "3".to_string() },
+            Event::AiComplete {
+                note_id: "4".to_string(),
+                success: true,
+                provider: None,
+            },
+            Event::IndexComplete {
+                project: "p".to_string(),
+                files_indexed: 0,
+            },
+            Event::FileIndexed {
+                file: "f".to_string(),
+                project: "p".to_string(),
+            },
+        ];
+
+        for event in events {
+            let json = event.to_json_line();
+            assert!(json.ends_with('\n'), "Event JSON should end with newline");
+            assert!(!json.ends_with("\n\n"), "Event JSON should have exactly one newline");
+        }
+    }
+
+    #[test]
+    fn test_event_kebab_case_types() {
+        // Verify that all event types use kebab-case
+        let note_created = Event::NoteCreated {
+            id: "1".to_string(),
+            file: "f".to_string(),
+            line: 1,
+            project_root: None,
+        };
+        assert!(note_created.to_json_line().contains("note-created"));
+
+        let note_updated = Event::NoteUpdated { id: "1".to_string() };
+        assert!(note_updated.to_json_line().contains("note-updated"));
+
+        let note_deleted = Event::NoteDeleted { id: "1".to_string() };
+        assert!(note_deleted.to_json_line().contains("note-deleted"));
+
+        let ai_complete = Event::AiComplete {
+            note_id: "1".to_string(),
+            success: true,
+            provider: None,
+        };
+        assert!(ai_complete.to_json_line().contains("ai-complete"));
+
+        let index_complete = Event::IndexComplete {
+            project: "p".to_string(),
+            files_indexed: 0,
+        };
+        assert!(index_complete.to_json_line().contains("index-complete"));
+
+        let file_indexed = Event::FileIndexed {
+            file: "f".to_string(),
+            project: "p".to_string(),
+        };
+        assert!(file_indexed.to_json_line().contains("file-indexed"));
+    }
+}

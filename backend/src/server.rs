@@ -19,6 +19,7 @@ use rpc::{decode_framed, encode_response, Response};
 use serde_json::json;
 use storage::connect;
 
+use crate::events;
 use crate::version::{GIT_HASH, PROTOCOL_VERSION, VersionInfo};
 use crate::{create_parser_service, parse_and_handle, preload};
 
@@ -28,6 +29,7 @@ const SHUTDOWN_GRACE_SECS: u64 = 30;
 /// Shared server state.
 pub struct Server {
     socket_path: PathBuf,
+    events_socket_path: PathBuf,
     lock_path: PathBuf,
     db_path: String,
     connections: Arc<AtomicUsize>,
@@ -40,6 +42,7 @@ impl Server {
     pub fn new(hemis_dir: PathBuf, db_path: String) -> Self {
         Self {
             socket_path: hemis_dir.join("hemis.sock"),
+            events_socket_path: hemis_dir.join("events.sock"),
             lock_path: hemis_dir.join("hemis.lock"),
             db_path,
             connections: Arc::new(AtomicUsize::new(0)),
@@ -54,6 +57,9 @@ impl Server {
         if self.socket_path.exists() {
             fs::remove_file(&self.socket_path)?;
         }
+
+        // Start the events socket server
+        events::start_event_server(self.events_socket_path.clone());
 
         // Create the socket
         let listener = UnixListener::bind(&self.socket_path)?;
@@ -252,5 +258,10 @@ fn schedule_shutdown_check(
 fn cleanup_and_exit(socket_path: PathBuf, lock_path: PathBuf) {
     let _ = fs::remove_file(&socket_path);
     let _ = fs::remove_file(&lock_path);
+    // Also clean up events socket (in same directory)
+    if let Some(parent) = socket_path.parent() {
+        let events_path = parent.join("events.sock");
+        events::cleanup_event_socket(&events_path);
+    }
     std::process::exit(0);
 }
