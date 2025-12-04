@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "hemis-mcp": {
+      "type": "stdio",
+      "command": "backend/tools/hemis_mcp/target/release/hemis-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}

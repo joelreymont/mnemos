@@ -1,5 +1,93 @@
 The docs describing this app are in docs/
 
+## MCP Tools (MANDATORY)
+
+**ALWAYS use MCP tools first. NEVER fall back to Bash commands when an MCP tool exists.**
+
+The hemis-mcp server provides low-token, purpose-built tools. Using MCP tools instead of raw commands reduces token usage by 10-50x and provides structured output.
+
+### Tool Priority
+
+| Task | USE THIS (MCP) | NOT THIS (Bash) |
+|------|----------------|-----------------|
+| Check git status | `mcp__hemis-mcp__git_context` | `git status && git diff` |
+| View work items | `mcp__hemis-mcp__bd_context` | `bd ready` |
+| Run tests | `mcp__hemis-mcp__cargo_test_summary` | `cargo test` |
+
+### Tool Reference
+
+| Tool | Purpose | Output |
+|------|---------|--------|
+| `version` | Server version | `hemis-mcp v1` |
+| `git_context` | Compact git status | Branch, changed files, optional diff |
+| `bd_context` | List open beads | Work items with status and blockers |
+| `cargo_test_summary` | Run tests with summary | Pass/fail counts, first failures |
+
+### Parameters
+
+**git_context:**
+- `include_diff` (bool, default false): Include diff output
+- `diff_limit` (int, default 100): Max diff lines
+
+**bd_context:**
+- `limit` (int, default 50): Max beads to return
+
+**cargo_test_summary:**
+- `package` (string): Package to test (for workspace)
+- `filter` (string): Test filter pattern
+
+### Anti-Patterns (DO NOT DO)
+
+```bash
+# WRONG - Don't run cargo test directly
+cargo test
+cargo test -p hemis-storage
+
+# WRONG - Don't run git status directly
+git status
+git diff
+
+# WRONG - Don't run bd directly
+bd ready
+bd list
+```
+
+```
+# CORRECT - Use MCP tools
+mcp__hemis-mcp__cargo_test_summary
+mcp__hemis-mcp__cargo_test_summary with package: "hemis-storage"
+mcp__hemis-mcp__git_context
+mcp__hemis-mcp__git_context with include_diff: true
+mcp__hemis-mcp__bd_context
+```
+
+### When Bash IS Appropriate
+
+Only use Bash for operations MCP doesn't cover:
+- Git commits, push, pull, rebase
+- Running the `hemis` CLI directly
+- Installing dependencies
+- File operations outside the test/status workflow
+
+### Server Location
+
+- Configuration: `.mcp.json` (project root)
+- Server source: `backend/tools/hemis_mcp/`
+
+### Creating New MCP Tools
+
+**If you find yourself repeatedly running the same Bash commands, create a new MCP tool.**
+
+Add new tools to `backend/tools/hemis_mcp/src/main.rs`. Each tool should:
+1. Return structured, minimal output (not raw command output)
+2. Have a clear single purpose
+3. Include timeout appropriate to the operation
+
+Good candidates for new MCP tools:
+- Any operation you run more than 3 times in a session
+- Commands with verbose output that needs filtering
+- Multi-step operations that should be atomic
+
 ## Development Guidelines
 
 ### Git Configuration
