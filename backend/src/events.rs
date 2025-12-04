@@ -9,7 +9,7 @@ use std::fs;
 use std::io::Write;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
@@ -70,8 +70,8 @@ pub struct EventBroadcaster {
     subscribers: Arc<RwLock<HashMap<SubscriberId, Arc<Mutex<UnixStream>>>>>,
     /// Next subscriber ID
     next_id: Arc<Mutex<SubscriberId>>,
-    /// Channel for sending events to broadcaster thread
-    tx: Sender<Event>,
+    /// Bounded channel for sending events to broadcaster thread
+    tx: SyncSender<Event>,
 }
 
 impl EventBroadcaster {
@@ -81,8 +81,9 @@ impl EventBroadcaster {
             Arc::new(RwLock::new(HashMap::new()));
         let next_id = Arc::new(Mutex::new(0u64));
 
-        // Create channel for event broadcasting
-        let (tx, rx): (Sender<Event>, Receiver<Event>) = mpsc::channel();
+        // Bounded channel - drops events if buffer is full (backpressure)
+        const EVENT_BUFFER_SIZE: usize = 1024;
+        let (tx, rx): (SyncSender<Event>, Receiver<Event>) = mpsc::sync_channel(EVENT_BUFFER_SIZE);
 
         // Spawn broadcaster thread
         let subs = subscribers.clone();
@@ -100,7 +101,7 @@ impl EventBroadcaster {
     /// Broadcast an event to all connected clients
     pub fn emit(&self, event: Event) {
         // Non-blocking send - if channel is full, event is dropped
-        let _ = self.tx.send(event);
+        let _ = self.tx.try_send(event);
     }
 
 }
