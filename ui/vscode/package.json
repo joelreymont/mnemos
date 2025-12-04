@@ -184,6 +184,12 @@
         "when": "editorTextFocus"
       },
       {
+        "command": "hemis.editNoteBuffer",
+        "key": "ctrl+shift+h shift+e",
+        "mac": "cmd+shift+h shift+e",
+        "when": "editorTextFocus"
+      },
+      {
         "command": "hemis.explainRegion",
         "key": "ctrl+shift+h x",
         "mac": "cmd+shift+h x",
