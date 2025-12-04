@@ -84,15 +84,26 @@ Set to t for basic logging, or 'verbose for detailed RPC payloads."
 (defvar hemis--debug-buffer "*Hemis Debug*"
   "Buffer name for debug output.")
 
+(defvar hemis--debug-log-file
+  (expand-file-name "emacs-debug.log" (or (getenv "HEMIS_DIR") "~/.hemis"))
+  "File path for debug log output.")
+
 (defun hemis--debug (fmt &rest args)
   "Log debug message FMT with ARGS if `hemis-debug' is enabled.
-Messages are timestamped and written to `hemis--debug-buffer'."
+Messages are timestamped and written to `hemis--debug-buffer' and log file."
   (when hemis-debug
-    (let ((msg (apply #'format fmt args))
-          (ts (format-time-string "%H:%M:%S.%3N")))
+    (let* ((msg (apply #'format fmt args))
+           (ts (format-time-string "%H:%M:%S.%3N"))
+           (line (format "[%s] %s\n" ts msg)))
+      ;; Write to buffer
       (with-current-buffer (get-buffer-create hemis--debug-buffer)
         (goto-char (point-max))
-        (insert (format "[%s] %s\n" ts msg))))))
+        (insert line))
+      ;; Append to log file
+      (let ((dir (file-name-directory hemis--debug-log-file)))
+        (unless (file-exists-p dir)
+          (make-directory dir t)))
+      (append-to-file line nil hemis--debug-log-file))))
 
 (defface hemis-note-marker-face
   '((t :foreground "SteelBlue"
