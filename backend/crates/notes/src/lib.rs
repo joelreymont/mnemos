@@ -199,17 +199,28 @@ fn stale(
 }
 
 pub fn list_for_file(conn: &Connection, filters: NoteFilters<'_>) -> Result<Vec<Note>> {
-    let rows = query_all(
-        conn,
-        "SELECT * FROM notes WHERE file = ? ORDER BY updated_at DESC;",
-        &[&filters.file],
-        |row| {
-            let note_commit: Option<String> = row.get("commit_sha").ok();
-            let note_blob: Option<String> = row.get("blob_sha").ok();
-            let is_stale = stale(&note_commit, &note_blob, filters.commit, filters.blob);
-            map_note(row, is_stale)
-        },
-    )?;
+    // Build query based on whether project_root is specified
+    // Note: We always return notes even if stale (with stale: true) so clients can re-anchor them.
+    // The includeStale flag is reserved for future use when we implement server-side staleness resolution.
+    let (query, params): (&str, Vec<&dyn rusqlite::ToSql>) = if filters.project_root.is_empty() {
+        (
+            "SELECT * FROM notes WHERE file = ? ORDER BY updated_at DESC;",
+            vec![&filters.file],
+        )
+    } else {
+        (
+            "SELECT * FROM notes WHERE file = ? AND project_root = ? ORDER BY updated_at DESC;",
+            vec![&filters.file, &filters.project_root],
+        )
+    };
+
+    let rows = query_all(conn, query, params.as_slice(), |row| {
+        let note_commit: Option<String> = row.get("commit_sha").ok();
+        let note_blob: Option<String> = row.get("blob_sha").ok();
+        let is_stale = stale(&note_commit, &note_blob, filters.commit, filters.blob);
+        map_note(row, is_stale)
+    })?;
+
     Ok(rows)
 }
 

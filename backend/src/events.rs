@@ -170,8 +170,9 @@ pub fn start_event_server(socket_path: PathBuf) {
                 for stream in listener.incoming() {
                     match stream {
                         Ok(stream) => {
-                            // Set non-blocking for write operations
-                            let _ = stream.set_nonblocking(false);
+                            // Set write timeout to prevent slow clients from blocking the broadcaster
+                            // 100ms is enough for any reasonable client to accept the write
+                            let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(100)));
 
                             // Clone broadcaster reference for the connection handler
                             let subs = broadcaster.subscribers.clone();

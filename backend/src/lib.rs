@@ -356,9 +356,19 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .get("includeAI")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
+                // Max file size for indexing (1MB - same as search limit)
+                const MAX_INDEX_FILE_SIZE: u64 = 1024 * 1024;
                 match list_files(Path::new(root)) {
                     Ok(files) => {
                         for f in files {
+                            // Skip oversized files to prevent memory exhaustion
+                            let file_size = fs::metadata(&f.file)
+                                .map(|m| m.len())
+                                .unwrap_or(0);
+                            if file_size > MAX_INDEX_FILE_SIZE {
+                                skipped += 1;
+                                continue;
+                            }
                             if let Ok(content) = fs::read_to_string(&f.file) {
                                 match idx::add_file(db, &f.file, root, &content) {
                                     Ok(Some(_)) => indexed += 1,
@@ -679,7 +689,8 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .params
                     .get("column")
                     .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
+                    .unwrap_or(0)
+                    .max(0); // Clamp to non-negative
                 let tags = req.params.get("tags").cloned().unwrap_or_else(|| json!([]));
                 let text = req
                     .params
@@ -693,8 +704,9 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     let file_path = Path::new(file);
                     // Convert from 1-based (client) to 0-based (tree-sitter)
                     let ts_line = (line - 1).max(0) as u32;
-                    let computed_path = compute_node_path(parser, file_path, content, ts_line, column as u32);
-                    let computed_hash = compute_hash_at_position(parser, file_path, content, ts_line, column as u32);
+                    let ts_column = column as u32;
+                    let computed_path = compute_node_path(parser, file_path, content, ts_line, ts_column);
+                    let computed_hash = compute_hash_at_position(parser, file_path, content, ts_line, ts_column);
                     let node_path_value = if computed_path.is_empty() {
                         None
                     } else {
@@ -807,15 +819,17 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .params
                     .get("column")
                     .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
+                    .unwrap_or(0)
+                    .max(0); // Clamp to non-negative
                 // If content is provided, compute node_path and hash server-side
                 let content = req.params.get("content").and_then(|v| v.as_str());
                 let (node_path, node_text_hash) = if let (Some(content), Some(file)) = (content, file) {
                     let file_path = Path::new(file);
                     // Convert from 1-based (client) to 0-based (tree-sitter)
                     let ts_line = (line - 1).max(0) as u32;
-                    let computed_path = compute_node_path(parser, file_path, content, ts_line, column as u32);
-                    let computed_hash = compute_hash_at_position(parser, file_path, content, ts_line, column as u32);
+                    let ts_column = column as u32;
+                    let computed_path = compute_node_path(parser, file_path, content, ts_line, ts_column);
+                    let computed_hash = compute_hash_at_position(parser, file_path, content, ts_line, ts_column);
                     let node_path_value = if computed_path.is_empty() {
                         None
                     } else {
