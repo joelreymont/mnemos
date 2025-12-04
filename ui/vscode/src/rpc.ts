@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { getConfig } from './config';
+import { debug, debugVerbose } from './debug';
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -143,15 +144,18 @@ export class RpcClient {
     }
 
     this.connecting = true;
+    debug('Connection: starting');
 
     try {
       const config = getConfig();
 
       // Try to connect to existing socket
       if (this.socketExists()) {
+        debug('Connection: socket exists, attempting connect');
         try {
           const socket = await this.connectToSocket();
           this.setupSocket(socket);
+          debug('Connection: connected to existing server');
           this.outputChannel.appendLine('Connected to existing Hemis server');
           return true;
         } catch {
@@ -159,6 +163,7 @@ export class RpcClient {
           const pid = this.readLockPid();
           if (pid && !this.processAlive(pid)) {
             // Stale socket, clean up
+            debug(`Connection: stale socket (pid ${pid} dead), cleaning up`);
             this.outputChannel.appendLine('Cleaning up stale socket');
             try {
               fs.unlinkSync(this.getSocketPath());
@@ -172,14 +177,17 @@ export class RpcClient {
 
       // Need to start server
       if (!config.backend) {
+        debug('Connection: no backend configured');
         vscode.window.showErrorMessage('Hemis: Backend path not configured. Set hemis.backend in settings.');
         return false;
       }
 
+      debug(`Connection: starting server from ${config.backend}`);
       await this.startServer();
 
       // Wait for socket to appear
       if (!await this.waitForSocket(5000)) {
+        debug('Connection: timeout waiting for socket');
         throw new Error('Server failed to create socket');
       }
 
@@ -189,19 +197,23 @@ export class RpcClient {
       // Connect
       const socket = await this.connectToSocket();
       this.setupSocket(socket);
+      debug('Connection: connected to new server');
       this.outputChannel.appendLine('Connected to Hemis server');
 
       // Check version
       try {
         const version = await this.request<{ protocolVersion: number; gitHash: string }>('hemis/version');
+        debug(`Connection: version ${version.protocolVersion} (${version.gitHash})`);
         this.outputChannel.appendLine(`Backend version: ${version.protocolVersion} (${version.gitHash})`);
       } catch (err) {
+        debug(`Connection: version check failed: ${err}`);
         this.outputChannel.appendLine(`Version check failed: ${err}`);
       }
 
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      debug(`Connection: failed - ${message}`);
       vscode.window.showErrorMessage(`Hemis: ${message}`);
       return false;
     } finally {
@@ -257,10 +269,18 @@ export class RpcClient {
         id,
       };
 
+      const startTime = Date.now();
+      debug(`RPC>> ${method} [${id}]`);
+      debugVerbose(`  params:`, params);
+
       this.pending.set(id, (error, result) => {
+        const elapsed = Date.now() - startTime;
         if (error) {
+          debug(`RPC<< ${method} [${id}] FAILED (${elapsed}ms): ${error.message}`);
           reject(error);
         } else {
+          debug(`RPC<< ${method} [${id}] ok (${elapsed}ms)`);
+          debugVerbose(`  result:`, result);
           resolve(result as T);
         }
       });

@@ -4,11 +4,13 @@ import { registerCommands } from './commands';
 import { refreshNotes, disposeDecorations, refreshAllEditors } from './decorations';
 import { getConfig } from './config';
 import { NotesTreeDataProvider } from './providers/notesView';
+import { debug, disposeDebug } from './debug';
 
 let notesProvider: NotesTreeDataProvider | null = null;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   console.log('Hemis extension activating...');
+  debug('Extension activating');
 
   // Register commands
   registerCommands(context);
@@ -75,7 +77,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 export function deactivate(): void {
   console.log('Hemis extension deactivating...');
+  debug('Extension deactivating');
   disposeRpcClient();
   disposeDecorations();
+  disposeDebug();
   console.log('Hemis extension deactivated');
 }

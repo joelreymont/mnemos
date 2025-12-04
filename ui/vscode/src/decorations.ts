@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { Note, listNotes, getProjectRoot } from './notes';
 import { getConfig } from './config';
+import { debug, debugVerbose } from './debug';
 
 // Decoration type for note markers
 const noteDecorationType = vscode.window.createTextEditorDecorationType({
@@ -75,6 +76,7 @@ export function renderNotes(editor: vscode.TextEditor, notes: Note[]): void {
   const languageId = editor.document.languageId;
   const decorations: vscode.DecorationOptions[] = [];
   const staleDecorations: vscode.DecorationOptions[] = [];
+  debug(`renderNotes: ${notes.length} notes for ${editor.document.fileName}`);
 
   for (const note of notes) {
     // Use server-computed displayLine when available, otherwise stored line
@@ -128,7 +130,10 @@ export async function refreshNotes(editor: vscode.TextEditor): Promise<void> {
   const projectRoot = getProjectRoot();
   const content = editor.document.getText();
 
+  debug(`refreshNotes: file=${file}`);
+
   if (!projectRoot) {
+    debug('refreshNotes: no project root, clearing');
     clearNotes(editor);
     return;
   }
@@ -136,9 +141,12 @@ export async function refreshNotes(editor: vscode.TextEditor): Promise<void> {
   try {
     // Send content so server computes displayLine positions
     const notes = await listNotes(file, projectRoot, true, content);
+    debug(`refreshNotes: received ${notes.length} notes`);
+    debugVerbose('refreshNotes: notes', notes.map(n => ({ id: n.id.substring(0, 8), line: n.line, displayLine: n.displayLine })));
     renderNotes(editor, notes);
   } catch (err) {
     // Backend might not be running, silently ignore
+    debug(`refreshNotes: error - ${err}`);
     clearNotes(editor);
   }
 }

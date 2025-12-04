@@ -3,12 +3,15 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 
+export type DebugLevel = 'off' | 'basic' | 'verbose';
+
 export interface HemisConfig {
   backend: string;
   hemisDir: string;
   databasePath: string;
   autoRefresh: boolean;
   displayStyle: 'full' | 'minimal';
+  debug: DebugLevel;
 }
 
 function findBackend(): string {
@@ -64,5 +67,6 @@ export function getConfig(): HemisConfig {
     databasePath: config.get<string>('databasePath') || '',
     autoRefresh: config.get<boolean>('autoRefresh') ?? true,
     displayStyle: config.get<'full' | 'minimal'>('displayStyle') || 'full',
+    debug: config.get<DebugLevel>('debug') || 'off',
   };
 }

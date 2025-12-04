@@ -114,6 +114,16 @@
           ],
           "default": "full",
           "description": "Note display style: full (comment block) or minimal (inline marker)"
+        },
+        "hemis.debug": {
+          "type": "string",
+          "enum": [
+            "off",
+            "basic",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Debug logging level: off, basic (RPC calls), or verbose (with payloads)"
         }
       }
     },
