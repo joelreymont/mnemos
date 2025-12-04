@@ -26,6 +26,7 @@ use rmcp::{
 
 const SERVER_VERSION: &str = "v1";
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+const BD_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[allow(dead_code)]
 fn mcp_error(msg: &str) -> McpError {
@@ -33,6 +34,16 @@ fn mcp_error(msg: &str) -> McpError {
         code: ErrorCode::INTERNAL_ERROR,
         message: Cow::from(msg.to_string()),
         data: None,
+    }
+}
+
+/// Run a bd command and return a CallToolResult
+fn run_bd_command(args: &[&str]) -> CallToolResult {
+    let mut cmd = Command::new("bd");
+    cmd.args(args);
+    match run_command_with_timeout(cmd, BD_TIMEOUT) {
+        Ok((stdout, _)) => CallToolResult::success(vec![Content::text(stdout.trim().to_string())]),
+        Err(e) => CallToolResult::success(vec![Content::text(format!("BD ERROR: {}", e))]),
     }
 }
 
@@ -211,6 +222,9 @@ pub struct SwiftTestRequest {
     #[serde(default)]
     pub filter: Option<String>,
 }
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct RebuildMcpRequest {}
 
 // ============================================================================
 // Server implementation
@@ -420,15 +434,7 @@ impl HemisServer {
         &self,
         Parameters(req): Parameters<BdCloseRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let mut cmd = Command::new("bd");
-        cmd.args(["close", &req.id]);
-
-        match run_command_with_timeout(cmd, Duration::from_secs(10)) {
-            Ok((stdout, _)) => {
-                Ok(CallToolResult::success(vec![Content::text(format!("CLOSED: {}", stdout.trim()))]))
-            }
-            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("BD CLOSE ERROR: {}", e))]))
-        }
+        Ok(run_bd_command(&["close", &req.id]))
     }
 
     #[tool(description = "Show details of a specific issue.")]
@@ -436,15 +442,7 @@ impl HemisServer {
         &self,
         Parameters(req): Parameters<BdShowRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let mut cmd = Command::new("bd");
-        cmd.args(["show", &req.id]);
-
-        match run_command_with_timeout(cmd, Duration::from_secs(10)) {
-            Ok((stdout, _)) => {
-                Ok(CallToolResult::success(vec![Content::text(stdout)]))
-            }
-            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("BD SHOW ERROR: {}", e))]))
-        }
+        Ok(run_bd_command(&["show", &req.id]))
     }
 
     #[tool(description = "Update an issue status or labels.")]
@@ -452,23 +450,21 @@ impl HemisServer {
         &self,
         Parameters(req): Parameters<BdUpdateRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let mut cmd = Command::new("bd");
-        cmd.args(["update", &req.id]);
+        let mut args = vec!["update", &req.id];
+        let status_args;
+        let labels_str;
 
         if let Some(ref status) = req.status {
-            cmd.args(["--status", status]);
+            status_args = ["--status", status];
+            args.extend_from_slice(&status_args);
         }
-
         if !req.add_labels.is_empty() {
-            cmd.args(["--add-labels", &req.add_labels.join(",")]);
+            labels_str = req.add_labels.join(",");
+            args.push("--add-labels");
+            args.push(&labels_str);
         }
 
-        match run_command_with_timeout(cmd, Duration::from_secs(10)) {
-            Ok((stdout, _)) => {
-                Ok(CallToolResult::success(vec![Content::text(format!("UPDATED: {}", stdout.trim()))]))
-            }
-            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("BD UPDATE ERROR: {}", e))]))
-        }
+        Ok(run_bd_command(&args))
     }
 
     // === Cargo Tools ===
@@ -562,6 +558,27 @@ impl HemisServer {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 let combined = format!("{}\n{}", stdout, stderr);
                 let summary = parse_swift_test_output(&combined, output.status.success());
+                Ok(CallToolResult::success(vec![Content::text(summary)]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("ERROR: {}", e))]))
+        }
+    }
+
+    #[tool(description = "Rebuild hemis-mcp server in release mode. Run after modifying MCP server code.")]
+    fn rebuild_mcp(
+        &self,
+        Parameters(_req): Parameters<RebuildMcpRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut cmd = Command::new("cargo");
+        cmd.args(["build", "--release", "-p", "hemis-mcp", "--message-format=json", "--color=never"]);
+
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+        match cmd.output() {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let summary = parse_cargo_build_json(&stdout, &stderr, output.status.success());
                 Ok(CallToolResult::success(vec![Content::text(summary)]))
             }
             Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("ERROR: {}", e))]))
@@ -676,97 +693,90 @@ fn parse_beads_json(json_str: &str, limit: usize) -> String {
     result.trim().to_string()
 }
 
-/// Parse clippy JSON output into compact summary
-fn parse_clippy_json(stdout: &str, stderr: &str) -> String {
-    let mut warnings = 0;
-    let mut errors = 0;
-    let mut issues: Vec<String> = Vec::new();
-    const MAX_ISSUES: usize = 10;
+/// Extract file:line location from a compiler message span
+fn extract_span_location(message: &serde_json::Value) -> String {
+    message.get("spans")
+        .and_then(|s| s.as_array())
+        .and_then(|arr| arr.first())
+        .map(|span| {
+            let file = span.get("file_name").and_then(|f| f.as_str()).unwrap_or("?");
+            let line = span.get("line_start").and_then(|l| l.as_u64()).unwrap_or(0);
+            format!("{}:{}", file, line)
+        })
+        .unwrap_or_default()
+}
 
-    // Parse JSON lines from stdout
+/// Collected compiler messages from cargo JSON output
+struct CompilerMessages {
+    warnings: usize,
+    errors: usize,
+    issues: Vec<String>,
+}
+
+/// Parse cargo JSON output and collect compiler messages
+fn parse_cargo_messages(stdout: &str, max_issues: usize, include_unused_warnings: bool) -> CompilerMessages {
+    let mut result = CompilerMessages { warnings: 0, errors: 0, issues: Vec::new() };
+
     for line in stdout.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        if let Ok(msg) = serde_json::from_str::<serde_json::Value>(line) {
-            if let Some(reason) = msg.get("reason").and_then(|r| r.as_str()) {
-                if reason == "compiler-message" {
-                    if let Some(message) = msg.get("message") {
-                        let level = message.get("level").and_then(|l| l.as_str()).unwrap_or("");
-                        let text = message.get("message").and_then(|m| m.as_str()).unwrap_or("");
+        if line.trim().is_empty() { continue; }
 
-                        match level {
-                            "warning" => {
-                                warnings += 1;
-                                if issues.len() < MAX_ISSUES {
-                                    // Get file location
-                                    let loc = message.get("spans")
-                                        .and_then(|s| s.as_array())
-                                        .and_then(|arr| arr.first())
-                                        .map(|span| {
-                                            let file = span.get("file_name")
-                                                .and_then(|f| f.as_str())
-                                                .unwrap_or("?");
-                                            let line = span.get("line_start")
-                                                .and_then(|l| l.as_u64())
-                                                .unwrap_or(0);
-                                            format!("{}:{}", file, line)
-                                        })
-                                        .unwrap_or_default();
+        let Ok(msg) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+        let Some(reason) = msg.get("reason").and_then(|r| r.as_str()) else { continue };
+        if reason != "compiler-message" { continue; }
+        let Some(message) = msg.get("message") else { continue };
 
-                                    if !text.starts_with("unused") || issues.len() < 5 {
-                                        issues.push(format!("  warn: {} [{}]", text, loc));
-                                    }
-                                }
-                            }
-                            "error" => {
-                                errors += 1;
-                                if issues.len() < MAX_ISSUES {
-                                    let loc = message.get("spans")
-                                        .and_then(|s| s.as_array())
-                                        .and_then(|arr| arr.first())
-                                        .map(|span| {
-                                            let file = span.get("file_name")
-                                                .and_then(|f| f.as_str())
-                                                .unwrap_or("?");
-                                            let line = span.get("line_start")
-                                                .and_then(|l| l.as_u64())
-                                                .unwrap_or(0);
-                                            format!("{}:{}", file, line)
-                                        })
-                                        .unwrap_or_default();
+        let level = message.get("level").and_then(|l| l.as_str()).unwrap_or("");
+        let text = message.get("message").and_then(|m| m.as_str()).unwrap_or("");
 
-                                    issues.push(format!("  error: {} [{}]", text, loc));
-                                }
-                            }
-                            _ => {}
-                        }
+        match level {
+            "warning" => {
+                result.warnings += 1;
+                if result.issues.len() < max_issues {
+                    let skip = text.starts_with("unused") && !include_unused_warnings && result.issues.len() >= 5;
+                    if !skip {
+                        let loc = extract_span_location(message);
+                        result.issues.push(format!("  warn: {} [{}]", text, loc));
                     }
                 }
             }
+            "error" => {
+                result.errors += 1;
+                if result.issues.len() < max_issues {
+                    let loc = extract_span_location(message);
+                    result.issues.push(format!("  error: {} [{}]", text, loc));
+                }
+            }
+            _ => {}
         }
     }
 
+    result
+}
+
+/// Parse clippy JSON output into compact summary
+fn parse_clippy_json(stdout: &str, stderr: &str) -> String {
+    const MAX_ISSUES: usize = 10;
+
+    let msgs = parse_cargo_messages(stdout, MAX_ISSUES, false);
+
     // Check for build errors in stderr
-    if errors == 0 && warnings == 0 && stderr.contains("error") {
+    if msgs.errors == 0 && msgs.warnings == 0 && stderr.contains("error") {
         return format!("BUILD ERROR:\n{}", stderr.lines().take(20).collect::<Vec<_>>().join("\n"));
     }
 
-    let mut result = String::new();
-
-    if errors == 0 && warnings == 0 {
-        result.push_str("OK: no warnings or errors");
-    } else if errors == 0 {
-        result.push_str(&format!("OK: {} warnings", warnings));
+    let mut result = if msgs.errors == 0 && msgs.warnings == 0 {
+        "OK: no warnings or errors".to_string()
+    } else if msgs.errors == 0 {
+        format!("OK: {} warnings", msgs.warnings)
     } else {
-        result.push_str(&format!("FAILED: {} errors, {} warnings", errors, warnings));
-    }
+        format!("FAILED: {} errors, {} warnings", msgs.errors, msgs.warnings)
+    };
 
-    if !issues.is_empty() {
+    if !msgs.issues.is_empty() {
         result.push('\n');
-        result.push_str(&issues.join("\n"));
-        if warnings + errors > MAX_ISSUES {
-            result.push_str(&format!("\n  ... and {} more", warnings + errors - MAX_ISSUES));
+        result.push_str(&msgs.issues.join("\n"));
+        if msgs.warnings + msgs.errors > MAX_ISSUES {
+            result.push_str(&format!("\n  ... and {} more", msgs.warnings + msgs.errors - MAX_ISSUES));
         }
     }
 
@@ -775,72 +785,31 @@ fn parse_clippy_json(stdout: &str, stderr: &str) -> String {
 
 /// Parse cargo build JSON output into compact summary
 fn parse_cargo_build_json(stdout: &str, stderr: &str, success: bool) -> String {
-    let mut errors: Vec<String> = Vec::new();
-    let mut warnings = 0;
     const MAX_ERRORS: usize = 5;
 
-    // Parse JSON lines from stdout
-    for line in stdout.lines() {
-        if line.trim().is_empty() {
-            continue;
+    let msgs = parse_cargo_messages(stdout, MAX_ERRORS, true);
+    let errors: Vec<_> = msgs.issues.iter().filter(|i| i.contains("error:")).cloned().collect();
+
+    let result = if success {
+        let mut s = "OK: build succeeded".to_string();
+        if msgs.warnings > 0 {
+            s.push_str(&format!(" ({} warnings)", msgs.warnings));
         }
-        if let Ok(msg) = serde_json::from_str::<serde_json::Value>(line) {
-            if let Some(reason) = msg.get("reason").and_then(|r| r.as_str()) {
-                if reason == "compiler-message" {
-                    if let Some(message) = msg.get("message") {
-                        let level = message.get("level").and_then(|l| l.as_str()).unwrap_or("");
-                        let text = message.get("message").and_then(|m| m.as_str()).unwrap_or("");
-
-                        match level {
-                            "error" => {
-                                if errors.len() < MAX_ERRORS {
-                                    let loc = message.get("spans")
-                                        .and_then(|s| s.as_array())
-                                        .and_then(|arr| arr.first())
-                                        .map(|span| {
-                                            let file = span.get("file_name")
-                                                .and_then(|f| f.as_str())
-                                                .unwrap_or("?");
-                                            let line = span.get("line_start")
-                                                .and_then(|l| l.as_u64())
-                                                .unwrap_or(0);
-                                            format!("{}:{}", file, line)
-                                        })
-                                        .unwrap_or_default();
-
-                                    errors.push(format!("  {} [{}]", text, loc));
-                                }
-                            }
-                            "warning" => warnings += 1,
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    let mut result = String::new();
-
-    if success {
-        result.push_str("OK: build succeeded");
-        if warnings > 0 {
-            result.push_str(&format!(" ({} warnings)", warnings));
-        }
+        s
     } else {
-        result.push_str(&format!("FAILED: {} errors", errors.len()));
-        if warnings > 0 {
-            result.push_str(&format!(", {} warnings", warnings));
+        let mut s = format!("FAILED: {} errors", msgs.errors);
+        if msgs.warnings > 0 {
+            s.push_str(&format!(", {} warnings", msgs.warnings));
         }
         if !errors.is_empty() {
-            result.push('\n');
-            result.push_str(&errors.join("\n"));
+            s.push('\n');
+            s.push_str(&errors.join("\n"));
         } else if !stderr.is_empty() {
-            // Fallback to stderr if no JSON errors found
-            result.push_str("\n");
-            result.push_str(&stderr.lines().take(10).collect::<Vec<_>>().join("\n"));
+            s.push('\n');
+            s.push_str(&stderr.lines().take(10).collect::<Vec<_>>().join("\n"));
         }
-    }
+        s
+    };
 
     result
 }

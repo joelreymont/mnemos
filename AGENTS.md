@@ -21,6 +21,7 @@ The hemis-mcp server provides low-token, purpose-built tools. Using MCP tools in
 | Close issue | `mcp__hemis-mcp__bd_close` | `bd close` |
 | Show issue | `mcp__hemis-mcp__bd_show` | `bd show` |
 | Update issue | `mcp__hemis-mcp__bd_update` | `bd update` |
+| Rebuild MCP | `mcp__hemis-mcp__rebuild_mcp` | `cargo build -p hemis-mcp --release` |
 
 ### Tool Reference
 
@@ -38,6 +39,7 @@ The hemis-mcp server provides low-token, purpose-built tools. Using MCP tools in
 | `bd_close` | Close an issue | Confirmation |
 | `bd_show` | Show issue details | Full issue info |
 | `bd_update` | Update issue status/labels | Confirmation |
+| `rebuild_mcp` | Rebuild MCP server in release | Success/fail, errors |
 
 ### Parameters
 
@@ -88,6 +90,9 @@ The hemis-mcp server provides low-token, purpose-built tools. Using MCP tools in
 - `status` (string): New status (open/in_progress/closed)
 - `add_labels` (array): Labels to add
 
+**rebuild_mcp:**
+- No parameters
+
 ### Anti-Patterns (DO NOT DO)
 
 ```bash
@@ -96,6 +101,7 @@ cargo test
 cargo test -p hemis-storage
 cargo clippy
 cargo build
+cargo build --release -p hemis-mcp
 
 # WRONG - Don't run swift test directly
 swift test
@@ -131,6 +137,7 @@ mcp__hemis-mcp__bd_create with title: "Fix bug", labels: ["backend"]
 mcp__hemis-mcp__bd_close with id: "hemis-abc"
 mcp__hemis-mcp__bd_show with id: "hemis-abc"
 mcp__hemis-mcp__bd_update with id: "hemis-abc", status: "in_progress"
+mcp__hemis-mcp__rebuild_mcp
 ```
 
 ### When Bash IS Appropriate
