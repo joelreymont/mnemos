@@ -14,9 +14,9 @@ use anyhow::{anyhow, Context, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 
 /// Maximum concurrent AI CLI processes (prevents resource exhaustion)
 const MAX_CONCURRENT_AI_CALLS: usize = 2;
@@ -139,6 +139,159 @@ fn build_safe_env() -> HashMap<String, String> {
     env.insert("LC_ALL".to_string(), "C.UTF-8".to_string());
 
     env
+}
+
+/// Persistent Claude CLI process using streaming JSON mode.
+/// This avoids the ~10s startup cost on each call after the first.
+struct PersistentClaude {
+    child: std::process::Child,
+    stdin: std::process::ChildStdin,
+    stdout: std::io::BufReader<std::process::ChildStdout>,
+}
+
+impl PersistentClaude {
+    /// Spawn a new persistent Claude process.
+    fn spawn(project_root: &Path) -> Result<Self> {
+        use std::io::BufReader;
+
+        let safe_env = build_safe_env();
+
+        let mut child = Command::new("claude")
+            .arg("-p")
+            .arg("--input-format")
+            .arg("stream-json")
+            .arg("--output-format")
+            .arg("stream-json")
+            .arg("--verbose")
+            .current_dir(project_root)
+            .env_clear()
+            .envs(&safe_env)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .with_context(|| "failed to spawn persistent claude process")?;
+
+        let stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
+        let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
+
+        Ok(Self {
+            child,
+            stdin,
+            stdout: BufReader::new(stdout),
+        })
+    }
+
+    /// Send a prompt and get the response.
+    fn query(&mut self, prompt: &str) -> Result<String> {
+        use std::io::{BufRead, Write};
+
+        eprintln!("[hemis] Sending query to persistent Claude...");
+
+        // Send user message in stream-json format
+        let msg = serde_json::json!({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": prompt
+            }
+        });
+        writeln!(self.stdin, "{}", msg)?;
+        self.stdin.flush()?;
+
+        eprintln!("[hemis] Query sent, waiting for response...");
+
+        // Read responses until we get the result message
+        let start = Instant::now();
+        let mut line_count = 0;
+
+        loop {
+            if start.elapsed().as_secs() > AI_CLI_TIMEOUT_SECS {
+                return Err(anyhow!("persistent claude query timed out after {} lines", line_count));
+            }
+
+            let mut line = String::new();
+            match self.stdout.read_line(&mut line) {
+                Ok(0) => return Err(anyhow!("claude process closed stdout after {} lines", line_count)),
+                Ok(_) => {
+                    line_count += 1;
+                    let line = line.trim();
+                    if line.is_empty() {
+                        continue;
+                    }
+
+                    // Parse JSON response
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+                        let msg_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
+                        eprintln!("[hemis] Claude message type: {}", msg_type);
+
+                        // Check for result message (final response)
+                        if msg_type == "result" {
+                            if let Some(text) = json.get("result").and_then(|r| r.as_str()) {
+                                eprintln!("[hemis] Got result after {} lines, {} chars", line_count, text.len());
+                                return Ok(text.to_string());
+                            }
+                            // Check for error
+                            if json.get("is_error").and_then(|e| e.as_bool()) == Some(true) {
+                                let err_msg = json.get("error").and_then(|e| e.as_str()).unwrap_or("unknown error");
+                                return Err(anyhow!("claude returned error: {}", err_msg));
+                            }
+                        }
+                    }
+                }
+                Err(e) => return Err(anyhow!("error reading from claude after {} lines: {}", line_count, e)),
+            }
+        }
+    }
+
+    /// Check if the process is still alive.
+    fn is_alive(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(None))
+    }
+}
+
+impl Drop for PersistentClaude {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// Global persistent Claude instance
+static PERSISTENT_CLAUDE: Mutex<Option<PersistentClaude>> = Mutex::new(None);
+
+/// Get or create persistent Claude process
+fn get_persistent_claude(project_root: &Path) -> Result<std::sync::MutexGuard<'static, Option<PersistentClaude>>> {
+    let mut guard = PERSISTENT_CLAUDE.lock().map_err(|_| anyhow!("claude lock poisoned"))?;
+
+    // Check if we need to spawn or respawn
+    let needs_spawn = match guard.as_mut() {
+        None => true,
+        Some(claude) => !claude.is_alive(),
+    };
+
+    if needs_spawn {
+        eprintln!("[hemis] Spawning persistent Claude process...");
+        *guard = Some(PersistentClaude::spawn(project_root)?);
+    }
+
+    Ok(guard)
+}
+
+/// Pre-warm the persistent Claude process for faster first query.
+/// Call this during index-project to avoid delay on first explain-region.
+/// This sends a simple query to ensure Claude is fully initialized.
+pub fn warm_up_claude(project_root: &Path) -> Result<()> {
+    let safe_project_root = validate_project_root(project_root)?;
+    let mut guard = get_persistent_claude(&safe_project_root)?;
+
+    // Send a simple query to ensure Claude is fully initialized
+    if let Some(claude) = guard.as_mut() {
+        let _ = claude.query("Say OK")?;
+        eprintln!("[hemis] Claude process warmed up and ready");
+    }
+
+    Ok(())
 }
 
 /// Which CLI to use for AI calls.
@@ -320,6 +473,9 @@ fn clean_markdown_output(s: &str) -> String {
 
 /// Explain a region of code using the configured CLI provider.
 ///
+/// If `detailed` is true, provides a comprehensive explanation.
+/// Otherwise provides a brief 2-4 sentence summary.
+///
 /// Returns (provider, explanation, had_analysis_context).
 /// The caller is responsible for creating any notes based on the explanation.
 pub fn explain_region(
@@ -328,6 +484,7 @@ pub fn explain_region(
     start_line: usize,
     end_line: usize,
     snippet: &str,
+    detailed: bool,
 ) -> Result<(CliProvider, String, bool)> {
     let provider = CliProvider::from_env()
         .ok_or_else(|| anyhow!("no AI CLI available (codex or claude)"))?;
@@ -341,10 +498,11 @@ pub fn explain_region(
         String::new()
     };
 
-    let prompt = format!(
-        r#"You are Hemis, an assistant embedded in a codebase-aware tool.
+    let prompt = if detailed {
+        format!(
+            r#"You are Hemis, an assistant embedded in a codebase-aware tool.
 
-{analysis_section}Explain the following code region.
+{analysis_section}Explain the following code region in detail. Your response will be stored as a code note.
 
 **File:** {file}
 **Lines:** {start}-{end}
@@ -353,20 +511,47 @@ pub fn explain_region(
 {snippet}
 ```
 
-Provide a clear, concise explanation covering:
-1. What this code does
+Provide a comprehensive explanation covering:
+1. What this code does and its purpose
 2. How it fits into the project architecture
-3. Important invariants or assumptions
-4. Potential pitfalls a maintainer should know
+3. Key assumptions, invariants, or constraints
+4. Potential pitfalls or edge cases a maintainer should know
+5. Any important implementation details
 
-Keep the explanation focused and practical. Output plain text only.
+Be thorough but focused. Output plain text only, no markdown.
 "#,
-        analysis_section = analysis_section,
-        file = file,
-        start = start_line,
-        end = end_line,
-        snippet = snippet
-    );
+            analysis_section = analysis_section,
+            file = file,
+            start = start_line,
+            end = end_line,
+            snippet = snippet
+        )
+    } else {
+        format!(
+            r#"You are Hemis, an assistant embedded in a codebase-aware tool.
+
+{analysis_section}Explain the following code region. Your response will be stored as a code note.
+
+**File:** {file}
+**Lines:** {start}-{end}
+
+```
+{snippet}
+```
+
+Provide a brief explanation (2-4 sentences) covering:
+- What this code does
+- Key assumptions or pitfalls
+
+Keep it short and practical - this will be displayed as an inline note. Output plain text only, no markdown.
+"#,
+            analysis_section = analysis_section,
+            file = file,
+            start = start_line,
+            end = end_line,
+            snippet = snippet
+        )
+    };
 
     let explanation = match provider {
         CliProvider::Codex => run_codex(project_root, &prompt)?,
@@ -456,14 +641,49 @@ fn run_codex(project_root: &Path, prompt: &str) -> Result<String> {
 }
 
 /// Helper: run Claude Code CLI with a prompt in the given project root.
+/// Uses persistent process for fast response times after first call.
 fn run_claude(project_root: &Path, prompt: &str) -> Result<String> {
+    eprintln!("[hemis] run_claude: starting...");
+
     // Acquire concurrency guard (limits parallel AI calls and rate limiting)
     let _concurrency_guard = AiCallGuard::try_acquire()?;
+    eprintln!("[hemis] run_claude: acquired concurrency guard");
 
     // Validate project root
     let safe_project_root = validate_project_root(project_root)?;
+    eprintln!("[hemis] run_claude: validated project root");
 
-    // Build safe environment (minimal variables)
+    // Try persistent process first
+    eprintln!("[hemis] run_claude: trying to get persistent claude...");
+    if let Ok(mut guard) = get_persistent_claude(&safe_project_root) {
+        eprintln!("[hemis] run_claude: got persistent claude mutex");
+        if let Some(claude) = guard.as_mut() {
+            eprintln!("[hemis] run_claude: sending query to persistent claude...");
+            match claude.query(prompt) {
+                Ok(result) => {
+                    eprintln!("[hemis] run_claude: persistent query succeeded ({} chars)", result.len());
+                    return Ok(result);
+                }
+                Err(e) => {
+                    // Process died or failed, will respawn on next call
+                    eprintln!("[hemis] Persistent claude failed: {}, falling back to one-shot", e);
+                    *guard = None;
+                }
+            }
+        } else {
+            eprintln!("[hemis] run_claude: no persistent claude in mutex");
+        }
+    } else {
+        eprintln!("[hemis] run_claude: failed to get persistent claude mutex");
+    }
+
+    // Fallback: one-shot process (slower but more reliable)
+    eprintln!("[hemis] run_claude: falling back to one-shot mode");
+    run_claude_oneshot(&safe_project_root, prompt)
+}
+
+/// One-shot Claude CLI call (fallback when persistent fails).
+fn run_claude_oneshot(project_root: &Path, prompt: &str) -> Result<String> {
     let safe_env = build_safe_env();
 
     use std::io::Read;
@@ -472,11 +692,11 @@ fn run_claude(project_root: &Path, prompt: &str) -> Result<String> {
     let mut child = Command::new("claude")
         .arg("-p")
         .arg(prompt)
-        .current_dir(&safe_project_root)
+        .current_dir(project_root)
         .env_clear()
         .envs(&safe_env)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .with_context(|| "failed to spawn `claude` CLI")?;
 
