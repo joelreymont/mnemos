@@ -3975,3 +3975,153 @@ fn event_socket_receives_note_created() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Test that the events socket receives note-updated and note-deleted events.
+#[test]
+fn event_socket_receives_update_and_delete_events() -> anyhow::Result<()> {
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::os::unix::net::UnixStream;
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    // Create a temp directory for hemis data
+    let hemis_dir = tempfile::tempdir()?;
+    let db_path = hemis_dir.path().join("hemis.db");
+    let rpc_socket = hemis_dir.path().join("hemis.sock");
+    let events_socket = hemis_dir.path().join("events.sock");
+
+    // Start hemis server
+    let mut child = Command::new(env!("CARGO_BIN_EXE_hemis"))
+        .arg("--serve")
+        .env("HEMIS_DIR", hemis_dir.path())
+        .env("HEMIS_DB_PATH", &db_path)
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    // Wait for server to start
+    let mut retries = 0;
+    while !rpc_socket.exists() || !events_socket.exists() {
+        std::thread::sleep(Duration::from_millis(100));
+        retries += 1;
+        if retries > 30 {
+            let _ = child.kill();
+            anyhow::bail!("Server did not create sockets within 3 seconds");
+        }
+    }
+
+    // Connect to events socket first
+    let events_stream = UnixStream::connect(&events_socket)?;
+    events_stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    std::thread::sleep(Duration::from_millis(100));
+
+    // Connect to RPC socket
+    let mut rpc_stream = UnixStream::connect(&rpc_socket)?;
+    rpc_stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+
+    // Helper to send RPC request and get response
+    let send_rpc = |stream: &mut UnixStream, req: &serde_json::Value| -> anyhow::Result<serde_json::Value> {
+        let body = req.to_string();
+        let msg = format!("Content-Length: {}\r\n\r\n{}", body.len(), body);
+        stream.write_all(msg.as_bytes())?;
+        stream.flush()?;
+
+        let mut reader = BufReader::new(&*stream);
+        let mut header = String::new();
+        reader.read_line(&mut header)?;
+        let len: usize = header
+            .trim()
+            .strip_prefix("Content-Length: ")
+            .ok_or_else(|| anyhow::anyhow!("missing Content-Length"))?
+            .parse()?;
+        let mut empty = String::new();
+        reader.read_line(&mut empty)?;
+        let mut body = vec![0u8; len];
+        reader.read_exact(&mut body)?;
+        Ok(serde_json::from_slice(&body)?)
+    };
+
+    // 1. Create a note
+    let create_resp = send_rpc(&mut rpc_stream, &serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 10,
+            "column": 0,
+            "text": "Original note text"
+        }
+    }))?;
+
+    let note_id = create_resp
+        .get("result")
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("note creation failed"))?
+        .to_string();
+
+    // Read note-created event
+    let mut events_reader = BufReader::new(&events_stream);
+    let mut event_line = String::new();
+    events_reader.read_line(&mut event_line)?;
+    let event: serde_json::Value = serde_json::from_str(&event_line)?;
+    assert_eq!(event.get("type").and_then(|v| v.as_str()), Some("note-created"));
+
+    // 2. Update the note
+    let _update_resp = send_rpc(&mut rpc_stream, &serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/update",
+        "params": {
+            "id": note_id,
+            "text": "Updated note text"
+        }
+    }))?;
+
+    // Read note-updated event
+    event_line.clear();
+    events_reader.read_line(&mut event_line)?;
+    let event: serde_json::Value = serde_json::from_str(&event_line)?;
+    assert_eq!(
+        event.get("type").and_then(|v| v.as_str()),
+        Some("note-updated"),
+        "should receive note-updated event"
+    );
+    assert_eq!(
+        event.get("id").and_then(|v| v.as_str()),
+        Some(note_id.as_str()),
+        "event should contain the note id"
+    );
+
+    // 3. Delete the note
+    let _delete_resp = send_rpc(&mut rpc_stream, &serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "notes/delete",
+        "params": {
+            "id": note_id
+        }
+    }))?;
+
+    // Read note-deleted event
+    event_line.clear();
+    events_reader.read_line(&mut event_line)?;
+    let event: serde_json::Value = serde_json::from_str(&event_line)?;
+    assert_eq!(
+        event.get("type").and_then(|v| v.as_str()),
+        Some("note-deleted"),
+        "should receive note-deleted event"
+    );
+    assert_eq!(
+        event.get("id").and_then(|v| v.as_str()),
+        Some(note_id.as_str()),
+        "event should contain the deleted note id"
+    );
+
+    // Cleanup
+    let _ = child.kill();
+    eprintln!("[test] Update/delete event test passed!");
+
+    Ok(())
+}

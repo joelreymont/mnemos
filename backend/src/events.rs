@@ -427,4 +427,55 @@ mod tests {
         };
         assert!(file_indexed.to_json_line().contains("file-indexed"));
     }
+
+    #[test]
+    fn test_broadcaster_can_emit_without_subscribers() {
+        // Test that emitting events without subscribers doesn't panic
+        let broadcaster = EventBroadcaster::new();
+        broadcaster.emit(Event::NoteCreated {
+            id: "test".to_string(),
+            file: "/tmp/test.rs".to_string(),
+            line: 1,
+            project_root: None,
+        });
+        broadcaster.emit(Event::NoteUpdated {
+            id: "test".to_string(),
+        });
+        broadcaster.emit(Event::NoteDeleted {
+            id: "test".to_string(),
+        });
+        // Give the broadcaster thread time to process
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    #[test]
+    fn test_event_clone() {
+        // Test that Event implements Clone correctly
+        let original = Event::NoteCreated {
+            id: "abc".to_string(),
+            file: "/test.rs".to_string(),
+            line: 42,
+            project_root: Some("/project".to_string()),
+        };
+
+        let cloned = original.clone();
+
+        // Verify cloned event serializes identically
+        assert_eq!(original.to_json_line(), cloned.to_json_line());
+    }
+
+    #[test]
+    fn test_event_debug() {
+        // Test that Event implements Debug
+        let event = Event::NoteCreated {
+            id: "test".to_string(),
+            file: "/test.rs".to_string(),
+            line: 1,
+            project_root: None,
+        };
+
+        let debug_str = format!("{:?}", event);
+        assert!(debug_str.contains("NoteCreated"));
+        assert!(debug_str.contains("test"));
+    }
 }
