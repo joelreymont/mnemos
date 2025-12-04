@@ -5,3 +5,4 @@ SESSION.md
 *.db
 target/
 .DS_Store
+SESSION.md.archive
