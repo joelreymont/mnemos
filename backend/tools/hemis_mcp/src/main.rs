@@ -2,6 +2,9 @@
 //
 // Tools:
 // - cargo_test_summary: Run cargo test and return compact pass/fail summary
+// - cargo_clippy: Run clippy and return compact warning/error summary
+// - cargo_build: Run cargo build and return compact result
+// - swift_test: Run swift test and return compact summary
 // - bd_context: Return beads in compact form
 // - git_context: Return git status/diff compactly
 
@@ -169,6 +172,44 @@ pub struct BdUpdateRequest {
     /// Add labels
     #[serde(default)]
     pub add_labels: Vec<String>,
+}
+
+// === Cargo Tools Request Types ===
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct CargoClippyRequest {
+    /// Working directory (defaults to current dir)
+    #[serde(default)]
+    pub cwd: Option<String>,
+    /// Package to check (for workspace)
+    #[serde(default)]
+    pub package: Option<String>,
+    /// Auto-fix warnings where possible
+    #[serde(default)]
+    pub fix: bool,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct CargoBuildRequest {
+    /// Working directory (defaults to current dir)
+    #[serde(default)]
+    pub cwd: Option<String>,
+    /// Package to build (for workspace)
+    #[serde(default)]
+    pub package: Option<String>,
+    /// Build in release mode
+    #[serde(default)]
+    pub release: bool,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct SwiftTestRequest {
+    /// Working directory (defaults to current dir)
+    #[serde(default)]
+    pub cwd: Option<String>,
+    /// Filter tests by name
+    #[serde(default)]
+    pub filter: Option<String>,
 }
 
 // ============================================================================
@@ -429,6 +470,103 @@ impl HemisServer {
             Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("BD UPDATE ERROR: {}", e))]))
         }
     }
+
+    // === Cargo Tools ===
+
+    #[tool(description = "Run cargo clippy and return compact warning/error summary. Much more compact than raw clippy output.")]
+    fn cargo_clippy(
+        &self,
+        Parameters(req): Parameters<CargoClippyRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut cmd = Command::new("cargo");
+
+        if req.fix {
+            cmd.args(["clippy", "--fix", "--allow-dirty", "--allow-staged"]);
+        } else {
+            cmd.arg("clippy");
+        }
+
+        cmd.args(["--message-format=json", "--color=never"]);
+
+        if let Some(pkg) = &req.package {
+            cmd.args(["-p", pkg]);
+        }
+        if let Some(cwd) = &req.cwd {
+            cmd.current_dir(cwd);
+        }
+
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+        match cmd.output() {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let summary = parse_clippy_json(&stdout, &stderr);
+                Ok(CallToolResult::success(vec![Content::text(summary)]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("ERROR: {}", e))]))
+        }
+    }
+
+    #[tool(description = "Run cargo build and return compact result. Shows success/fail and first errors only.")]
+    fn cargo_build(
+        &self,
+        Parameters(req): Parameters<CargoBuildRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut cmd = Command::new("cargo");
+        cmd.args(["build", "--message-format=json", "--color=never"]);
+
+        if req.release {
+            cmd.arg("--release");
+        }
+        if let Some(pkg) = &req.package {
+            cmd.args(["-p", pkg]);
+        }
+        if let Some(cwd) = &req.cwd {
+            cmd.current_dir(cwd);
+        }
+
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+        match cmd.output() {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let summary = parse_cargo_build_json(&stdout, &stderr, output.status.success());
+                Ok(CallToolResult::success(vec![Content::text(summary)]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("ERROR: {}", e))]))
+        }
+    }
+
+    #[tool(description = "Run swift test and return compact summary with pass/fail counts.")]
+    fn swift_test(
+        &self,
+        Parameters(req): Parameters<SwiftTestRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut cmd = Command::new("swift");
+        cmd.arg("test");
+
+        if let Some(filter) = &req.filter {
+            cmd.args(["--filter", filter]);
+        }
+        if let Some(cwd) = &req.cwd {
+            cmd.current_dir(cwd);
+        }
+
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+        match cmd.output() {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let combined = format!("{}\n{}", stdout, stderr);
+                let summary = parse_swift_test_output(&combined, output.status.success());
+                Ok(CallToolResult::success(vec![Content::text(summary)]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("ERROR: {}", e))]))
+        }
+    }
 }
 
 /// Parse cargo test output into compact summary
@@ -536,6 +674,255 @@ fn parse_beads_json(json_str: &str, limit: usize) -> String {
     }
 
     result.trim().to_string()
+}
+
+/// Parse clippy JSON output into compact summary
+fn parse_clippy_json(stdout: &str, stderr: &str) -> String {
+    let mut warnings = 0;
+    let mut errors = 0;
+    let mut issues: Vec<String> = Vec::new();
+    const MAX_ISSUES: usize = 10;
+
+    // Parse JSON lines from stdout
+    for line in stdout.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(msg) = serde_json::from_str::<serde_json::Value>(line) {
+            if let Some(reason) = msg.get("reason").and_then(|r| r.as_str()) {
+                if reason == "compiler-message" {
+                    if let Some(message) = msg.get("message") {
+                        let level = message.get("level").and_then(|l| l.as_str()).unwrap_or("");
+                        let text = message.get("message").and_then(|m| m.as_str()).unwrap_or("");
+
+                        match level {
+                            "warning" => {
+                                warnings += 1;
+                                if issues.len() < MAX_ISSUES {
+                                    // Get file location
+                                    let loc = message.get("spans")
+                                        .and_then(|s| s.as_array())
+                                        .and_then(|arr| arr.first())
+                                        .map(|span| {
+                                            let file = span.get("file_name")
+                                                .and_then(|f| f.as_str())
+                                                .unwrap_or("?");
+                                            let line = span.get("line_start")
+                                                .and_then(|l| l.as_u64())
+                                                .unwrap_or(0);
+                                            format!("{}:{}", file, line)
+                                        })
+                                        .unwrap_or_default();
+
+                                    if !text.starts_with("unused") || issues.len() < 5 {
+                                        issues.push(format!("  warn: {} [{}]", text, loc));
+                                    }
+                                }
+                            }
+                            "error" => {
+                                errors += 1;
+                                if issues.len() < MAX_ISSUES {
+                                    let loc = message.get("spans")
+                                        .and_then(|s| s.as_array())
+                                        .and_then(|arr| arr.first())
+                                        .map(|span| {
+                                            let file = span.get("file_name")
+                                                .and_then(|f| f.as_str())
+                                                .unwrap_or("?");
+                                            let line = span.get("line_start")
+                                                .and_then(|l| l.as_u64())
+                                                .unwrap_or(0);
+                                            format!("{}:{}", file, line)
+                                        })
+                                        .unwrap_or_default();
+
+                                    issues.push(format!("  error: {} [{}]", text, loc));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Check for build errors in stderr
+    if errors == 0 && warnings == 0 && stderr.contains("error") {
+        return format!("BUILD ERROR:\n{}", stderr.lines().take(20).collect::<Vec<_>>().join("\n"));
+    }
+
+    let mut result = String::new();
+
+    if errors == 0 && warnings == 0 {
+        result.push_str("OK: no warnings or errors");
+    } else if errors == 0 {
+        result.push_str(&format!("OK: {} warnings", warnings));
+    } else {
+        result.push_str(&format!("FAILED: {} errors, {} warnings", errors, warnings));
+    }
+
+    if !issues.is_empty() {
+        result.push('\n');
+        result.push_str(&issues.join("\n"));
+        if warnings + errors > MAX_ISSUES {
+            result.push_str(&format!("\n  ... and {} more", warnings + errors - MAX_ISSUES));
+        }
+    }
+
+    result
+}
+
+/// Parse cargo build JSON output into compact summary
+fn parse_cargo_build_json(stdout: &str, stderr: &str, success: bool) -> String {
+    let mut errors: Vec<String> = Vec::new();
+    let mut warnings = 0;
+    const MAX_ERRORS: usize = 5;
+
+    // Parse JSON lines from stdout
+    for line in stdout.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(msg) = serde_json::from_str::<serde_json::Value>(line) {
+            if let Some(reason) = msg.get("reason").and_then(|r| r.as_str()) {
+                if reason == "compiler-message" {
+                    if let Some(message) = msg.get("message") {
+                        let level = message.get("level").and_then(|l| l.as_str()).unwrap_or("");
+                        let text = message.get("message").and_then(|m| m.as_str()).unwrap_or("");
+
+                        match level {
+                            "error" => {
+                                if errors.len() < MAX_ERRORS {
+                                    let loc = message.get("spans")
+                                        .and_then(|s| s.as_array())
+                                        .and_then(|arr| arr.first())
+                                        .map(|span| {
+                                            let file = span.get("file_name")
+                                                .and_then(|f| f.as_str())
+                                                .unwrap_or("?");
+                                            let line = span.get("line_start")
+                                                .and_then(|l| l.as_u64())
+                                                .unwrap_or(0);
+                                            format!("{}:{}", file, line)
+                                        })
+                                        .unwrap_or_default();
+
+                                    errors.push(format!("  {} [{}]", text, loc));
+                                }
+                            }
+                            "warning" => warnings += 1,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut result = String::new();
+
+    if success {
+        result.push_str("OK: build succeeded");
+        if warnings > 0 {
+            result.push_str(&format!(" ({} warnings)", warnings));
+        }
+    } else {
+        result.push_str(&format!("FAILED: {} errors", errors.len()));
+        if warnings > 0 {
+            result.push_str(&format!(", {} warnings", warnings));
+        }
+        if !errors.is_empty() {
+            result.push('\n');
+            result.push_str(&errors.join("\n"));
+        } else if !stderr.is_empty() {
+            // Fallback to stderr if no JSON errors found
+            result.push_str("\n");
+            result.push_str(&stderr.lines().take(10).collect::<Vec<_>>().join("\n"));
+        }
+    }
+
+    result
+}
+
+/// Parse swift test output into compact summary
+fn parse_swift_test_output(output: &str, success: bool) -> String {
+    use regex::Regex;
+
+    let mut passed = 0;
+    let mut failed = 0;
+    let mut failed_tests: Vec<String> = Vec::new();
+
+    // Match XCTest output: "Executed N tests, with M failures"
+    let xctest_re = Regex::new(r"Executed (\d+) tests?, with (\d+) failures?").unwrap();
+    // Match swift-testing output: "N tests passed" or "Test run with N tests"
+    let swift_testing_re = Regex::new(r"(\d+) tests? passed").unwrap();
+    // Match failed test case names
+    let failed_re = Regex::new(r"Test Case.*\[(\S+)\].*failed").unwrap();
+    // Also match swift-testing failures
+    let swift_failed_re = Regex::new(r"✘ Test .* failed").unwrap();
+
+    for line in output.lines() {
+        if let Some(caps) = xctest_re.captures(line) {
+            let total: usize = caps.get(1).unwrap().as_str().parse().unwrap_or(0);
+            let failures: usize = caps.get(2).unwrap().as_str().parse().unwrap_or(0);
+            passed += total - failures;
+            failed += failures;
+        }
+
+        if let Some(caps) = swift_testing_re.captures(line) {
+            let count: usize = caps.get(1).unwrap().as_str().parse().unwrap_or(0);
+            passed += count;
+        }
+
+        if let Some(caps) = failed_re.captures(line) {
+            let name = caps.get(1).unwrap().as_str().to_string();
+            if !failed_tests.contains(&name) && failed_tests.len() < 10 {
+                failed_tests.push(name);
+            }
+        }
+
+        if swift_failed_re.is_match(line) && failed_tests.len() < 10 {
+            // Extract test name from swift-testing failure line
+            let test_name = line.split("Test ").nth(1)
+                .and_then(|s| s.split(" failed").next())
+                .unwrap_or("unknown")
+                .to_string();
+            if !failed_tests.contains(&test_name) {
+                failed_tests.push(test_name);
+            }
+        }
+    }
+
+    let mut result = String::new();
+
+    if success && failed == 0 {
+        result.push_str(&format!("OK: {} passed", passed));
+    } else if failed > 0 {
+        result.push_str(&format!("FAILED: {} passed, {} failed", passed, failed));
+        if !failed_tests.is_empty() {
+            result.push_str("\nfailed:");
+            for test in &failed_tests {
+                result.push_str(&format!("\n  - {}", test));
+            }
+        }
+    } else if !success {
+        // Build failed or other error
+        let error_lines: Vec<&str> = output.lines()
+            .filter(|l| l.contains("error:") || l.contains("Error:"))
+            .take(5)
+            .collect();
+        if error_lines.is_empty() {
+            result.push_str("FAILED: build or test error (check output)");
+        } else {
+            result.push_str("FAILED:\n");
+            result.push_str(&error_lines.join("\n"));
+        }
+    } else {
+        result.push_str(&format!("OK: {} passed", passed));
+    }
+
+    result
 }
 
 #[tool_handler]

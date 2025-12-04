@@ -13,6 +13,9 @@ The hemis-mcp server provides low-token, purpose-built tools. Using MCP tools in
 | Check git status | `mcp__hemis-mcp__git_context` | `git status && git diff` |
 | View work items | `mcp__hemis-mcp__bd_context` | `bd ready` |
 | Run tests | `mcp__hemis-mcp__cargo_test_summary` | `cargo test` |
+| Run clippy | `mcp__hemis-mcp__cargo_clippy` | `cargo clippy` |
+| Build project | `mcp__hemis-mcp__cargo_build` | `cargo build` |
+| Swift tests | `mcp__hemis-mcp__swift_test` | `swift test` |
 | List issues | `mcp__hemis-mcp__bd_list` | `bd list` |
 | Create issue | `mcp__hemis-mcp__bd_create` | `bd create` |
 | Close issue | `mcp__hemis-mcp__bd_close` | `bd close` |
@@ -27,6 +30,9 @@ The hemis-mcp server provides low-token, purpose-built tools. Using MCP tools in
 | `git_context` | Compact git status | Branch, changed files, optional diff |
 | `bd_context` | List open beads | Work items with status and blockers |
 | `cargo_test_summary` | Run tests with summary | Pass/fail counts, first failures |
+| `cargo_clippy` | Run clippy with summary | Warning/error counts, first issues |
+| `cargo_build` | Build with summary | Success/fail, first errors |
+| `swift_test` | Run swift test with summary | Pass/fail counts, failed test names |
 | `bd_list` | List issues by status | Issues with id, title, blockers |
 | `bd_create` | Create new issue | Issue ID |
 | `bd_close` | Close an issue | Confirmation |
@@ -45,6 +51,20 @@ The hemis-mcp server provides low-token, purpose-built tools. Using MCP tools in
 **cargo_test_summary:**
 - `package` (string): Package to test (for workspace)
 - `filter` (string): Test filter pattern
+
+**cargo_clippy:**
+- `cwd` (string): Working directory
+- `package` (string): Package to check (for workspace)
+- `fix` (bool, default false): Auto-fix warnings where possible
+
+**cargo_build:**
+- `cwd` (string): Working directory
+- `package` (string): Package to build (for workspace)
+- `release` (bool, default false): Build in release mode
+
+**swift_test:**
+- `cwd` (string): Working directory
+- `filter` (string): Filter tests by name
 
 **bd_list:**
 - `status` (string, default "ready"): Filter by status (ready/blocked/open/closed/in_progress)
@@ -71,9 +91,14 @@ The hemis-mcp server provides low-token, purpose-built tools. Using MCP tools in
 ### Anti-Patterns (DO NOT DO)
 
 ```bash
-# WRONG - Don't run cargo test directly
+# WRONG - Don't run cargo commands directly
 cargo test
 cargo test -p hemis-storage
+cargo clippy
+cargo build
+
+# WRONG - Don't run swift test directly
+swift test
 
 # WRONG - Don't run git status directly
 git status
@@ -92,6 +117,12 @@ bd update hemis-abc --status in_progress
 # CORRECT - Use MCP tools
 mcp__hemis-mcp__cargo_test_summary
 mcp__hemis-mcp__cargo_test_summary with package: "hemis-storage"
+mcp__hemis-mcp__cargo_clippy
+mcp__hemis-mcp__cargo_clippy with package: "hemis-storage", fix: true
+mcp__hemis-mcp__cargo_build
+mcp__hemis-mcp__cargo_build with release: true
+mcp__hemis-mcp__swift_test
+mcp__hemis-mcp__swift_test with filter: "KeyNotation"
 mcp__hemis-mcp__git_context
 mcp__hemis-mcp__git_context with include_diff: true
 mcp__hemis-mcp__bd_context
