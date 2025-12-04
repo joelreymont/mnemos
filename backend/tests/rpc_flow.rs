@@ -3848,3 +3848,130 @@ fn codex_explain_region() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Test that the events socket receives note-created events when notes are created.
+/// This verifies the push-based event notification system works correctly.
+#[test]
+fn event_socket_receives_note_created() -> anyhow::Result<()> {
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::os::unix::net::UnixStream;
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    // Create a temp directory for hemis data (sockets, db)
+    let hemis_dir = tempfile::tempdir()?;
+    let db_path = hemis_dir.path().join("hemis.db");
+    let rpc_socket = hemis_dir.path().join("hemis.sock");
+    let events_socket = hemis_dir.path().join("events.sock");
+
+    // Start hemis server
+    let mut child = Command::new(env!("CARGO_BIN_EXE_hemis"))
+        .arg("--serve")
+        .env("HEMIS_DIR", hemis_dir.path())
+        .env("HEMIS_DB_PATH", &db_path)
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    // Wait for server to start and create sockets
+    let mut retries = 0;
+    while !rpc_socket.exists() || !events_socket.exists() {
+        std::thread::sleep(Duration::from_millis(100));
+        retries += 1;
+        if retries > 30 {
+            let _ = child.kill();
+            anyhow::bail!("Server did not create sockets within 3 seconds");
+        }
+    }
+    eprintln!("[test] Server started, sockets created");
+
+    // Connect to the events socket FIRST (before creating notes)
+    let events_stream = UnixStream::connect(&events_socket)?;
+    events_stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    events_stream.set_nonblocking(false)?;
+    eprintln!("[test] Connected to events socket");
+
+    // Small delay to ensure subscription is registered
+    std::thread::sleep(Duration::from_millis(100));
+
+    // Connect to RPC socket and create a note
+    let mut rpc_stream = UnixStream::connect(&rpc_socket)?;
+    rpc_stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+
+    let create_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 42,
+            "column": 0,
+            "tags": [],
+            "text": "Test note for event socket"
+        }
+    })
+    .to_string();
+
+    let msg = format!("Content-Length: {}\r\n\r\n{}", create_req.len(), create_req);
+    rpc_stream.write_all(msg.as_bytes())?;
+    rpc_stream.flush()?;
+    eprintln!("[test] Sent create request");
+
+    // Read the RPC response
+    let mut rpc_reader = BufReader::new(&rpc_stream);
+    let mut header = String::new();
+    rpc_reader.read_line(&mut header)?;
+    let len: usize = header
+        .trim()
+        .strip_prefix("Content-Length: ")
+        .ok_or_else(|| anyhow::anyhow!("missing Content-Length"))?
+        .parse()?;
+    let mut empty = String::new();
+    rpc_reader.read_line(&mut empty)?;
+    let mut body = vec![0u8; len];
+    rpc_reader.read_exact(&mut body)?;
+
+    let resp: Response = serde_json::from_slice(&body)?;
+    let note_id = resp
+        .result
+        .as_ref()
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("note creation failed"))?;
+    eprintln!("[test] Note created with id: {}", note_id);
+
+    // Read the event from events socket (JSON line)
+    let mut events_reader = BufReader::new(&events_stream);
+    let mut event_line = String::new();
+    events_reader.read_line(&mut event_line)?;
+    eprintln!("[test] Received event: {}", event_line.trim());
+
+    // Parse and verify the event
+    let event: serde_json::Value = serde_json::from_str(&event_line)?;
+    assert_eq!(
+        event.get("type").and_then(|v| v.as_str()),
+        Some("note-created"),
+        "event type should be note-created"
+    );
+    assert_eq!(
+        event.get("id").and_then(|v| v.as_str()),
+        Some(note_id),
+        "event should contain the note id"
+    );
+    assert_eq!(
+        event.get("file").and_then(|v| v.as_str()),
+        Some("/tmp/test.rs"),
+        "event should contain the file"
+    );
+    assert_eq!(
+        event.get("line").and_then(|v| v.as_i64()),
+        Some(42),
+        "event should contain the line"
+    );
+
+    // Cleanup
+    let _ = child.kill();
+    eprintln!("[test] Event socket test passed!");
+
+    Ok(())
+}
