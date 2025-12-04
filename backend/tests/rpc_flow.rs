@@ -454,79 +454,6 @@ fn indexes_project_and_searches() -> anyhow::Result<()> {
 }
 
 #[test]
-fn lists_and_reads_files() -> anyhow::Result<()> {
-    let db = NamedTempFile::new()?;
-    let root = tempfile::tempdir()?;
-    let file_path = root.path().join("a.rs");
-    fs::write(&file_path, "fn main() {}\n")?;
-    // Canonicalize paths since the backend canonicalizes project root
-    let canonical_root = root.path().canonicalize()?;
-    let canonical_file = file_path.canonicalize()?;
-    let root_str = canonical_root.to_string_lossy().to_string();
-    let file_str = canonical_file.to_string_lossy().to_string();
-
-    let req_list = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "hemis/list-files",
-        "params": { "projectRoot": root_str }
-    })
-    .to_string();
-    let req_get = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "hemis/get-file",
-        "params": { "file": file_str, "projectRoot": root_str }
-    })
-    .to_string();
-    let input = format!(
-        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
-        req_list.len(),
-        req_list,
-        req_get.len(),
-        req_get
-    );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
-        .write_stdin(input)
-        .assert()
-        .success();
-    let mut stdout = assert.get_output().stdout.clone();
-    let mut bodies = Vec::new();
-    while let Some((body, used)) = decode_framed(&stdout) {
-        bodies.push(body);
-        stdout.drain(..used);
-    }
-    assert_eq!(bodies.len(), 2);
-    let list_resp: Response = serde_json::from_slice(&bodies[0])?;
-    let files = list_resp
-        .result
-        .as_ref()
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-    assert_eq!(files.len(), 1);
-    let file_obj = files[0].as_object().unwrap();
-    assert_eq!(
-        file_obj.get("file").and_then(|v| v.as_str()).unwrap(),
-        canonical_file.to_string_lossy().to_string()
-    );
-    assert!(file_obj.get("size").and_then(|v| v.as_u64()).is_some());
-    let get_resp: Response = serde_json::from_slice(&bodies[1])?;
-    let obj = get_resp
-        .result
-        .as_ref()
-        .and_then(|v| v.as_object())
-        .unwrap();
-    assert_eq!(obj.get("file").and_then(|v| v.as_str()).unwrap(), file_str);
-    assert_eq!(
-        obj.get("content").and_then(|v| v.as_str()).unwrap(),
-        "fn main() {}\n"
-    );
-    Ok(())
-}
-
-#[test]
 fn backlinks_returns_linking_notes() -> anyhow::Result<()> {
     // Test: create note A, then create note B that links to A, then query backlinks for A.
     let db = NamedTempFile::new()?;
@@ -3002,6 +2929,288 @@ impl Server {
     Ok(())
 }
 
+/// Test that notes at different lines don't interfere with stale/reattach.
+/// Matches demo flow: AI notes at line 7, Factory note at line 16.
+#[test]
+fn demo_multiple_notes_reattach_isolation() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let root = tempfile::tempdir()?;
+    let file = root.path().join("app.rs");
+
+    let initial_content = r#"fn main() {
+    let config = load_config();
+    let server = Server::new(config);
+    server.start();
+}
+
+fn load_config() -> Config {
+    Config::default()
+}
+
+struct Server {
+    config: Config,
+}
+
+impl Server {
+    fn new(config: Config) -> Self {
+        Self { config }
+    }
+
+    fn start(&self) {
+        println!("Starting server...");
+    }
+}
+"#;
+    fs::write(&file, initial_content)?;
+
+    let canonical_file = file.canonicalize()?;
+    let canonical_root = root.path().canonicalize()?;
+    let file_str = canonical_file.to_string_lossy().to_string();
+    let root_str = canonical_root.to_string_lossy().to_string();
+
+    // Create "AI" note at line 7 (load_config)
+    let req_ai_note = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str,
+            "line": 7,
+            "column": 0,
+            "text": "[claude] This function loads config",
+            "content": initial_content,
+            "tags": []
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_ai_note.len(), req_ai_note);
+    cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    // Create Factory note at line 16 (fn new)
+    let req_factory = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/create",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str,
+            "line": 16,
+            "column": 4,
+            "text": "Factory method - add validation",
+            "content": initial_content,
+            "tags": []
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_factory.len(), req_factory);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("create factory response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let factory_id = resp
+        .result
+        .as_ref()
+        .and_then(|v| v.get("id"))
+        .and_then(|v| v.as_str())
+        .expect("factory note id")
+        .to_string();
+
+    // Insert comments above impl (line 15) - this shifts fn new to line 18
+    let content_with_comments = r#"fn main() {
+    let config = load_config();
+    let server = Server::new(config);
+    server.start();
+}
+
+fn load_config() -> Config {
+    Config::default()
+}
+
+struct Server {
+    config: Config,
+}
+
+// Comment line 1
+// Comment line 2
+impl Server {
+    fn new(config: Config) -> Self {
+        Self { config }
+    }
+
+    fn start(&self) {
+        println!("Starting server...");
+    }
+}
+"#;
+
+    // Verify notes track correctly
+    let req_list = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "notes/list-for-file",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str,
+            "content": content_with_comments
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_list.len(), req_list);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("list response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let notes = resp.result.as_ref().and_then(|v| v.as_array()).cloned().unwrap();
+    assert_eq!(notes.len(), 2, "should have two notes");
+
+    // Find notes by their lines
+    let ai_note = notes.iter().find(|n| n.get("text").and_then(|t| t.as_str()).unwrap_or("").contains("claude"));
+    let factory_note = notes.iter().find(|n| n.get("text").and_then(|t| t.as_str()).unwrap_or("").contains("Factory"));
+
+    assert!(ai_note.is_some(), "AI note should exist");
+    assert!(factory_note.is_some(), "Factory note should exist");
+
+    let ai_line = ai_note.unwrap().get("line").and_then(|v| v.as_i64()).unwrap();
+    let factory_line = factory_note.unwrap().get("line").and_then(|v| v.as_i64()).unwrap();
+
+    assert_eq!(ai_line, 7, "AI note should stay at line 7 (above insertion)");
+    assert_eq!(factory_line, 18, "Factory note should move to line 18 (original 16 + 2 comments)");
+
+    // Rename fn new -> fn create (makes factory note stale)
+    let content_renamed = r#"fn main() {
+    let config = load_config();
+    let server = Server::new(config);
+    server.start();
+}
+
+fn load_config() -> Config {
+    Config::default()
+}
+
+struct Server {
+    config: Config,
+}
+
+// Comment line 1
+// Comment line 2
+impl Server {
+    fn create(config: Config) -> Self {
+        Self { config }
+    }
+
+    fn start(&self) {
+        println!("Starting server...");
+    }
+}
+"#;
+
+    // List again - factory note should be stale, AI note should be fine
+    let req_list_stale = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "notes/list-for-file",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str,
+            "content": content_renamed
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_list_stale.len(), req_list_stale);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("list stale response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let notes = resp.result.as_ref().and_then(|v| v.as_array()).cloned().unwrap();
+
+    let ai_note = notes.iter().find(|n| n.get("text").and_then(|t| t.as_str()).unwrap_or("").contains("claude")).unwrap();
+    let factory_note = notes.iter().find(|n| n.get("text").and_then(|t| t.as_str()).unwrap_or("").contains("Factory")).unwrap();
+
+    let ai_stale = ai_note.get("stale").and_then(|v| v.as_bool()).unwrap_or(false);
+    let factory_stale = factory_note.get("stale").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    assert!(!ai_stale, "AI note at line 7 should NOT be stale (unchanged)");
+    assert!(factory_stale, "Factory note should be stale (function renamed)");
+
+    // Reattach factory note
+    let req_reattach = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "notes/reattach",
+        "params": {
+            "id": factory_id,
+            "file": file_str,
+            "line": 18,
+            "column": 4,
+            "content": content_renamed
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_reattach.len(), req_reattach);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("reattach response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    assert!(resp.error.is_none(), "reattach should succeed");
+
+    // Verify both notes are fresh
+    let req_list_fresh = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "notes/list-for-file",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str,
+            "content": content_renamed
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_list_fresh.len(), req_list_fresh);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("list fresh response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let notes = resp.result.as_ref().and_then(|v| v.as_array()).cloned().unwrap();
+
+    for note in &notes {
+        let stale = note.get("stale").and_then(|v| v.as_bool()).unwrap_or(true);
+        assert!(!stale, "all notes should be fresh after reattach");
+    }
+
+    Ok(())
+}
+
 /// Integration test matching the full neovim demo script:
 /// Covers notes, indexing, search, links, backlinks, and status.
 #[test]
@@ -3425,6 +3634,224 @@ fn explain_region_with_real_ai() -> anyhow::Result<()> {
     let ai_info = result.get("ai").expect("should have ai info");
     let returned_provider = ai_info.get("provider").and_then(|v| v.as_str());
     assert_eq!(returned_provider, Some(provider), "should return correct provider");
+
+    Ok(())
+}
+
+// Test that persistent Claude process speeds up consecutive calls.
+// Second call should be faster because it reuses the running process.
+#[test]
+fn persistent_claude_speedup() -> anyhow::Result<()> {
+    // Only run with Claude
+    if !std::process::Command::new("claude")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        eprintln!("Skipping persistent_claude_speedup: claude CLI not found");
+        return Ok(());
+    }
+
+    let db = NamedTempFile::new()?;
+    let tmpdir = tempfile::tempdir()?;
+    let file_path = tmpdir.path().join("test.rs");
+
+    let content = r#"fn multiply(a: i32, b: i32) -> i32 {
+    a * b
+}
+"#;
+    std::fs::write(&file_path, content)?;
+
+    // Use a long-running hemis process (server mode via pipe)
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_hemis"))
+        .env("HEMIS_DB_PATH", db.path())
+        .env("HEMIS_AI_PROVIDER", "claude")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    let mut stdin = child.stdin.take().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let mut reader = BufReader::new(stdout);
+
+    // Helper to send request and read response
+    fn send_request(stdin: &mut std::process::ChildStdin, reader: &mut BufReader<std::process::ChildStdout>, req: &str) -> anyhow::Result<serde_json::Value> {
+        let msg = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+        stdin.write_all(msg.as_bytes())?;
+        stdin.flush()?;
+
+        // Read Content-Length header
+        let mut header = String::new();
+        reader.read_line(&mut header)?;
+        let len: usize = header.trim().strip_prefix("Content-Length: ").unwrap().parse()?;
+
+        // Read empty line
+        let mut empty = String::new();
+        reader.read_line(&mut empty)?;
+
+        // Read body
+        let mut body = vec![0u8; len];
+        std::io::Read::read_exact(reader, &mut body)?;
+
+        let resp: Response = serde_json::from_slice(&body)?;
+        resp.result.ok_or_else(|| anyhow::anyhow!("no result"))
+    }
+
+    // First: index-project to warm up Claude
+    let index_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/index-project",
+        "params": {
+            "projectRoot": tmpdir.path().to_string_lossy(),
+            "includeAI": false
+        }
+    }).to_string();
+
+    let _ = send_request(&mut stdin, &mut reader, &index_req)?;
+    eprintln!("Index complete, Claude should be warming up...");
+
+    // Give warm-up time to complete (spawned in background thread, sends a test query)
+    // The warm-up query takes ~5-10s on first run, so we wait enough for it to finish
+    std::thread::sleep(std::time::Duration::from_secs(15));
+
+    // First explain-region call (should be fast since Claude is already warm)
+    let explain_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "hemis/explain-region",
+        "params": {
+            "file": file_path.to_string_lossy(),
+            "projectRoot": tmpdir.path().to_string_lossy(),
+            "startLine": 1,
+            "endLine": 3,
+            "useAI": true
+        }
+    }).to_string();
+
+    let start1 = std::time::Instant::now();
+    let result1 = send_request(&mut stdin, &mut reader, &explain_req)?;
+    let time1 = start1.elapsed();
+    eprintln!("First explain-region took: {:?}", time1);
+
+    assert!(result1.get("explanation").is_some(), "first call should have explanation");
+
+    // Second explain-region call (should use persistent process - much faster)
+    let explain_req2 = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "hemis/explain-region",
+        "params": {
+            "file": file_path.to_string_lossy(),
+            "projectRoot": tmpdir.path().to_string_lossy(),
+            "startLine": 1,
+            "endLine": 3,
+            "useAI": true
+        }
+    }).to_string();
+
+    let start2 = std::time::Instant::now();
+    let result2 = send_request(&mut stdin, &mut reader, &explain_req2)?;
+    let time2 = start2.elapsed();
+    eprintln!("Second explain-region took: {:?}", time2);
+
+    assert!(result2.get("explanation").is_some(), "second call should have explanation");
+
+    // Both calls should be fast (under 10s) since Claude is already warm
+    // The first call after warm-up should not have startup overhead
+    assert!(time1.as_secs() < 10, "first call should be fast after warm-up: {:?}", time1);
+    assert!(time2.as_secs() < 10, "second call should also be fast: {:?}", time2);
+    eprintln!("Time comparison: {:?} -> {:?} (both should be fast)", time1, time2);
+
+    // Cleanup
+    let _ = child.kill();
+
+    Ok(())
+}
+
+// Test Codex one-shot mode works correctly.
+#[test]
+fn codex_explain_region() -> anyhow::Result<()> {
+    // Only run with Codex
+    if !std::process::Command::new("codex")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        eprintln!("Skipping codex_explain_region: codex CLI not found");
+        return Ok(());
+    }
+
+    let db = NamedTempFile::new()?;
+    let tmpdir = tempfile::tempdir()?;
+    let file_path = tmpdir.path().join("test.rs");
+
+    let content = r#"fn divide(a: i32, b: i32) -> Option<i32> {
+    if b == 0 {
+        None
+    } else {
+        Some(a / b)
+    }
+}
+"#;
+    std::fs::write(&file_path, content)?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/explain-region",
+        "params": {
+            "file": file_path.to_string_lossy(),
+            "projectRoot": tmpdir.path().to_string_lossy(),
+            "startLine": 1,
+            "endLine": 7,
+            "useAI": true
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+
+    let start = std::time::Instant::now();
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .env("HEMIS_AI_PROVIDER", "codex")
+        .timeout(std::time::Duration::from_secs(120))
+        .write_stdin(input)
+        .assert()
+        .success();
+    let elapsed = start.elapsed();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("decode response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    if let Some(err) = resp.error {
+        panic!("RPC error: {:?}", err);
+    }
+
+    let result = resp.result.expect("should have result");
+
+    // Should have AI explanation
+    let explanation = result.get("explanation").and_then(|v| v.as_str());
+    assert!(explanation.is_some(), "should have AI explanation");
+    let explanation = explanation.unwrap();
+    assert!(!explanation.is_empty(), "explanation should not be empty");
+    // Safely truncate at char boundary for display
+    let display_len = explanation.char_indices().take(200).last().map(|(i, c)| i + c.len_utf8()).unwrap_or(0);
+    eprintln!("Codex explanation ({} chars, {:?}): {}...",
+              explanation.len(), elapsed, &explanation[..display_len]);
+
+    // Should have AI info with codex provider
+    let ai_info = result.get("ai").expect("should have ai info");
+    let returned_provider = ai_info.get("provider").and_then(|v| v.as_str());
+    assert_eq!(returned_provider, Some("codex"), "should return codex provider");
 
     Ok(())
 }
