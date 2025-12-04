@@ -112,6 +112,65 @@ fn default_diff_limit() -> usize { 100 }
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct VersionRequest {}
 
+// === BD (Beads) Issue Tracker Request Types ===
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct BdListRequest {
+    /// Filter by status: "open", "closed", "in_progress", "ready" (default: ready)
+    #[serde(default = "default_bd_status")]
+    pub status: String,
+    /// Filter by label (optional)
+    #[serde(default)]
+    pub label: Option<String>,
+    /// Max results (default 20)
+    #[serde(default = "default_bd_limit")]
+    pub limit: usize,
+}
+
+fn default_bd_status() -> String { "ready".to_string() }
+fn default_bd_limit() -> usize { 20 }
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct BdCreateRequest {
+    /// Issue title (required)
+    pub title: String,
+    /// Issue description (recommended)
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Labels (e.g., "backend", "bug", "perf")
+    #[serde(default)]
+    pub labels: Vec<String>,
+    /// Priority 0-4 (0=highest, default=2)
+    #[serde(default = "default_priority")]
+    pub priority: u8,
+}
+
+fn default_priority() -> u8 { 2 }
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct BdCloseRequest {
+    /// Issue ID to close (e.g., "hemis-abc")
+    pub id: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct BdShowRequest {
+    /// Issue ID to show (e.g., "hemis-abc")
+    pub id: String,
+}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct BdUpdateRequest {
+    /// Issue ID to update (e.g., "hemis-abc")
+    pub id: String,
+    /// New status: "open", "in_progress", "closed"
+    #[serde(default)]
+    pub status: Option<String>,
+    /// Add labels
+    #[serde(default)]
+    pub add_labels: Vec<String>,
+}
+
 // ============================================================================
 // Server implementation
 // ============================================================================
@@ -254,6 +313,121 @@ impl HemisServer {
         }
 
         Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    // === BD (Beads) Issue Tracker Tools ===
+
+    #[tool(description = "List issues from bd tracker. Default shows ready work (open, no blockers).")]
+    fn bd_list(
+        &self,
+        Parameters(req): Parameters<BdListRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut cmd = Command::new("bd");
+
+        // Map status to bd command
+        match req.status.as_str() {
+            "ready" => { cmd.arg("ready"); }
+            "blocked" => { cmd.arg("blocked"); }
+            "closed" => { cmd.args(["list", "--status", "closed"]); }
+            "in_progress" => { cmd.args(["list", "--status", "in_progress"]); }
+            "open" => { cmd.args(["list", "--status", "open"]); }
+            _ => { cmd.arg("ready"); }
+        }
+
+        if let Some(ref label) = req.label {
+            cmd.args(["--label", label]);
+        }
+
+        match run_command_with_timeout(cmd, Duration::from_secs(10)) {
+            Ok((stdout, _)) => {
+                let lines: Vec<&str> = stdout.lines().take(req.limit + 5).collect();
+                Ok(CallToolResult::success(vec![Content::text(lines.join("\n"))]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("BD ERROR: {}", e))]))
+        }
+    }
+
+    #[tool(description = "Create a new issue in bd tracker. Returns issue ID.")]
+    fn bd_create(
+        &self,
+        Parameters(req): Parameters<BdCreateRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut cmd = Command::new("bd");
+        cmd.arg("create");
+        cmd.arg(&req.title);
+
+        if let Some(ref desc) = req.description {
+            cmd.args(["--description", desc]);
+        }
+
+        if !req.labels.is_empty() {
+            cmd.args(["--labels", &req.labels.join(",")]);
+        }
+
+        cmd.args(["--priority", &req.priority.to_string()]);
+
+        match run_command_with_timeout(cmd, Duration::from_secs(10)) {
+            Ok((stdout, _)) => {
+                Ok(CallToolResult::success(vec![Content::text(format!("CREATED: {}", stdout.trim()))]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("BD CREATE ERROR: {}", e))]))
+        }
+    }
+
+    #[tool(description = "Close an issue in bd tracker.")]
+    fn bd_close(
+        &self,
+        Parameters(req): Parameters<BdCloseRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut cmd = Command::new("bd");
+        cmd.args(["close", &req.id]);
+
+        match run_command_with_timeout(cmd, Duration::from_secs(10)) {
+            Ok((stdout, _)) => {
+                Ok(CallToolResult::success(vec![Content::text(format!("CLOSED: {}", stdout.trim()))]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("BD CLOSE ERROR: {}", e))]))
+        }
+    }
+
+    #[tool(description = "Show details of a specific issue.")]
+    fn bd_show(
+        &self,
+        Parameters(req): Parameters<BdShowRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut cmd = Command::new("bd");
+        cmd.args(["show", &req.id]);
+
+        match run_command_with_timeout(cmd, Duration::from_secs(10)) {
+            Ok((stdout, _)) => {
+                Ok(CallToolResult::success(vec![Content::text(stdout)]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("BD SHOW ERROR: {}", e))]))
+        }
+    }
+
+    #[tool(description = "Update an issue status or labels.")]
+    fn bd_update(
+        &self,
+        Parameters(req): Parameters<BdUpdateRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut cmd = Command::new("bd");
+        cmd.args(["update", &req.id]);
+
+        if let Some(ref status) = req.status {
+            cmd.args(["--status", status]);
+        }
+
+        if !req.add_labels.is_empty() {
+            cmd.args(["--add-labels", &req.add_labels.join(",")]);
+        }
+
+        match run_command_with_timeout(cmd, Duration::from_secs(10)) {
+            Ok((stdout, _)) => {
+                Ok(CallToolResult::success(vec![Content::text(format!("UPDATED: {}", stdout.trim()))]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("BD UPDATE ERROR: {}", e))]))
+        }
     }
 }
 

@@ -13,6 +13,11 @@ The hemis-mcp server provides low-token, purpose-built tools. Using MCP tools in
 | Check git status | `mcp__hemis-mcp__git_context` | `git status && git diff` |
 | View work items | `mcp__hemis-mcp__bd_context` | `bd ready` |
 | Run tests | `mcp__hemis-mcp__cargo_test_summary` | `cargo test` |
+| List issues | `mcp__hemis-mcp__bd_list` | `bd list` |
+| Create issue | `mcp__hemis-mcp__bd_create` | `bd create` |
+| Close issue | `mcp__hemis-mcp__bd_close` | `bd close` |
+| Show issue | `mcp__hemis-mcp__bd_show` | `bd show` |
+| Update issue | `mcp__hemis-mcp__bd_update` | `bd update` |
 
 ### Tool Reference
 
@@ -22,6 +27,11 @@ The hemis-mcp server provides low-token, purpose-built tools. Using MCP tools in
 | `git_context` | Compact git status | Branch, changed files, optional diff |
 | `bd_context` | List open beads | Work items with status and blockers |
 | `cargo_test_summary` | Run tests with summary | Pass/fail counts, first failures |
+| `bd_list` | List issues by status | Issues with id, title, blockers |
+| `bd_create` | Create new issue | Issue ID |
+| `bd_close` | Close an issue | Confirmation |
+| `bd_show` | Show issue details | Full issue info |
+| `bd_update` | Update issue status/labels | Confirmation |
 
 ### Parameters
 
@@ -35,6 +45,28 @@ The hemis-mcp server provides low-token, purpose-built tools. Using MCP tools in
 **cargo_test_summary:**
 - `package` (string): Package to test (for workspace)
 - `filter` (string): Test filter pattern
+
+**bd_list:**
+- `status` (string, default "ready"): Filter by status (ready/blocked/open/closed/in_progress)
+- `label` (string): Filter by label
+- `limit` (int, default 20): Max results
+
+**bd_create:**
+- `title` (string, required): Issue title
+- `description` (string): Issue description
+- `labels` (array): Labels like "backend", "bug"
+- `priority` (int, default 2): Priority 0-4 (0=highest)
+
+**bd_close:**
+- `id` (string, required): Issue ID to close
+
+**bd_show:**
+- `id` (string, required): Issue ID to show
+
+**bd_update:**
+- `id` (string, required): Issue ID to update
+- `status` (string): New status (open/in_progress/closed)
+- `add_labels` (array): Labels to add
 
 ### Anti-Patterns (DO NOT DO)
 
@@ -50,6 +82,10 @@ git diff
 # WRONG - Don't run bd directly
 bd ready
 bd list
+bd create "title"
+bd close hemis-abc
+bd show hemis-abc
+bd update hemis-abc --status in_progress
 ```
 
 ```
@@ -59,6 +95,11 @@ mcp__hemis-mcp__cargo_test_summary with package: "hemis-storage"
 mcp__hemis-mcp__git_context
 mcp__hemis-mcp__git_context with include_diff: true
 mcp__hemis-mcp__bd_context
+mcp__hemis-mcp__bd_list with status: "open"
+mcp__hemis-mcp__bd_create with title: "Fix bug", labels: ["backend"]
+mcp__hemis-mcp__bd_close with id: "hemis-abc"
+mcp__hemis-mcp__bd_show with id: "hemis-abc"
+mcp__hemis-mcp__bd_update with id: "hemis-abc", status: "in_progress"
 ```
 
 ### When Bash IS Appropriate
@@ -68,6 +109,7 @@ Only use Bash for operations MCP doesn't cover:
 - Running the `hemis` CLI directly
 - Installing dependencies
 - File operations outside the test/status workflow
+- Complex bd queries not covered by MCP tools
 
 ### Server Location
 
@@ -87,6 +129,14 @@ Good candidates for new MCP tools:
 - Any operation you run more than 3 times in a session
 - Commands with verbose output that needs filtering
 - Multi-step operations that should be atomic
+
+**MANDATORY: When you create a new MCP tool, you MUST update this AGENTS.md file:**
+1. Add the tool to the Tool Priority table (if it replaces a Bash command)
+2. Add the tool to the Tool Reference table
+3. Document parameters in the Parameters section
+4. Add anti-patterns showing the wrong Bash way vs correct MCP way
+
+**Failure to update documentation means the tool won't be used. Do not skip this step.**
 
 ## Development Guidelines
 
