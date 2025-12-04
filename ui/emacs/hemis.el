@@ -1436,7 +1436,6 @@ Otherwise, prompt for a note ID."
   C-c h e    Edit note at point
   C-c h d    Delete note at point
   C-c h b    Show backlinks to note
-  C-c h i    Index current file
   C-c h p    Index entire project
   C-c h s    Search project (files and notes)
   C-c h k    Insert a link to another note
