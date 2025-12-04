@@ -5,7 +5,6 @@ import {
   deleteNote,
   updateNote,
   listNotes,
-  indexFile,
   indexProject,
   indexProjectWithAI,
   search,
@@ -13,15 +12,13 @@ import {
   getBacklinks,
   shutdown,
   explainRegion,
-  saveSnapshot,
-  loadSnapshot,
   getNoteAtCursor,
   getProjectRoot,
   getProjectMeta,
   Note,
   SearchHit,
 } from './notes';
-import { refreshNotes, refreshAllEditors } from './decorations';
+import { refreshNotes } from './decorations';
 
 // Simple node path extraction (placeholder until Tree-sitter is integrated)
 function getNodePath(): string[] {
@@ -274,30 +271,6 @@ export async function listNotesCommand(): Promise<void> {
   }
 }
 
-export async function indexFileCommand(): Promise<void> {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) {
-    vscode.window.showErrorMessage('No active editor');
-    return;
-  }
-
-  const file = editor.document.uri.fsPath;
-  const projectRoot = getProjectRoot();
-  if (!projectRoot) {
-    vscode.window.showErrorMessage('No workspace folder open');
-    return;
-  }
-  const content = editor.document.getText();
-
-  try {
-    await indexFile(file, projectRoot, content);
-    vscode.window.showInformationMessage(`Indexed: ${path.basename(file)}`);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    vscode.window.showErrorMessage(`Failed to index file: ${message}`);
-  }
-}
-
 export async function indexProjectCommand(): Promise<void> {
   const projectRoot = getProjectRoot();
   if (!projectRoot) {
@@ -538,11 +511,8 @@ export async function helpCommand(): Promise<void> {
     '| Backlinks | Cmd+Shift+H B | Show notes linking here |',
     '| Search | Cmd+Shift+H S | Search notes and files |',
     '| Insert Link | Cmd+Shift+H K | Insert note link |',
-    '| Index File | Cmd+Shift+H I | Index current file |',
     '| Index Project | Cmd+Shift+H P | Index all project files |',
     '| Explain Region | | Get code snippet for LLM |',
-    '| Save Snapshot | | Backup notes to file |',
-    '| Load Snapshot | | Restore notes from file |',
     '| Status | | Show database counts |',
     '| Shutdown | | Stop backend server |',
   ].join('\n');
@@ -748,70 +718,6 @@ export async function projectMetaCommand(): Promise<void> {
   }
 }
 
-export async function saveSnapshotCommand(): Promise<void> {
-  const uri = await vscode.window.showSaveDialog({
-    defaultUri: vscode.Uri.file('hemis-snapshot.json'),
-    filters: { 'JSON files': ['json'] },
-  });
-
-  if (!uri) {
-    return;
-  }
-
-  try {
-    const projectRoot = getProjectRoot();
-    const result = await saveSnapshot(uri.fsPath, projectRoot || undefined);
-
-    if (result.ok && result.counts) {
-      vscode.window.showInformationMessage(
-        `Snapshot saved: ${result.counts.notes} notes, ${result.counts.files} files`
-      );
-    } else {
-      vscode.window.showInformationMessage('Snapshot saved');
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    vscode.window.showErrorMessage(`Failed to save snapshot: ${message}`);
-  }
-}
-
-export async function loadSnapshotCommand(): Promise<void> {
-  const uri = await vscode.window.showOpenDialog({
-    canSelectMany: false,
-    filters: { 'JSON files': ['json'] },
-  });
-
-  if (!uri || uri.length === 0) {
-    return;
-  }
-
-  const confirm = await vscode.window.showWarningMessage(
-    'Loading a snapshot will replace all current data. Continue?',
-    { modal: true },
-    'Load'
-  );
-
-  if (confirm !== 'Load') {
-    return;
-  }
-
-  try {
-    const result = await loadSnapshot(uri[0].fsPath);
-
-    if (result.ok && result.counts) {
-      vscode.window.showInformationMessage(
-        `Snapshot loaded: ${result.counts.notes} notes, ${result.counts.files} files`
-      );
-      await refreshAllEditors();
-    } else {
-      vscode.window.showInformationMessage('Snapshot loaded');
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    vscode.window.showErrorMessage(`Failed to load snapshot: ${message}`);
-  }
-}
-
 export function registerCommands(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('hemis.addNote', addNoteCommand),
@@ -819,7 +725,6 @@ export function registerCommands(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('hemis.editNote', editNoteCommand),
     vscode.commands.registerCommand('hemis.refreshNotes', refreshNotesCommand),
     vscode.commands.registerCommand('hemis.listNotes', listNotesCommand),
-    vscode.commands.registerCommand('hemis.indexFile', indexFileCommand),
     vscode.commands.registerCommand('hemis.indexProject', indexProjectCommand),
     vscode.commands.registerCommand('hemis.indexProjectAI', indexProjectAICommand),
     vscode.commands.registerCommand('hemis.search', searchCommand),
@@ -833,8 +738,6 @@ export function registerCommands(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('hemis.shutdown', shutdownCommand),
     vscode.commands.registerCommand('hemis.explainRegion', explainRegionCommand),
     vscode.commands.registerCommand('hemis.explainRegionAI', explainRegionAICommand),
-    vscode.commands.registerCommand('hemis.saveSnapshot', saveSnapshotCommand),
-    vscode.commands.registerCommand('hemis.loadSnapshot', loadSnapshotCommand),
     vscode.commands.registerCommand('hemis.jumpToNote', jumpToNoteCommand)
   );
 }

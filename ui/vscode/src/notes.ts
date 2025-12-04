@@ -72,11 +72,6 @@ export async function listNotesByNode(
   return client.request<Note[]>('notes/list-by-node', { file, projectRoot, nodePath, includeStale });
 }
 
-export async function indexFile(file: string, projectRoot: string, content: string): Promise<void> {
-  const client = getRpcClient();
-  await client.request<void>('index/add-file', { file, projectRoot, content });
-}
-
 export async function indexProject(projectRoot: string): Promise<{ indexed: number }> {
   const client = getRpcClient();
   return client.request<{ indexed: number }>('hemis/index-project', { projectRoot });
@@ -197,26 +192,6 @@ export interface ProjectMeta {
 export async function getProjectMeta(projectRoot: string): Promise<ProjectMeta> {
   const client = getRpcClient();
   return client.request<ProjectMeta>('hemis/project-meta', { projectRoot });
-}
-
-export interface SnapshotResult {
-  ok: boolean;
-  counts?: {
-    notes: number;
-    files: number;
-    embeddings: number;
-    edges: number;
-  };
-}
-
-export async function saveSnapshot(path: string, projectRoot?: string): Promise<SnapshotResult> {
-  const client = getRpcClient();
-  return client.request<SnapshotResult>('hemis/save-snapshot', { path, projectRoot });
-}
-
-export async function loadSnapshot(path: string): Promise<SnapshotResult> {
-  const client = getRpcClient();
-  return client.request<SnapshotResult>('hemis/load-snapshot', { path });
 }
 
 // Send buffer update for real-time position tracking

@@ -756,20 +756,6 @@ position tracking."
       ,@(when include-content
           `((content . ,(hemis--buffer-content)))))))
 
-(defun hemis-index-file (&optional file)
-  "Send the current FILE (or current buffer) to the backend index."
-  (interactive)
-  (let* ((file (or file (buffer-file-name)))
-         (root (or (hemis--project-root) default-directory)))
-    (unless file
-      (user-error "No file to index"))
-    (let ((content (buffer-substring-no-properties (point-min) (point-max))))
-      (hemis--request "index/add-file"
-                      `((file . ,file)
-                        (projectRoot . ,root)
-                        (content . ,content))))
-    (message "Hemis: indexed %s" file)))
-
 (defun hemis-index-project (&optional root include-ai)
   "Index all files under ROOT (defaults to project root) and show progress.
 With prefix arg or INCLUDE-AI non-nil, also run AI analysis."
@@ -989,29 +975,6 @@ With prefix arg or USE-AI non-nil, use AI to explain."
   "Request an AI-powered explanation for the region from BEG to END."
   (interactive "r")
   (hemis-explain-region beg end t))
-
-(defun hemis-save-snapshot (path)
-  "Save a Hemis snapshot to PATH."
-  (interactive "FSave snapshot to: ")
-  (let* ((root (or (hemis--project-root) default-directory))
-         (resp (hemis--request "hemis/save-snapshot"
-                               `((path . ,(expand-file-name path))
-                                 (projectRoot . ,root)))))
-    (message "Hemis: snapshot saved to %s" (alist-get 'path resp))))
-
-(defun hemis-load-snapshot (path)
-  "Load a Hemis snapshot from PATH and display summary."
-  (interactive "fLoad snapshot: ")
-  (let* ((resp (hemis--request "hemis/load-snapshot"
-                               `((path . ,(expand-file-name path)))))
-         (buf (get-buffer-create "*Hemis Snapshot*")))
-    (with-current-buffer buf
-      (setq buffer-read-only nil)
-      (erase-buffer)
-      (insert (pp-to-string resp))
-      (goto-char (point-min))
-      (view-mode 1)
-      (display-buffer buf))))
 
 (defun hemis-refresh-notes ()
   "Fetch and render all notes for the current buffer.
@@ -1347,7 +1310,6 @@ Otherwise, prompt for a note ID."
     (define-key map (kbd "C-c h a") #'hemis-add-note)
     (define-key map (kbd "C-c h r") #'hemis-refresh-notes)
     (define-key map (kbd "C-c h l") #'hemis-list-notes)
-    (define-key map (kbd "C-c h i") #'hemis-index-file)
     (define-key map (kbd "C-c h p") #'hemis-index-project)
     (define-key map (kbd "C-c h s") #'hemis-search-project)
     (define-key map (kbd "C-c h k") #'hemis-insert-note-link)
@@ -1366,7 +1328,6 @@ Otherwise, prompt for a note ID."
     (define-key hemis-notes-mode-map (kbd "C-c h a") #'hemis-add-note)
     (define-key hemis-notes-mode-map (kbd "C-c h r") #'hemis-refresh-notes)
     (define-key hemis-notes-mode-map (kbd "C-c h l") #'hemis-list-notes)
-    (define-key hemis-notes-mode-map (kbd "C-c h i") #'hemis-index-file)
     (define-key hemis-notes-mode-map (kbd "C-c h p") #'hemis-index-project)
     (define-key hemis-notes-mode-map (kbd "C-c h s") #'hemis-search-project)
     (define-key hemis-notes-mode-map (kbd "C-c h k") #'hemis-insert-note-link)
@@ -1516,8 +1477,6 @@ Otherwise, prompt for a note ID."
                           'face '(:weight bold :underline t)))
       (insert "
   M-x hemis-open-project      Set project root
-  M-x hemis-save-snapshot     Save project snapshot
-  M-x hemis-load-snapshot     Load project snapshot
   M-x hemis-explain-region    Explain selected code (requires LLM)
   M-x hemis-shutdown          Stop Hemis backend
   M-x hemis-reload            Reload Hemis (after code changes)

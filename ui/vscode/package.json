@@ -43,10 +43,6 @@
         "title": "Hemis: List Notes"
       },
       {
-        "command": "hemis.indexFile",
-        "title": "Hemis: Index Current File"
-      },
-      {
         "command": "hemis.indexProject",
         "title": "Hemis: Index Project"
       },
@@ -85,14 +81,6 @@
       {
         "command": "hemis.explainRegion",
         "title": "Hemis: Explain Region (Copy for LLM)"
-      },
-      {
-        "command": "hemis.saveSnapshot",
-        "title": "Hemis: Save Snapshot"
-      },
-      {
-        "command": "hemis.loadSnapshot",
-        "title": "Hemis: Load Snapshot"
       }
     ],
     "configuration": {
@@ -171,12 +159,6 @@
         "command": "hemis.search",
         "key": "ctrl+shift+h s",
         "mac": "cmd+shift+h s"
-      },
-      {
-        "command": "hemis.indexFile",
-        "key": "ctrl+shift+h i",
-        "mac": "cmd+shift+h i",
-        "when": "editorTextFocus"
       },
       {
         "command": "hemis.indexProject",

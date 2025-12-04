@@ -23,7 +23,7 @@ use std::str;
 
 use anyhow::{anyhow, Result};
 use backend::config::ResolvedConfig;
-use backend::{create_parser_service, parse_and_handle};
+use backend::{create_parser_service, parse_and_handle, snapshot};
 use backend::server::Server;
 use rpc::{decode_framed, encode_response, Response};
 use storage::connect;
@@ -620,11 +620,13 @@ fn print_help() {
     println!("    grammar        Manage tree-sitter grammars (list, fetch, build)");
     println!();
     println!("OPTIONS:");
-    println!("    --serve, -s        Run as server (Unix socket at ~/.hemis/hemis.sock)");
-    println!("    --stdio            Run in stdio mode (for testing/debugging)");
-    println!("    --config <PATH>    Path to config file (default: ~/.config/hemis/config.toml)");
-    println!("    --version, -v      Print version information");
-    println!("    --help, -h         Print this help message");
+    println!("    --serve, -s            Run as server (Unix socket at ~/.hemis/hemis.sock)");
+    println!("    --stdio                Run in stdio mode (for testing/debugging)");
+    println!("    --config <PATH>        Path to config file (default: ~/.config/hemis/config.toml)");
+    println!("    --save-snapshot <PATH> Save database snapshot to file and exit");
+    println!("    --load-snapshot <PATH> Load database snapshot from file and exit");
+    println!("    --version, -v          Print version information");
+    println!("    --help, -h             Print this help message");
     println!();
     println!("CONFIG FILE:");
     println!("    db-path = \"/path/to/hemis.db\"");
@@ -654,6 +656,66 @@ fn parse_arg_value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
     None
 }
 
+/// Save snapshot to file
+fn run_save_snapshot(config: &ResolvedConfig, path: &str) -> Result<()> {
+    let conn = connect(&config.db_path)?;
+
+    // Create snapshot (no project root filter - save all data)
+    let payload = snapshot::create(&conn, None)?;
+
+    let json = serde_json::to_string_pretty(&payload)
+        .map_err(|e| anyhow!("failed to serialize snapshot: {}", e))?;
+
+    std::fs::write(path, json)
+        .map_err(|e| anyhow!("failed to write snapshot file: {}", e))?;
+
+    if let Some(counts) = payload.get("counts") {
+        println!("Snapshot saved to {}", path);
+        println!("  Notes: {}", counts.get("notes").and_then(|v| v.as_u64()).unwrap_or(0));
+        println!("  Files: {}", counts.get("files").and_then(|v| v.as_u64()).unwrap_or(0));
+        println!("  Embeddings: {}", counts.get("embeddings").and_then(|v| v.as_u64()).unwrap_or(0));
+        println!("  Edges: {}", counts.get("edges").and_then(|v| v.as_u64()).unwrap_or(0));
+    } else {
+        println!("Snapshot saved to {}", path);
+    }
+
+    Ok(())
+}
+
+/// Load snapshot from file
+fn run_load_snapshot(config: &ResolvedConfig, path: &str) -> Result<()> {
+    // Size limit for snapshot files (10MB)
+    const MAX_SNAPSHOT_SIZE: u64 = 10 * 1024 * 1024;
+
+    let meta = std::fs::metadata(path)
+        .map_err(|e| anyhow!("failed to access snapshot file: {}", e))?;
+
+    if meta.len() > MAX_SNAPSHOT_SIZE {
+        return Err(anyhow!("snapshot file too large: {} bytes (max {})", meta.len(), MAX_SNAPSHOT_SIZE));
+    }
+
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| anyhow!("failed to read snapshot file: {}", e))?;
+
+    let val: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| anyhow!("invalid snapshot JSON: {}", e))?;
+
+    let conn = connect(&config.db_path)?;
+
+    let result = snapshot::restore(&conn, &val)
+        .map_err(|e| anyhow!("snapshot restore failed: {}", e))?;
+
+    println!("Snapshot loaded from {}", path);
+    if let Some(counts) = result.get("counts") {
+        println!("  Notes: {}", counts.get("notes").and_then(|v| v.as_u64()).unwrap_or(0));
+        println!("  Files: {}", counts.get("files").and_then(|v| v.as_u64()).unwrap_or(0));
+        println!("  Embeddings: {}", counts.get("embeddings").and_then(|v| v.as_u64()).unwrap_or(0));
+        println!("  Edges: {}", counts.get("edges").and_then(|v| v.as_u64()).unwrap_or(0));
+    }
+
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
@@ -677,6 +739,15 @@ fn main() -> Result<()> {
 
     // Build resolved config (CLI config path > default config path)
     let config = ResolvedConfig::new(config_path);
+
+    // Check for snapshot commands
+    if let Some(path) = parse_arg_value(&args, "--save-snapshot") {
+        return run_save_snapshot(&config, path);
+    }
+
+    if let Some(path) = parse_arg_value(&args, "--load-snapshot") {
+        return run_load_snapshot(&config, path);
+    }
 
     match detect_mode() {
         Mode::Server => run_server_mode(&config),

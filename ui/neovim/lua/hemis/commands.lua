@@ -458,11 +458,6 @@ function M.insert_link(opts)
   end)
 end
 
--- Index current file
-function M.index_file()
-  notes.index_file()
-end
-
 -- Index project
 function M.index_project()
   notes.index_project(false)
@@ -616,22 +611,16 @@ function M.help()
     prefix .. "d  - Delete note at cursor",
     prefix .. "e  - Edit note at cursor",
     prefix .. "s  - Search notes/files",
-    prefix .. "i  - Index current file",
     prefix .. "p  - Index project",
     prefix .. "k  - Insert note link",
     prefix .. "b  - Show backlinks",
     prefix .. "f  - List project files",
-    prefix .. "S  - Save snapshot",
-    prefix .. "L  - Load snapshot",
     prefix .. "x  - Explain region (visual)",
     prefix .. "?  - Show this help",
     "",
     ":HemisStatus       - Show backend status",
     ":HemisShutdown     - Stop backend",
-    ":HemisViewFile     - View file content",
     ":HemisExplainRegion - Copy region for LLM",
-    ":HemisSaveSnapshot - Save notes backup",
-    ":HemisLoadSnapshot - Restore notes",
   }
 
   vim.notify(table.concat(help, "\n"), vim.log.levels.INFO)
@@ -855,59 +844,6 @@ function M.project_meta()
   end)
 end
 
--- Save snapshot
-function M.save_snapshot()
-  vim.ui.input({ prompt = "Snapshot path: ", default = "hemis-snapshot.json" }, function(path)
-    if not path or path == "" then
-      return
-    end
-
-    notes.save_snapshot(path, function(err, result)
-      if err then
-        vim.notify("Failed to save snapshot: " .. (err.message or "unknown"), vim.log.levels.ERROR)
-        return
-      end
-
-      local counts = result.counts or {}
-      vim.notify(
-        string.format("Snapshot saved: %d notes, %d files", counts.notes or 0, counts.files or 0),
-        vim.log.levels.INFO
-      )
-    end)
-  end)
-end
-
--- Load snapshot
-function M.load_snapshot()
-  vim.ui.input({ prompt = "Snapshot path: " }, function(path)
-    if not path or path == "" then
-      return
-    end
-
-    vim.ui.select({ "Yes", "No" }, { prompt = "Loading will replace all data. Continue?" }, function(choice)
-      if choice ~= "Yes" then
-        return
-      end
-
-      notes.load_snapshot(path, function(err, result)
-        if err then
-          vim.notify("Failed to load snapshot: " .. (err.message or "unknown"), vim.log.levels.ERROR)
-          return
-        end
-
-        local counts = result.counts or {}
-        vim.notify(
-          string.format("Snapshot loaded: %d notes, %d files", counts.notes or 0, counts.files or 0),
-          vim.log.levels.INFO
-        )
-
-        -- Refresh current buffer
-        M.refresh()
-      end)
-    end)
-  end)
-end
-
 -- Setup user commands
 function M.setup_commands()
   vim.api.nvim_create_user_command("HemisAddNote", M.add_note, {})
@@ -918,7 +854,6 @@ function M.setup_commands()
   vim.api.nvim_create_user_command("HemisEditNote", M.edit_note, {})
   vim.api.nvim_create_user_command("HemisEditNoteBuffer", M.edit_note_buffer, {})
   vim.api.nvim_create_user_command("HemisSearch", M.search, {})
-  vim.api.nvim_create_user_command("HemisIndexFile", M.index_file, {})
   vim.api.nvim_create_user_command("HemisIndexProject", M.index_project, {})
   vim.api.nvim_create_user_command("HemisInsertLink", M.insert_link, {})
   vim.api.nvim_create_user_command("HemisBacklinks", M.show_backlinks, {})
@@ -930,8 +865,6 @@ function M.setup_commands()
   vim.api.nvim_create_user_command("HemisExplainRegionFull", M.explain_region_full, { range = true })
   vim.api.nvim_create_user_command("HemisIndexProjectAI", M.index_project_ai, {})
   vim.api.nvim_create_user_command("HemisProjectMeta", M.project_meta, {})
-  vim.api.nvim_create_user_command("HemisSaveSnapshot", M.save_snapshot, {})
-  vim.api.nvim_create_user_command("HemisLoadSnapshot", M.load_snapshot, {})
 end
 
 -- Setup keymaps
@@ -952,12 +885,9 @@ function M.setup_keymaps()
     { "e", M.edit_note, "Edit note" },
     { "E", M.edit_note_buffer, "Edit note (buffer)" },
     { "s", M.search, "Search" },
-    { "i", M.index_file, "Index file" },
     { "p", M.index_project, "Index project" },
     { "k", M.insert_link, "Insert link" },
     { "b", M.show_backlinks, "Show backlinks" },
-    { "S", M.save_snapshot, "Save snapshot" },
-    { "L", M.load_snapshot, "Load snapshot" },
     { "t", M.status, "Status" },
     { "q", M.shutdown, "Shutdown backend" },
     { "?", M.help, "Help" },

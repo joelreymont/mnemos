@@ -206,25 +206,6 @@ function M.list_by_node(node_path, callback)
   rpc.request("notes/list-by-node", params, callback)
 end
 
--- Index current file
-function M.index_file(callback)
-  local file = vim.fn.expand("%:p")
-  local content = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
-
-  rpc.request("index/add-file", {
-    file = file,
-    projectRoot = get_project_root(),
-    content = content,
-  }, function(err, result)
-    if callback then
-      callback(err, result)
-    end
-    if not err then
-      vim.notify("File indexed", vim.log.levels.INFO)
-    end
-  end)
-end
-
 -- Index project
 -- If include_ai is true, also run AI analysis
 function M.index_project(include_ai, callback)
@@ -304,20 +285,6 @@ end
 function M.project_meta(callback)
   local root = get_project_root()
   rpc.request("hemis/project-meta", { projectRoot = root }, callback)
-end
-
--- Save snapshot
-function M.save_snapshot(path, callback)
-  local root = get_project_root()
-  rpc.request("hemis/save-snapshot", {
-    path = path,
-    projectRoot = root,
-  }, callback)
-end
-
--- Load snapshot
-function M.load_snapshot(path, callback)
-  rpc.request("hemis/load-snapshot", { path = path }, callback)
 end
 
 -- Reattach a stale note to a new position

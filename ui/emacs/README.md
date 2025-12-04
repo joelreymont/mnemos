@@ -14,9 +14,9 @@ Quick start:
 ```
 
 Use `M-x hemis-notes-mode` in a buffer to show sticky notes; `C-c h a` to add a note, `C-c h r` to refresh, `C-c h l` to list notes. `M-x hemis-shutdown` stops the backend.
-Indexing/search: `C-c h i` to index the current file; `C-c h s` to search indexed files in the current project. Backend stores notes/files in SQLite (`HEMIS_DB_PATH` env var can override the default location).
-Project ops: `M-x hemis-open-project` to set a project root.
-Explain/snapshots: select a region and `M-x hemis-explain-region`; `M-x hemis-save-snapshot` / `M-x hemis-load-snapshot` to write/load snapshot summaries.
+Search: `C-c h s` to search indexed files in the current project. Backend stores notes/files in SQLite (`HEMIS_DB_PATH` env var can override the default location).
+Project ops: `M-x hemis-open-project` to set a project root; `C-c h p` to index the project.
+Explain: select a region and `M-x hemis-explain-region`.
 
 ## Testing
 
@@ -49,4 +49,4 @@ Set `HEMIS_EMBED_URL` to point at an embedding HTTP endpoint (POST body `{ "text
 Progress/status
 ---------------
 - `C-c h p` indexes the whole project and reports counts in the minibuffer.
-- Snapshot saves/loads report to the minibuffer; semantic search results show kind/score/location.
+- Semantic search results show kind/score/location.

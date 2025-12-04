@@ -34,7 +34,6 @@ M.refresh = M.commands.refresh
 M.delete_note = M.commands.delete_note
 M.edit_note = M.commands.edit_note
 M.search = M.commands.search
-M.index_file = M.commands.index_file
 M.index_project = M.commands.index_project
 M.insert_link = M.commands.insert_link
 M.status = M.commands.status
