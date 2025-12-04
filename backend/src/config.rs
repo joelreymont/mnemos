@@ -1,9 +1,9 @@
 //! Hemis configuration
 //!
 //! Configuration is loaded from (in order of precedence):
-//! 1. Config file specified via --config flag
+//! 1. CLI flags (--db-path, --ai-provider)
 //! 2. Environment variables (HEMIS_DB_PATH, HEMIS_AI_PROVIDER)
-//! 3. Default config file (~/.config/hemis/config.toml)
+//! 3. Config file (~/.config/hemis/config.toml or --config path)
 //! 4. Default values
 //!
 //! Config file format (TOML):
@@ -94,24 +94,24 @@ pub struct ResolvedConfig {
 
 impl ResolvedConfig {
     /// Build resolved config.
-    /// Precedence: CLI flags > --config file > env vars > default config file > defaults
+    /// Precedence: CLI flags > env vars > config file > defaults
     pub fn new(config_path: Option<&str>, overrides: CliOverrides) -> Self {
         let config = load_config_from(config_path.map(Path::new));
         let data_dir = data_dir();
         let _ = std::fs::create_dir_all(&data_dir);
 
-        // DB path: CLI > config file > env var > default
+        // DB path: CLI > env var > config file > default
         let db_path = overrides
             .db_path
-            .or(config.db_path)
             .or_else(|| std::env::var("HEMIS_DB_PATH").ok())
+            .or(config.db_path)
             .unwrap_or_else(|| data_dir.join("hemis.db").to_string_lossy().into_owned());
 
-        // AI provider: CLI > config file > env var > auto-detect
+        // AI provider: CLI > env var > config file > auto-detect
         let ai_provider = overrides
             .ai_provider
-            .or(config.ai_provider)
-            .or_else(|| std::env::var("HEMIS_AI_PROVIDER").ok());
+            .or_else(|| std::env::var("HEMIS_AI_PROVIDER").ok())
+            .or(config.ai_provider);
 
         // Set AI provider env var so ai_cli module can pick it up
         if let Some(ref provider) = ai_provider {
@@ -128,6 +128,10 @@ impl ResolvedConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Mutex to prevent env var tests from running concurrently
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_parse_config() {
@@ -146,5 +150,162 @@ mod tests {
         let config = HemisConfig::default();
         assert!(config.db_path.is_none());
         assert!(config.ai_provider.is_none());
+    }
+
+    // Test precedence: CLI > env var > config file > default
+
+    #[test]
+    fn test_cli_overrides_env_var() {
+        // CLI arg should take precedence over env var
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        // Set env var
+        std::env::set_var("HEMIS_DB_PATH", "/env/db.db");
+        std::env::set_var("HEMIS_AI_PROVIDER", "env-provider");
+
+        // CLI override
+        let overrides = CliOverrides {
+            db_path: Some("/cli/db.db".to_string()),
+            ai_provider: Some("cli-provider".to_string()),
+        };
+
+        let config = ResolvedConfig::new(None, overrides);
+
+        // CLI should win
+        assert_eq!(config.db_path, "/cli/db.db");
+        assert_eq!(config.ai_provider, Some("cli-provider".to_string()));
+
+        // Cleanup
+        std::env::remove_var("HEMIS_DB_PATH");
+        std::env::remove_var("HEMIS_AI_PROVIDER");
+    }
+
+    #[test]
+    fn test_env_var_overrides_config_file() {
+        // Env var should take precedence over config file
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        // Create temp config file
+        let tmp = tempfile::TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+            db-path = "/config/db.db"
+            ai-provider = "config-provider"
+            "#,
+        )
+        .unwrap();
+
+        // Set env var (should override config)
+        std::env::set_var("HEMIS_DB_PATH", "/env/db.db");
+        std::env::set_var("HEMIS_AI_PROVIDER", "env-provider");
+
+        // No CLI override
+        let overrides = CliOverrides::default();
+
+        let config = ResolvedConfig::new(Some(config_path.to_str().unwrap()), overrides);
+
+        // Env var should win over config file
+        assert_eq!(config.db_path, "/env/db.db");
+        assert_eq!(config.ai_provider, Some("env-provider".to_string()));
+
+        // Cleanup
+        std::env::remove_var("HEMIS_DB_PATH");
+        std::env::remove_var("HEMIS_AI_PROVIDER");
+    }
+
+    #[test]
+    fn test_cli_overrides_config_file() {
+        // CLI arg should take precedence over config file
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        // Clear env vars
+        std::env::remove_var("HEMIS_DB_PATH");
+        std::env::remove_var("HEMIS_AI_PROVIDER");
+
+        // Create temp config file
+        let tmp = tempfile::TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+            db-path = "/config/db.db"
+            ai-provider = "config-provider"
+            "#,
+        )
+        .unwrap();
+
+        // CLI override
+        let overrides = CliOverrides {
+            db_path: Some("/cli/db.db".to_string()),
+            ai_provider: Some("cli-provider".to_string()),
+        };
+
+        let config = ResolvedConfig::new(Some(config_path.to_str().unwrap()), overrides);
+
+        // CLI should win over config file
+        assert_eq!(config.db_path, "/cli/db.db");
+        assert_eq!(config.ai_provider, Some("cli-provider".to_string()));
+    }
+
+    #[test]
+    fn test_config_file_used_when_no_cli_or_env() {
+        // Config file should be used when no CLI or env var is set
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        // Clear env vars
+        std::env::remove_var("HEMIS_DB_PATH");
+        std::env::remove_var("HEMIS_AI_PROVIDER");
+
+        // Create temp config file
+        let tmp = tempfile::TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+            db-path = "/config/db.db"
+            ai-provider = "config-provider"
+            "#,
+        )
+        .unwrap();
+
+        // No CLI override
+        let overrides = CliOverrides::default();
+
+        let config = ResolvedConfig::new(Some(config_path.to_str().unwrap()), overrides);
+
+        // Config file should be used
+        assert_eq!(config.db_path, "/config/db.db");
+        assert_eq!(config.ai_provider, Some("config-provider".to_string()));
+    }
+
+    #[test]
+    fn test_default_used_when_nothing_set() {
+        // Default should be used when nothing is set
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        // Clear env vars
+        std::env::remove_var("HEMIS_DB_PATH");
+        std::env::remove_var("HEMIS_AI_PROVIDER");
+
+        // Create empty config file
+        let tmp = tempfile::TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+        std::fs::write(&config_path, "").unwrap();
+
+        // No CLI override
+        let overrides = CliOverrides::default();
+
+        let config = ResolvedConfig::new(Some(config_path.to_str().unwrap()), overrides);
+
+        // Default db_path should end with hemis.db
+        assert!(
+            config.db_path.ends_with("hemis.db"),
+            "Expected default db_path to end with hemis.db, got: {}",
+            config.db_path
+        );
+        // Default ai_provider should be None
+        assert_eq!(config.ai_provider, None);
     }
 }

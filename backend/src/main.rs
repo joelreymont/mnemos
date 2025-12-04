@@ -634,7 +634,7 @@ fn print_help() {
     println!("    db-path = \"/path/to/hemis.db\"");
     println!("    ai-provider = \"claude\"  # or \"codex\", \"none\"");
     println!();
-    println!("PRECEDENCE: CLI flags > config file > environment variables > defaults");
+    println!("PRECEDENCE: CLI flags > environment variables > config file > defaults");
     println!();
     println!("Without flags, auto-detects mode:");
     println!("    - TTY stdin → server mode");
