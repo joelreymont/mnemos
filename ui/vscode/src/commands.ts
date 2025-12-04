@@ -12,7 +12,6 @@ import {
   getStatus,
   getBacklinks,
   shutdown,
-  getFile,
   explainRegion,
   saveSnapshot,
   loadSnapshot,
@@ -504,29 +503,6 @@ export async function shutdownCommand(): Promise<void> {
   }
 }
 
-export async function viewFileCommand(): Promise<void> {
-  const filePath = await vscode.window.showInputBox({
-    prompt: 'Enter file path',
-    placeHolder: '/path/to/file',
-  });
-
-  if (!filePath) {
-    return;
-  }
-
-  try {
-    const result = await getFile(filePath);
-    const doc = await vscode.workspace.openTextDocument({
-      content: result.content,
-      language: path.extname(filePath).slice(1) || 'plaintext',
-    });
-    await vscode.window.showTextDocument(doc, { preview: true });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    vscode.window.showErrorMessage(`Failed to view file: ${message}`);
-  }
-}
-
 export async function explainRegionCommand(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
@@ -793,7 +769,6 @@ export function registerCommands(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('hemis.viewNote', viewNoteCommand),
     vscode.commands.registerCommand('hemis.help', helpCommand),
     vscode.commands.registerCommand('hemis.shutdown', shutdownCommand),
-    vscode.commands.registerCommand('hemis.viewFile', viewFileCommand),
     vscode.commands.registerCommand('hemis.explainRegion', explainRegionCommand),
     vscode.commands.registerCommand('hemis.explainRegionAI', explainRegionAICommand),
     vscode.commands.registerCommand('hemis.saveSnapshot', saveSnapshotCommand),

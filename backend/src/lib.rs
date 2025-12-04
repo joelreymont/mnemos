@@ -122,45 +122,6 @@ fn list_files(root: &Path) -> anyhow::Result<Vec<FileInfo>> {
 pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Response {
     let id = req.id.clone();
     match req.method.as_str() {
-        "hemis/get-file" => {
-            let file_path = req.params.get("file").and_then(|v| v.as_str());
-            let project_root = req.params.get("projectRoot").and_then(|v| v.as_str());
-
-            match (file_path, project_root) {
-                (Some(file), Some(root)) => {
-                    // Validate file is within project root
-                    let file_path = Path::new(file);
-                    let root_path = Path::new(root);
-
-                    match (file_path.canonicalize(), root_path.canonicalize()) {
-                        (Ok(canonical_file), Ok(canonical_root)) => {
-                            if !canonical_file.starts_with(&canonical_root) {
-                                return Response::error(
-                                    id,
-                                    INVALID_PARAMS,
-                                    "file must be within projectRoot",
-                                );
-                            }
-                            match fs::read_to_string(&canonical_file) {
-                                Ok(content) => {
-                                    let resp = json!({
-                                        "file": canonical_file.to_string_lossy(),
-                                        "content": content,
-                                    });
-                                    Response::result(id, resp)
-                                }
-                                Err(_) => Response::error(id, INTERNAL_ERROR, "failed to read file"),
-                            }
-                        }
-                        // Don't leak path details in error messages
-                        (Err(_), _) => Response::error(id, INVALID_PARAMS, "invalid file path"),
-                        (_, Err(_)) => Response::error(id, INVALID_PARAMS, "invalid projectRoot"),
-                    }
-                }
-                (None, _) => Response::error(id, INVALID_PARAMS, "missing file"),
-                (_, None) => Response::error(id, INVALID_PARAMS, "missing projectRoot"),
-            }
-        }
         "hemis/open-project" => {
             if req
                 .params

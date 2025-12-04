@@ -123,11 +123,6 @@ export async function shutdown(): Promise<void> {
   await client.request<void>('shutdown', {});
 }
 
-export async function getFile(file: string): Promise<{ content: string }> {
-  const client = getRpcClient();
-  return client.request<{ content: string }>('hemis/get-file', { file });
-}
-
 export interface ExplainResult {
   file: string;
   startLine: number;

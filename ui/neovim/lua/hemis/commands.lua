@@ -221,6 +221,84 @@ function M.edit_note()
   end, { buffer = buf, desc = "Hemis: Insert link" })
 end
 
+-- Edit note in a full split buffer (for longer notes like AI explanations)
+function M.edit_note_buffer()
+  local note = display.get_note_at_cursor(M.buffer_notes)
+  if not note then
+    vim.notify("No note at cursor", vim.log.levels.WARN)
+    return
+  end
+
+  -- Capture project root before creating edit buffer
+  local project_root = get_project_root()
+  local note_id = note.id
+
+  -- Create a new buffer in a horizontal split
+  vim.cmd("new")
+  local buf = vim.api.nvim_get_current_buf()
+  local win = vim.api.nvim_get_current_win()
+
+  -- Set buffer properties
+  vim.bo[buf].buftype = "acwrite"
+  vim.bo[buf].filetype = "markdown"
+  vim.bo[buf].swapfile = false
+  vim.api.nvim_buf_set_name(buf, "hemis://note/" .. note_id)
+
+  -- Insert note content
+  local lines = vim.split(note.text or "", "\n")
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modified = false
+
+  -- Set up autocmd to save on :w
+  vim.api.nvim_create_autocmd("BufWriteCmd", {
+    buffer = buf,
+    callback = function()
+      local new_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      local text = table.concat(new_lines, "\n"):gsub("^%s+", ""):gsub("%s+$", "")
+
+      if text ~= "" then
+        notes.update(note_id, text, {}, function(err, _)
+          if err then
+            vim.notify("Failed to save note: " .. (err.message or "unknown"), vim.log.levels.ERROR)
+          else
+            vim.bo[buf].modified = false
+            vim.notify("Note saved", vim.log.levels.INFO)
+            -- Refresh notes display in source buffer
+            M.refresh()
+          end
+        end)
+      end
+    end,
+  })
+
+  -- Add keymaps
+  vim.keymap.set("n", "q", function()
+    if vim.bo[buf].modified then
+      vim.ui.select({ "Save and close", "Discard changes", "Cancel" }, {
+        prompt = "Buffer has unsaved changes:",
+      }, function(choice)
+        if choice == "Save and close" then
+          vim.cmd("write")
+          vim.api.nvim_win_close(win, true)
+        elseif choice == "Discard changes" then
+          vim.bo[buf].modified = false
+          vim.api.nvim_win_close(win, true)
+        end
+      end)
+    else
+      vim.api.nvim_win_close(win, true)
+    end
+  end, { buffer = buf, desc = "Close buffer" })
+
+  -- Add insert-link keymap
+  local prefix = config.get("keymap_prefix") or "<leader>h"
+  vim.keymap.set({ "n", "i" }, prefix .. "k", function()
+    M.insert_link({ project_root = project_root })
+  end, { buffer = buf, desc = "Hemis: Insert link" })
+
+  vim.notify("Editing note in buffer. :w to save, q to close.", vim.log.levels.INFO)
+end
+
 -- List notes in a buffer
 function M.list_notes()
   notes.list_for_buffer(function(err, result)
@@ -565,38 +643,6 @@ function M.shutdown()
   vim.notify("Hemis backend stopped", vim.log.levels.INFO)
 end
 
--- View file content (via backend)
-function M.view_file()
-  vim.ui.input({ prompt = "File path: " }, function(file)
-    if not file or file == "" then
-      return
-    end
-
-    notes.get_file(file, function(err, result)
-      if err then
-        vim.notify("Failed to get file: " .. (err.message or "unknown"), vim.log.levels.ERROR)
-        return
-      end
-
-      -- Create buffer with content
-      local buf = vim.api.nvim_create_buf(false, true)
-      local lines = vim.split(result.content or "", "\n")
-      vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-      vim.bo[buf].buftype = "nofile"
-      vim.bo[buf].modifiable = false
-
-      -- Set filetype based on extension
-      local ext = file:match("%.(%w+)$")
-      if ext then
-        vim.bo[buf].filetype = ext
-      end
-
-      vim.cmd("split")
-      vim.api.nvim_win_set_buf(0, buf)
-    end)
-  end)
-end
-
 -- Explain region using AI and create a note
 function M.explain_region()
   -- Exit visual mode first to set '< and '> marks
@@ -870,6 +916,7 @@ function M.setup_commands()
   vim.api.nvim_create_user_command("HemisRefresh", M.refresh, {})
   vim.api.nvim_create_user_command("HemisDeleteNote", M.delete_note, {})
   vim.api.nvim_create_user_command("HemisEditNote", M.edit_note, {})
+  vim.api.nvim_create_user_command("HemisEditNoteBuffer", M.edit_note_buffer, {})
   vim.api.nvim_create_user_command("HemisSearch", M.search, {})
   vim.api.nvim_create_user_command("HemisIndexFile", M.index_file, {})
   vim.api.nvim_create_user_command("HemisIndexProject", M.index_project, {})
@@ -879,7 +926,6 @@ function M.setup_commands()
   vim.api.nvim_create_user_command("HemisStatus", M.status, {})
   vim.api.nvim_create_user_command("HemisHelp", M.help, {})
   vim.api.nvim_create_user_command("HemisShutdown", M.shutdown, {})
-  vim.api.nvim_create_user_command("HemisViewFile", M.view_file, {})
   vim.api.nvim_create_user_command("HemisExplainRegion", M.explain_region, { range = true })
   vim.api.nvim_create_user_command("HemisExplainRegionFull", M.explain_region_full, { range = true })
   vim.api.nvim_create_user_command("HemisIndexProjectAI", M.index_project_ai, {})
@@ -904,6 +950,7 @@ function M.setup_keymaps()
     { "R", M.reattach_note, "Reattach note" },
     { "d", M.delete_note, "Delete note" },
     { "e", M.edit_note, "Edit note" },
+    { "E", M.edit_note_buffer, "Edit note (buffer)" },
     { "s", M.search, "Search" },
     { "i", M.index_file, "Index file" },
     { "p", M.index_project, "Index project" },

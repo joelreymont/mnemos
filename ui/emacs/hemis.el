@@ -940,20 +940,6 @@ With prefix arg or INCLUDE-AI non-nil, also run AI analysis."
                   `((projectRoot . ,hemis--project-root-override)))
   (message "Hemis: project set to %s" hemis--project-root-override))
 
-(defun hemis-view-file (file)
-  "Fetch FILE content via backend and display in a temp buffer."
-  (interactive "FFile: ")
-  (let* ((resp (hemis--request "hemis/get-file"
-                               `((file . ,(expand-file-name file)))))
-         (content (alist-get 'content resp)))
-    (with-current-buffer (get-buffer-create "*Hemis File*")
-      (setq buffer-read-only nil)
-      (erase-buffer)
-      (insert content)
-      (goto-char (point-min))
-      (view-mode 1)
-      (display-buffer (current-buffer)))))
-
 (defun hemis-explain-region (beg end &optional use-ai)
   "Request an explanation for the region from BEG to END.
 With prefix arg or USE-AI non-nil, use AI to explain."

@@ -79,10 +79,6 @@
         "title": "Hemis: Shutdown Backend"
       },
       {
-        "command": "hemis.viewFile",
-        "title": "Hemis: View File"
-      },
-      {
         "command": "hemis.explainRegion",
         "title": "Hemis: Explain Region (Copy for LLM)"
       },

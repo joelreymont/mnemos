@@ -409,18 +409,6 @@
           (goto-char (point-min))
           (should (search-forward "stub" nil t)))))))
 
-(ert-deftest hemis-view-file ()
-  (hemis-test-with-mocked-backend
-    (cl-letf* (((symbol-function 'hemis--request)
-                (lambda (method &rest _)
-                  (pcase method
-                    ("hemis/get-file" '((content . "hello")))
-                    (_ (error "unexpected %s" method))))))
-      (hemis-view-file "/tmp/a")
-      (with-current-buffer "*Hemis File*"
-        (goto-char (point-min))
-        (should (search-forward "hello" nil t))))))
-
 (ert-deftest hemis-list-notes-renders-buffer ()
   (hemis-test-with-mocked-backend
     (with-temp-buffer

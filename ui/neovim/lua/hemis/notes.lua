@@ -272,11 +272,6 @@ function M.backlinks(id, callback)
   rpc.request("notes/backlinks", { id = id }, callback)
 end
 
--- Get file content
-function M.get_file(file, callback)
-  rpc.request("hemis/get-file", { file = file }, callback)
-end
-
 -- Explain region (for LLM context)
 -- If use_ai is true, will use AI to generate explanation
 -- If detailed is true, will generate a comprehensive explanation
