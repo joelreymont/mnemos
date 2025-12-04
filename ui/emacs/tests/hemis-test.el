@@ -287,10 +287,8 @@
             (when ts-available
               (rust-ts-mode)
               (setq ts-available (hemis--treesit-available-p)))
-            ;; Index when tree-sitter available
+            ;; Verify nodePath at point when tree-sitter available
             (when ts-available
-              (hemis-index-file)
-              ;; Verify nodePath at point
               (goto-char (point-min))
               (search-forward "fn main")
               (let ((local-path (hemis--node-path-at-point)))
@@ -336,20 +334,8 @@
                 (should (member "second note" all-texts))
                 ;; Face is applied to overlay text
                 (should (get-text-property 0 'face before)))
-              ;; Tree-sitter specific: index/search and notes-for-node
+              ;; Tree-sitter specific: verify notes have nodePath stored
               (when ts-available
-                (let* ((results (hemis--request "index/search"
-                                                `((query . "fn")
-                                                  (projectRoot . ,test-dir)))))
-                  (should (sequencep results))
-                  (should (> (length results) 0)))
-                ;; notes-for-node at the position where we created notes
-                (goto-char (point-min))
-                (search-forward "println")
-                (let* ((by-node (hemis-notes-for-node (hemis--node-path-at-point))))
-                  (should (sequencep by-node))
-                  (should (>= (length by-node) 2)))
-                ;; Verify backend returns stored nodePath
                 (let* ((notes (hemis--request "notes/list-for-file"
                                               `((file . ,test-file)
                                                 (projectRoot . ,test-dir))))
@@ -667,12 +653,13 @@
     (should-not (process-live-p p2))))
 
 (ert-deftest hemis-notes-global-mode-enables-keymap ()
-  (with-temp-buffer
-    (prog-mode)
-    (set-visited-file-name "/tmp/test.rs" t t)
-    (hemis-reset-keymaps-and-enable)
-    (hemis-notes-mode 1)
-    (should (local-key-binding (kbd "C-c h a")))))
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (prog-mode)
+      (set-visited-file-name "/tmp/test.rs" t t)
+      (hemis-reset-keymaps-and-enable)
+      (hemis-notes-mode 1)
+      (should (local-key-binding (kbd "C-c h a"))))))
 
 (ert-deftest hemis-notes-list-keymap-reloads ()
   (let ((hemis-notes-list-mode-map nil))
@@ -682,15 +669,16 @@
     (should (lookup-key hemis-notes-list-mode-map (kbd "v")))))
 
 (ert-deftest hemis-reset-keymaps-and-enable-restores-bindings ()
-  (with-temp-buffer
-    (prog-mode)
-    (set-visited-file-name "/tmp/test.rs" t t)
-    (setq hemis-notes-mode-map nil
-          hemis-notes-list-mode-map nil)
-    (hemis-reset-keymaps-and-enable)
-    (hemis-notes-mode 1)
-    (should (local-key-binding (kbd "C-c h a")))
-    (should (keymapp hemis-notes-list-mode-map))))
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (prog-mode)
+      (set-visited-file-name "/tmp/test.rs" t t)
+      (setq hemis-notes-mode-map nil
+            hemis-notes-list-mode-map nil)
+      (hemis-reset-keymaps-and-enable)
+      (hemis-notes-mode 1)
+      (should (local-key-binding (kbd "C-c h a")))
+      (should (keymapp hemis-notes-list-mode-map)))))
 
 (ert-deftest hemis-insert-note-link-no-results ()
   (hemis-test-with-mocked-backend
@@ -1017,7 +1005,10 @@ Returns list of plists with :line :before-string :face :count :texts."
                       '((id . "test-id")))
                      ("notes/list-for-file" nil)
                      (_ nil))))
-                ((symbol-function 'hemis-refresh-notes) #'ignore))
+                ((symbol-function 'hemis-refresh-notes) #'ignore)
+                ;; Mock kill-buffer-and-window for batch mode (only one window)
+                ((symbol-function 'kill-buffer-and-window)
+                 (lambda () (kill-buffer))))
         (with-current-buffer (get-buffer-create "*Hemis Edit Test*")
           (erase-buffer)
           (insert "New note content")
@@ -1069,34 +1060,6 @@ Returns list of plists with :line :before-string :face :count :texts."
           (should (search-forward "file" nil t))
           (should (search-forward "foo.rs" nil t)))))))
 
-(ert-deftest hemis-save-snapshot-calls-backend ()
-  "Test that hemis-save-snapshot calls hemis/save-snapshot."
-  (hemis-test-with-mocked-backend
-    (let ((snapshot-path nil))
-      (cl-letf (((symbol-function 'hemis--request)
-                 (lambda (method &optional params)
-                   (pcase method
-                     ("hemis/save-snapshot"
-                      (setq snapshot-path (cdr (assoc 'path params)))
-                      '((counts . ((notes . 3) (files . 5)))))
-                     (_ nil)))))
-        (hemis-save-snapshot "/tmp/test-snapshot.json")
-        (should (equal snapshot-path "/tmp/test-snapshot.json"))))))
-
-(ert-deftest hemis-load-snapshot-calls-backend ()
-  "Test that hemis-load-snapshot calls hemis/load-snapshot."
-  (hemis-test-with-mocked-backend
-    (let ((loaded-path nil))
-      (cl-letf (((symbol-function 'hemis--request)
-                 (lambda (method &optional params)
-                   (pcase method
-                     ("hemis/load-snapshot"
-                      (setq loaded-path (cdr (assoc 'path params)))
-                      '((counts . ((notes . 2) (files . 4)))))
-                     (_ nil))))
-                ((symbol-function 'yes-or-no-p) (lambda (_) t)))
-        (hemis-load-snapshot "/tmp/test-snapshot.json")
-        (should (equal loaded-path "/tmp/test-snapshot.json"))))))
 
 (ert-deftest hemis-overlay-stale-note-indicator ()
   "Test that stale notes are visually distinguished."

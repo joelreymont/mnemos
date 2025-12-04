@@ -73,6 +73,27 @@
   :type 'integer
   :group 'hemis)
 
+(defcustom hemis-debug nil
+  "When non-nil, log debug information to *Hemis Debug* buffer.
+Set to t for basic logging, or 'verbose for detailed RPC payloads."
+  :type '(choice (const :tag "Off" nil)
+                 (const :tag "Basic" t)
+                 (const :tag "Verbose" verbose))
+  :group 'hemis)
+
+(defvar hemis--debug-buffer "*Hemis Debug*"
+  "Buffer name for debug output.")
+
+(defun hemis--debug (fmt &rest args)
+  "Log debug message FMT with ARGS if `hemis-debug' is enabled.
+Messages are timestamped and written to `hemis--debug-buffer'."
+  (when hemis-debug
+    (let ((msg (apply #'format fmt args))
+          (ts (format-time-string "%H:%M:%S.%3N")))
+      (with-current-buffer (get-buffer-create hemis--debug-buffer)
+        (goto-char (point-max))
+        (insert (format "[%s] %s\n" ts msg))))))
+
 (defface hemis-note-marker-face
   '((t :foreground "SteelBlue"
        :underline nil :overline nil :strike-through nil :box nil
@@ -289,11 +310,13 @@ Use `hemis-shutdown' to stop it (sends shutdown RPC)."
 
 (cl-defun hemis--setup-connection (proc)
   "Set up the jsonrpc connection using PROC."
+  (hemis--debug "Setting up connection, proc=%s" (process-name proc))
   (setq hemis--process proc)
   (setq hemis--conn
         (jsonrpc-process-connection
          :process proc
          :on-shutdown (lambda (&rest _)
+                        (hemis--debug "Connection shutdown callback")
                         (message "Hemis backend shut down")
                         (setq hemis--process nil
                               hemis--conn nil))))
@@ -302,6 +325,8 @@ Use `hemis-shutdown' to stop it (sends shutdown RPC)."
       (let ((info (hemis--request "hemis/version")))
         (when info
           (let ((proto (alist-get 'protocolVersion info)))
+            (hemis--debug "Connected: protocol=%s hash=%s"
+                         (or proto "?") (or (alist-get 'gitHash info) "?"))
             (cond
              ((and proto (> proto hemis--expected-protocol-version))
               (message "Hemis: backend is newer. Consider updating the plugin."))
@@ -313,6 +338,7 @@ Use `hemis-shutdown' to stop it (sends shutdown RPC)."
                      (or proto "?")
                      (or (alist-get 'gitHash info) "?")))))
     (error
+     (hemis--debug "Version check failed: %s" (error-message-string err))
      (message "Hemis: version check failed: %s" (error-message-string err)))))
 
 (defun hemis--ensure-connection ()
@@ -357,7 +383,14 @@ This disconnects from the backend, unloads the feature, and reloads it."
 (defun hemis--request (method &optional params)
   "Synchronously send JSON-RPC METHOD with PARAMS and return result."
   (hemis--ensure-connection)
-  (jsonrpc-request hemis--conn method params :timeout hemis-request-timeout))
+  (hemis--debug "RPC>> %s" method)
+  (when (eq hemis-debug 'verbose)
+    (hemis--debug "  params: %S" params))
+  (let ((result (jsonrpc-request hemis--conn method params :timeout hemis-request-timeout)))
+    (hemis--debug "RPC<< %s ok" method)
+    (when (eq hemis-debug 'verbose)
+      (hemis--debug "  result: %S" result))
+    result))
 
 (defun hemis--rust-grammar-available-p ()
   "Return non-nil when the Rust Tree-sitter grammar is available."
@@ -708,8 +741,11 @@ When server provides displayLine, use that instead of stored line."
 (defun hemis--apply-notes (notes)
   "Render NOTES as overlays in the current buffer.
 NOTES is a list of note objects (alist/plist) from the backend."
+  (hemis--debug "apply-notes: clearing %d old overlays" (length hemis--overlays))
   (hemis--clear-note-overlays)
+  (hemis--debug "apply-notes: creating overlays for %d notes" (length notes))
   (seq-do #'hemis--make-note-overlay notes)
+  (hemis--debug "apply-notes: created %d overlays" (length hemis--overlays))
   ;; Fallback: ensure at least one marker if notes exist but overlays evaporated.
   (when (and notes (null hemis--overlays))
     (let ((pos (point-min)))
@@ -981,9 +1017,11 @@ With prefix arg or USE-AI non-nil, use AI to explain."
 Sends buffer content so server can compute displayLine positions."
   (interactive)
   (when (buffer-file-name)
+    (hemis--debug "refresh-notes: file=%s buf=%s" (buffer-file-name) (buffer-name))
     (let* ((params (append (hemis--buffer-params t) '((includeStale . t))))
            (notes  (let ((r (hemis--request "notes/list-for-file" params)))
                      (if (vectorp r) (append r nil) r))))
+      (hemis--debug "refresh-notes: got %d notes" (length notes))
       (hemis--apply-notes notes)
       (when (and notes (null hemis--overlays))
         ;; Fallback if overlays evaporated; place a marker at point-min.
@@ -1016,11 +1054,16 @@ Sends buffer content so server can compute nodeTextHash."
                          `((line . ,(plist-get anchor :line))
                            (column . ,(plist-get anchor :column))
                            (text . ,text)
-                           (tags . ,tags))))
-         (note   (hemis--request "notes/create" params)))
-    (hemis--make-note-overlay note)
-    (message "Hemis: note created.")
-    note))
+                           (tags . ,tags)))))
+    (hemis--debug "add-note: line=%d col=%d file=%s"
+                 (plist-get anchor :line)
+                 (plist-get anchor :column)
+                 (buffer-file-name))
+    (let ((note (hemis--request "notes/create" params)))
+      (hemis--debug "add-note: created id=%s" (hemis--note-get note 'id))
+      (hemis--make-note-overlay note)
+      (message "Hemis: note created.")
+      note)))
 
 (defun hemis-get-note (id)
   "Fetch a single Hemis note by ID."
@@ -1346,9 +1389,11 @@ Otherwise, prompt for a note ID."
   :keymap hemis-notes-mode-map
   (if hemis-notes-mode
       (progn
+        (hemis--debug "hemis-notes-mode: enabling in %s" (buffer-name))
         (hemis--ensure-connection)
         (hemis-refresh-notes)
         (add-hook 'post-self-insert-hook #'hemis--maybe-trigger-link nil t))
+    (hemis--debug "hemis-notes-mode: disabling in %s" (buffer-name))
     (remove-hook 'post-self-insert-hook #'hemis--maybe-trigger-link t)
     (hemis--clear-note-overlays)))
 
