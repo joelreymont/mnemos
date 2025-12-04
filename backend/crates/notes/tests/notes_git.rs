@@ -41,7 +41,7 @@ fn create_and_filter_stale() {
         node_path: None,
         commit: Some("abc"),
         blob: Some("other"),
-        include_stale: false,
+        include_stale: true, // Request stale notes to verify staleness flag
     };
     let stale = list_for_file(&conn, filters_stale.clone()).unwrap();
     assert_eq!(stale.len(), 1);

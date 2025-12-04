@@ -147,6 +147,8 @@ struct PersistentClaude {
     child: std::process::Child,
     stdin: std::process::ChildStdin,
     stdout: std::io::BufReader<std::process::ChildStdout>,
+    /// Project root this process was spawned for (for isolation check)
+    project_root: PathBuf,
 }
 
 impl PersistentClaude {
@@ -179,6 +181,7 @@ impl PersistentClaude {
             child,
             stdin,
             stdout: BufReader::new(stdout),
+            project_root: project_root.to_path_buf(),
         })
     }
 
@@ -267,11 +270,26 @@ fn get_persistent_claude(project_root: &Path) -> Result<std::sync::MutexGuard<'s
     // Check if we need to spawn or respawn
     let needs_spawn = match guard.as_mut() {
         None => true,
-        Some(claude) => !claude.is_alive(),
+        Some(claude) => {
+            if !claude.is_alive() {
+                eprintln!("[hemis] Claude process died, respawning...");
+                true
+            } else if claude.project_root != project_root {
+                // Project changed - kill old process and spawn new one for isolation
+                eprintln!(
+                    "[hemis] Project changed ({} -> {}), respawning Claude...",
+                    claude.project_root.display(),
+                    project_root.display()
+                );
+                true
+            } else {
+                false
+            }
+        }
     };
 
     if needs_spawn {
-        eprintln!("[hemis] Spawning persistent Claude process...");
+        eprintln!("[hemis] Spawning persistent Claude process for {}...", project_root.display());
         *guard = Some(PersistentClaude::spawn(project_root)?);
     }
 

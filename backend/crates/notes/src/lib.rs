@@ -200,8 +200,6 @@ fn stale(
 
 pub fn list_for_file(conn: &Connection, filters: NoteFilters<'_>) -> Result<Vec<Note>> {
     // Build query based on whether project_root is specified
-    // Note: We always return notes even if stale (with stale: true) so clients can re-anchor them.
-    // The includeStale flag is reserved for future use when we implement server-side staleness resolution.
     let (query, params): (&str, Vec<&dyn rusqlite::ToSql>) = if filters.project_root.is_empty() {
         (
             "SELECT * FROM notes WHERE file = ? ORDER BY updated_at DESC;",
@@ -221,7 +219,13 @@ pub fn list_for_file(conn: &Connection, filters: NoteFilters<'_>) -> Result<Vec<
         map_note(row, is_stale)
     })?;
 
-    Ok(rows)
+    // Filter out stale notes if includeStale is false
+    // Clients wanting stale notes for re-anchoring should set includeStale=true
+    if filters.include_stale {
+        Ok(rows)
+    } else {
+        Ok(rows.into_iter().filter(|n| !n.stale).collect())
+    }
 }
 
 pub fn list_by_node(conn: &Connection, filters: NoteFilters<'_>) -> Result<Vec<Note>> {
@@ -238,7 +242,13 @@ pub fn list_by_node(conn: &Connection, filters: NoteFilters<'_>) -> Result<Vec<N
             let is_stale = stale(&note_commit, &note_blob, filters.commit, filters.blob);
             map_note(row, is_stale)
         })?;
-    Ok(rows)
+
+    // Filter out stale notes if includeStale is false
+    if filters.include_stale {
+        Ok(rows)
+    } else {
+        Ok(rows.into_iter().filter(|n| !n.stale).collect())
+    }
 }
 
 pub fn get(conn: &Connection, id: &str) -> Result<Note> {

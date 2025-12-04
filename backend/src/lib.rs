@@ -588,12 +588,13 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                             for note in &mut notes_list {
                                 // Convert from 1-based (database) to 0-based (tree-sitter)
                                 let ts_line = (note.line - 1).max(0) as u32;
+                                let ts_column = note.column.clamp(0, i64::from(u32::MAX)) as u32;
                                 let pos = compute_display_position(
                                     parser,
                                     file_path,
                                     content,
                                     ts_line,
-                                    note.column as u32,
+                                    ts_column,
                                     note.node_text_hash.as_deref(),
                                     20, // search_radius
                                 );
@@ -695,7 +696,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .get("column")
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0)
-                    .max(0); // Clamp to non-negative
+                    .clamp(0, i64::from(u32::MAX)); // Clamp to valid u32 range
                 let tags = req.params.get("tags").cloned().unwrap_or_else(|| json!([]));
                 let text = req
                     .params
@@ -830,7 +831,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .get("column")
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0)
-                    .max(0); // Clamp to non-negative
+                    .clamp(0, i64::from(u32::MAX)); // Clamp to valid u32 range
                 // If content is provided, compute node_path and hash server-side
                 let content = req.params.get("content").and_then(|v| v.as_str());
                 let (node_path, node_text_hash) = if let (Some(content), Some(file)) = (content, file) {
@@ -889,12 +890,13 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         for note in &mut notes_list {
                             // Convert from 1-based (database) to 0-based (tree-sitter)
                             let ts_line = (note.line - 1).max(0) as u32;
+                            let ts_column = note.column.clamp(0, i64::from(u32::MAX)) as u32;
                             let pos = compute_display_position(
                                 parser,
                                 file_path,
                                 content,
                                 ts_line,
-                                note.column as u32,
+                                ts_column,
                                 note.node_text_hash.as_deref(),
                                 20,
                             );

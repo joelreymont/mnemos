@@ -226,6 +226,7 @@ fn filters_stale_notes_by_commit() -> anyhow::Result<()> {
     assert_eq!(bodies.len(), 3);
     let created: Response = serde_json::from_slice(&bodies[0])?;
     assert!(created.result.is_some());
+    // With includeStale=false, stale notes should be filtered out
     let filtered: Response = serde_json::from_slice(&bodies[1])?;
     let filtered_list = filtered
         .result
@@ -233,22 +234,16 @@ fn filters_stale_notes_by_commit() -> anyhow::Result<()> {
         .unwrap_or_default();
     assert_eq!(
         filtered_list.len(),
-        1,
-        "stale notes should still be returned for re-anchoring"
+        0,
+        "stale notes should be filtered out when includeStale=false"
     );
-    assert_eq!(
-        filtered_list[0]
-            .get("stale")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-        true
-    );
+    // With includeStale=true, stale notes should be included with stale flag
     let included: Response = serde_json::from_slice(&bodies[2])?;
     let included_list = included
         .result
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
-    assert_eq!(included_list.len(), 1);
+    assert_eq!(included_list.len(), 1, "stale notes should be included when includeStale=true");
     let stale_flag = included_list[0]
         .get("stale")
         .and_then(|v| v.as_bool())
@@ -361,6 +356,7 @@ fn filters_stale_notes_by_blob() -> anyhow::Result<()> {
         .to_string();
     assert_eq!(note_commit, old_commit);
     assert_eq!(note_blob, old_blob);
+    // With includeStale=false, stale notes should be filtered out
     let filtered: Response = serde_json::from_slice(&bodies[1])?;
     let filtered_list = filtered
         .result
@@ -368,19 +364,16 @@ fn filters_stale_notes_by_blob() -> anyhow::Result<()> {
         .unwrap_or_default();
     assert_eq!(
         filtered_list.len(),
-        1,
-        "stale notes should still return for blob/commit mismatch"
+        0,
+        "stale notes should be filtered out when includeStale=false"
     );
-    assert!(filtered_list[0]
-        .get("stale")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false));
+    // With includeStale=true, stale notes should be included with stale flag
     let included: Response = serde_json::from_slice(&bodies[2])?;
     let included_list = included
         .result
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
-    assert_eq!(included_list.len(), 1);
+    assert_eq!(included_list.len(), 1, "stale notes should be included when includeStale=true");
     let stale_flag = included_list[0]
         .get("stale")
         .and_then(|v| v.as_bool())
