@@ -96,6 +96,7 @@ fn migrate(conn: &Connection) -> Result<()> {
         ("files", "content_hash", "TEXT"),
         ("embeddings", "binary_hash", "BLOB"),
         ("embeddings", "norm", "REAL"),
+        ("embeddings", "vector_blob", "BLOB"),
     ] {
         ensure_column(conn, table, col, ty)?;
     }

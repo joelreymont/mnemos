@@ -29,6 +29,28 @@ fn validate_vector(v: &[f32]) -> Result<()> {
     Ok(())
 }
 
+/// Convert vector to binary blob (little-endian f32 bytes)
+fn vector_to_blob(v: &[f32]) -> Vec<u8> {
+    let mut blob = Vec::with_capacity(v.len() * 4);
+    for &val in v {
+        blob.extend_from_slice(&val.to_le_bytes());
+    }
+    blob
+}
+
+/// Convert binary blob back to vector
+fn blob_to_vector(blob: &[u8]) -> Option<Vec<f32>> {
+    if blob.len() % 4 != 0 {
+        return None;
+    }
+    let mut vec = Vec::with_capacity(blob.len() / 4);
+    for chunk in blob.chunks_exact(4) {
+        let bytes: [u8; 4] = chunk.try_into().ok()?;
+        vec.push(f32::from_le_bytes(bytes));
+    }
+    Some(vec)
+}
+
 fn content_hash(content: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
@@ -188,12 +210,13 @@ fn upsert_embedding(
     let updated = now_unix();
     let bin_hash = binary_hash(vector);
     let vec_norm = norm(vector);
+    let vec_blob = vector_to_blob(vector);
     exec(
         conn,
-        "INSERT OR REPLACE INTO embeddings (id, file, project_root, vector, text, binary_hash, norm, updated_at)
+        "INSERT OR REPLACE INTO embeddings (id, file, project_root, vector, text, binary_hash, norm, vector_blob, updated_at)
          VALUES (
             (SELECT id FROM embeddings WHERE file = ?1),
-            ?1, ?2, ?3, ?4, ?5, ?6, ?7
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
          );",
         &[
             &file,
@@ -202,6 +225,7 @@ fn upsert_embedding(
             &text,
             &bin_hash,
             &vec_norm,
+            &vec_blob,
             &updated,
         ],
     )?;
@@ -506,11 +530,11 @@ pub fn semantic_search(
     let mut rows;
     if let Some(root) = project_root {
         stmt = conn.prepare(
-            "SELECT file, vector, text, binary_hash, norm FROM embeddings WHERE project_root = ?;",
+            "SELECT file, vector, text, binary_hash, norm, vector_blob FROM embeddings WHERE project_root = ?;",
         )?;
         rows = stmt.query([root])?;
     } else {
-        stmt = conn.prepare("SELECT file, vector, text, binary_hash, norm FROM embeddings;")?;
+        stmt = conn.prepare("SELECT file, vector, text, binary_hash, norm, vector_blob FROM embeddings;")?;
         rows = stmt.query([])?;
     }
 
@@ -536,16 +560,25 @@ pub fn semantic_search(
             }
         }
 
-        // Passed filters - compute exact dot product
-        let vector_str: String = row.get("vector")?;
-        // Skip oversized vector strings to prevent memory exhaustion
-        const MAX_VECTOR_STR_LEN: usize = 1024 * 1024; // 1MB
-        if vector_str.len() > MAX_VECTOR_STR_LEN {
-            continue;
-        }
-        let vector: Vec<f32> = match serde_json::from_str(&vector_str) {
-            Ok(v) => v,
-            Err(_) => continue, // Skip malformed vectors
+        // Passed filters - load vector (prefer binary blob over JSON for speed)
+        let vector_blob: Option<Vec<u8>> = row.get("vector_blob").ok();
+        let vector: Vec<f32> = if let Some(blob) = vector_blob {
+            // Fast path: read from binary blob
+            match blob_to_vector(&blob) {
+                Some(v) => v,
+                None => continue, // Malformed blob
+            }
+        } else {
+            // Fallback: parse JSON (for old data before migration)
+            let vector_str: String = row.get("vector")?;
+            const MAX_VECTOR_STR_LEN: usize = 1024 * 1024;
+            if vector_str.len() > MAX_VECTOR_STR_LEN {
+                continue;
+            }
+            match serde_json::from_str(&vector_str) {
+                Ok(v) => v,
+                Err(_) => continue,
+            }
         };
         // Skip vectors with non-finite values (NaN/Infinity from corrupted data)
         if validate_vector(&vector).is_err() {
