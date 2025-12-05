@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { listNotes, Note, getProjectRoot } from '../notes';
 
 export class NotesTreeDataProvider implements vscode.TreeDataProvider<NoteItem> {
