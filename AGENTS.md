@@ -228,8 +228,9 @@ Author: `Joel Reymont <18791+joelreymont@users.noreply.github.com>`
 - Break work into small steps; execute end-to-end
 - State assumptions briefly and continue
 - Update Project Reference section after major changes (stable knowledge only)
-- Use `bd` (beads) for work item tracking
 - Commit after completing major changes (don't batch unrelated work)
+
+**MANDATORY: ALWAYS create beads for new tasks.** Every bug, feature, or improvement MUST have a bead created via `mcp__hemis-mcp__bd_create` BEFORE starting work. No exceptions. Close beads when done. Never let tasks exist only in your head or in TodoWrite - beads are the source of truth for work items.
 
 ### Docs
 - See `docs/ARCHITECTURE.md` for backend/frontend architecture and stale-note behavior.
