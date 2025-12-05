@@ -406,14 +406,16 @@ pub fn search(
     const MAX_FILES_TO_SCAN: usize = 500; // Reduced from 1K
 
     // FTS5 gives us matching files, then we scan those files for line positions
+    // Limit at SQL level to avoid fetching more files than we'll scan
     let mut stmt;
     let mut rows;
     stmt = conn.prepare(
         r#"SELECT f.file, f.content FROM files f
            INNER JOIN files_fts fts ON f.rowid = fts.rowid
-           WHERE files_fts MATCH ?;"#,
+           WHERE files_fts MATCH ?
+           LIMIT ?;"#,
     )?;
-    rows = stmt.query([fts_query.as_str()])?;
+    rows = stmt.query(rusqlite::params![fts_query.as_str(), MAX_FILES_TO_SCAN])?;
 
     let mut hits = Vec::new();
     let query_lower = query.to_lowercase();
@@ -653,9 +655,11 @@ mod tests {
     #[quickcheck]
     fn prop_escape_fts_literal_never_panics(input: String) -> bool {
         let result = escape_fts_literal(&input);
-        // Result should not contain unescaped quotes
-        // In FTS5, quotes are escaped by doubling them
-        !result.contains("\"\"\"") // No triple quotes (would indicate bad escaping)
+        // Verify doubling worked: count quotes in output should be 2x quotes in input
+        // (capped by truncation at 1000 chars)
+        let input_quotes = input.chars().take(1000).filter(|&c| c == '"').count();
+        let output_quotes = result.chars().filter(|&c| c == '"').count();
+        output_quotes == input_quotes * 2
     }
 
     // Property: escape_fts_literal truncates long inputs
