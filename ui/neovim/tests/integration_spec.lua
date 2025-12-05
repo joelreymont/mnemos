@@ -750,6 +750,148 @@ describe("hemis integration", function()
       -- Should contain the code content
       assert.is_not_nil(result.content or result.explanation, "Should have content")
     end)
+
+    it("returns correct line range content", function()
+      -- Verify explain-region extracts the exact lines requested
+      local env = get_test_env()
+      local done = false
+      local result = nil
+      local connect_ok = false
+
+      env.rpc.start(function(ok)
+        if not ok then
+          done = true
+          return
+        end
+        connect_ok = true
+
+        env.rpc.request("hemis/explain-region", {
+          file = env.file,
+          startLine = 2,
+          endLine = 2,
+          projectRoot = env.dir,
+        }, function(err, res)
+          result = res
+          done = true
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 5000)
+      env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
+      assert.is_not_nil(result, "Should return result")
+      assert.is_not_nil(result.content, "Should have content")
+      -- Line 2 of test file is '    println!("hello");'
+      assert.truthy(result.content:match("println"), "Content should contain line 2")
+      -- Should NOT contain 'fn main' which is line 1
+      assert.falsy(result.content:match("fn main"), "Content should not contain line 1")
+    end)
+  end)
+
+  describe("explain-region buffer preservation", function()
+    -- Test that explain-region command does not modify buffer content
+    it("preserves buffer content after explain-region RPC", function()
+      local env = get_test_env()
+      local done = false
+      local connect_ok = false
+
+      -- Read original file content
+      local original_content = nil
+      local f = io.open(env.file, "r")
+      if f then
+        original_content = f:read("*all")
+        f:close()
+      end
+      assert.is_not_nil(original_content, "Should read original file")
+
+      env.rpc.start(function(ok)
+        if not ok then
+          done = true
+          return
+        end
+        connect_ok = true
+
+        -- Call explain-region
+        env.rpc.request("hemis/explain-region", {
+          file = env.file,
+          startLine = 1,
+          endLine = 3,
+          projectRoot = env.dir,
+        }, function(err, res)
+          done = true
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 5000)
+
+      -- Verify file content unchanged
+      local after_content = nil
+      f = io.open(env.file, "r")
+      if f then
+        after_content = f:read("*all")
+        f:close()
+      end
+
+      env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
+      assert.equals(original_content, after_content, "File content should be unchanged after explain-region")
+    end)
+  end)
+
+  describe("note creation verification", function()
+    -- Test that notes are actually persisted in the database
+    it("note exists in database after create", function()
+      local env = get_test_env()
+      local done = false
+      local create_result = nil
+      local list_result = nil
+      local connect_ok = false
+
+      env.rpc.start(function(ok)
+        if not ok then
+          done = true
+          return
+        end
+        connect_ok = true
+
+        -- Create a note
+        env.rpc.request("notes/create", {
+          file = env.file,
+          line = 2,
+          column = 0,
+          text = "Persisted note test",
+          projectRoot = env.dir,
+        }, function(err, res)
+          create_result = res
+          -- Now list notes to verify it was persisted
+          env.rpc.request("notes/list-for-file", {
+            file = env.file,
+            projectRoot = env.dir,
+          }, function(err2, res2)
+            list_result = res2
+            done = true
+          end)
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 5000)
+      env.cleanup()
+      assert.truthy(connect_ok, "Backend connection failed")
+      assert.is_not_nil(create_result, "Should return create result")
+      assert.is_not_nil(create_result.id, "Should have note id")
+      assert.is_not_nil(list_result, "Should return list result")
+      assert.truthy(#list_result > 0, "Should have at least one note")
+      -- Find our note in the list
+      local found = false
+      for _, note in ipairs(list_result) do
+        if note.id == create_result.id then
+          found = true
+          assert.equals("Persisted note test", note.text, "Note text should match")
+          assert.equals(2, note.line, "Note line should match")
+        end
+      end
+      assert.truthy(found, "Created note should be in list")
+    end)
   end)
 end)
 
