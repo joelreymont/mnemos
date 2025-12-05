@@ -28,6 +28,28 @@ const SERVER_VERSION: &str = "v1";
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 const BD_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Extension trait for Command to reduce boilerplate with optional cwd/package args
+trait CommandExt {
+    fn with_cwd(&mut self, cwd: Option<&str>) -> &mut Self;
+    fn with_package(&mut self, pkg: Option<&str>) -> &mut Self;
+}
+
+impl CommandExt for Command {
+    fn with_cwd(&mut self, cwd: Option<&str>) -> &mut Self {
+        if let Some(dir) = cwd {
+            self.current_dir(dir);
+        }
+        self
+    }
+
+    fn with_package(&mut self, pkg: Option<&str>) -> &mut Self {
+        if let Some(p) = pkg {
+            self.args(["-p", p]);
+        }
+        self
+    }
+}
+
 #[allow(dead_code)]
 fn mcp_error(msg: &str) -> McpError {
     McpError {
@@ -262,15 +284,11 @@ impl HemisServer {
     ) -> Result<CallToolResult, McpError> {
         let mut cmd = Command::new("cargo");
         cmd.args(["test", "--no-fail-fast", "--color=never"]);
+        cmd.with_package(req.package.as_deref())
+           .with_cwd(req.cwd.as_deref());
 
-        if let Some(pkg) = &req.package {
-            cmd.args(["-p", pkg]);
-        }
         if let Some(filter) = &req.filter {
             cmd.arg(filter);
-        }
-        if let Some(cwd) = &req.cwd {
-            cmd.current_dir(cwd);
         }
 
         match run_command_with_timeout(cmd, COMMAND_TIMEOUT) {
@@ -289,11 +307,8 @@ impl HemisServer {
         Parameters(req): Parameters<BdContextRequest>,
     ) -> Result<CallToolResult, McpError> {
         let mut cmd = Command::new("bd");
-        cmd.args(["list", "--json", "--status=open"]);
-
-        if let Some(cwd) = &req.cwd {
-            cmd.current_dir(cwd);
-        }
+        cmd.args(["list", "--json", "--status=open"])
+           .with_cwd(req.cwd.as_deref());
 
         match run_command_with_timeout(cmd, Duration::from_secs(10)) {
             Ok((stdout, _)) => {
@@ -483,13 +498,8 @@ impl HemisServer {
         }
 
         cmd.args(["--message-format=json", "--color=never"]);
-
-        if let Some(pkg) = &req.package {
-            cmd.args(["-p", pkg]);
-        }
-        if let Some(cwd) = &req.cwd {
-            cmd.current_dir(cwd);
-        }
+        cmd.with_package(req.package.as_deref())
+           .with_cwd(req.cwd.as_deref());
 
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
@@ -515,12 +525,8 @@ impl HemisServer {
         if req.release {
             cmd.arg("--release");
         }
-        if let Some(pkg) = &req.package {
-            cmd.args(["-p", pkg]);
-        }
-        if let Some(cwd) = &req.cwd {
-            cmd.current_dir(cwd);
-        }
+        cmd.with_package(req.package.as_deref())
+           .with_cwd(req.cwd.as_deref());
 
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
@@ -541,13 +547,11 @@ impl HemisServer {
         Parameters(req): Parameters<SwiftTestRequest>,
     ) -> Result<CallToolResult, McpError> {
         let mut cmd = Command::new("swift");
-        cmd.arg("test");
+        cmd.arg("test")
+           .with_cwd(req.cwd.as_deref());
 
         if let Some(filter) = &req.filter {
             cmd.args(["--filter", filter]);
-        }
-        if let Some(cwd) = &req.cwd {
-            cmd.current_dir(cwd);
         }
 
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
