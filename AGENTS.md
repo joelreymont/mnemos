@@ -1,21 +1,16 @@
 The docs describing this app are in docs/
 
-## CRITICAL: Demo Automation
+## Demo Automation
 
-**NEVER run demo scripts automatically. NEVER execute `swift run hemis-demo` or any demo command without EXPLICIT user instruction to do so.**
-
-The demo driver (`hemis-demo`) takes control of the keyboard and mouse. Running it automatically:
-- Hijacks user input unexpectedly
-- Can corrupt user's work in open applications
-- May cause unintended actions (deleting text, sending messages, etc.)
+The demo driver (`hemis-demo`) takes control of the keyboard and mouse. Before running any demo:
+1. **Always ask for confirmation first** - never start demos automatically
+2. Wait for the user to explicitly say "go", "run it", "start", etc.
 
 When asked to work on demo-related code:
 - Read and modify demo scripts
 - Build the demo driver (`swift build` in hemis-demo)
 - Run tests (`swift test` in hemis-demo)
-- **WAIT for user to manually run demos**
-
-The user will run demos themselves when ready.
+- Ask before running demos, then run when confirmed
 
 ## MCP Tools (MANDATORY)
 
