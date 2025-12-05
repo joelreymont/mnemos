@@ -164,6 +164,7 @@ Only use Bash for operations MCP doesn't cover:
 ### Server Location
 
 - Configuration: `.mcp.json` (project root)
+- Codex config: `$CODEX_HOME/config.toml` (now `~/.config/codex/config.toml`; symlink kept at `~/.codex/config.toml`) must include `[mcp_servers.hemis-mcp]` pointing to `/Users/joel/Work/hemis/backend/tools/hemis_mcp/target/release/hemis-mcp` with `cwd = "/Users/joel/Work/hemis"` (Codex 0.64.0 does not auto-load `.mcp.json`)
 - Server source: `backend/tools/hemis_mcp/`
 
 ### Creating New MCP Tools
@@ -203,11 +204,21 @@ Author: `Joel Reymont <18791+joelreymont@users.noreply.github.com>`
 
 ### Testing
 
+**MANDATORY: Every bug fix and feature MUST include tests.** No exceptions. If you fix a bug, write a test that would have caught it. If you add a feature, write tests that verify it works. Untested code is broken code waiting to happen.
+
+Before submitting any fix or feature:
+1. Ask yourself: "What test would have caught this bug?" or "What tests verify this feature?"
+2. Write those tests FIRST or alongside the implementation
+3. Run tests to verify they pass
+4. If existing test infrastructure doesn't cover your change, add new test files
+
+Test requirements:
 - Follow existing test infrastructure patterns
 - Keep tests short and focused
 - Add purpose comment at start, minimize other comments
 - No colors or emojis in test output
-- Ensure test coverage for new features
+- Test edge cases, not just happy paths
+- For timing/race conditions: test retry behavior, timeouts, delayed resource availability
 
 ### Code Style
 
