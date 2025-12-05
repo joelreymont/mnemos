@@ -22,6 +22,12 @@ struct FileInfo {
     size: u64,
 }
 
+/// Result of list_files including truncation status
+struct ListFilesResult {
+    files: Vec<FileInfo>,
+    truncated: bool,
+}
+
 pub mod ai_cli;
 pub mod config;
 pub mod events;
@@ -51,7 +57,7 @@ const MAX_TRAVERSAL_DEPTH: usize = 50;
 /// Maximum number of files to return from list_files
 const MAX_FILE_COUNT: usize = 100_000;
 
-fn list_files(root: &Path) -> anyhow::Result<Vec<FileInfo>> {
+fn list_files(root: &Path) -> anyhow::Result<ListFilesResult> {
     // Canonicalize path to prevent path traversal attacks
     let canonical_root = root.canonicalize()
         .with_context(|| format!("failed to canonicalize path: {}", root.display()))?;
@@ -74,6 +80,7 @@ fn list_files(root: &Path) -> anyhow::Result<Vec<FileInfo>> {
     // Track (path, depth) for depth limiting
     let mut stack = vec![(canonical_root.clone(), 0usize)];
     let mut files = Vec::new();
+    let mut truncated = false;
     while let Some((dir, depth)) = stack.pop() {
         // Check depth limit
         if depth > MAX_TRAVERSAL_DEPTH {
@@ -106,9 +113,9 @@ fn list_files(root: &Path) -> anyhow::Result<Vec<FileInfo>> {
             } else if file_type.is_file() {
                 // Check file count limit
                 if files.len() >= MAX_FILE_COUNT {
-                    // Return early with what we have
+                    truncated = true;
                     files.sort_by(|a: &FileInfo, b: &FileInfo| a.file.cmp(&b.file));
-                    return Ok(files);
+                    return Ok(ListFilesResult { files, truncated });
                 }
                 let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
                 files.push(FileInfo {
@@ -119,7 +126,7 @@ fn list_files(root: &Path) -> anyhow::Result<Vec<FileInfo>> {
         }
     }
     files.sort_by(|a, b| a.file.cmp(&b.file));
-    Ok(files)
+    Ok(ListFilesResult { files, truncated })
 }
 
 pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Response {
@@ -359,8 +366,9 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 // Max file size for indexing (1MB - same as search limit)
                 const MAX_INDEX_FILE_SIZE: u64 = 1024 * 1024;
                 match list_files(Path::new(root)) {
-                    Ok(files) => {
-                        for f in files {
+                    Ok(result) => {
+                        let truncated = result.truncated;
+                        for f in result.files {
                             // Skip oversized files to prevent memory exhaustion
                             let file_size = fs::metadata(&f.file)
                                 .map(|m| m.len())
@@ -425,6 +433,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                             "ok": true,
                             "indexed": indexed,
                             "skipped": skipped,
+                            "truncated": truncated,
                             "projectRoot": root
                         });
                         if let Some(ai) = ai_result {

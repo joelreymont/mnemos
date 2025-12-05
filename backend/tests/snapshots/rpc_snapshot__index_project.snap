@@ -1,5 +1,6 @@
 ---
 source: backend/tests/rpc_snapshot.rs
+assertion_line: 680
 expression: responses
 ---
 [
@@ -10,7 +11,8 @@ expression: responses
       "indexed": 1,
       "ok": true,
       "projectRoot": "/tmp",
-      "skipped": 0
+      "skipped": 0,
+      "truncated": false
     }
   },
   {
