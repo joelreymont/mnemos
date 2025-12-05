@@ -5,7 +5,8 @@ use notes::{self, NoteFilters};
 use rpc::{Request, Response, INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, PARSE_ERROR};
 use rusqlite::Connection;
 use serde_json::json;
-use std::fs;
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use treesitter::{
     compute_display_position, compute_hash_at_position, compute_node_path, default_config,
@@ -129,6 +130,26 @@ fn list_files(root: &Path) -> anyhow::Result<ListFilesResult> {
     Ok(ListFilesResult { files, truncated })
 }
 
+/// Read only the specified line range from a file.
+/// Line numbers are 1-indexed. Returns lines joined by newlines.
+fn read_line_range(path: &Path, start_line: usize, end_line: usize) -> std::io::Result<String> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    let mut lines = Vec::with_capacity(end_line - start_line + 1);
+
+    for (idx, line_result) in reader.lines().enumerate() {
+        let line_no = idx + 1;
+        if line_no > end_line {
+            break; // Done - no need to read further
+        }
+        if line_no >= start_line {
+            lines.push(line_result?);
+        }
+    }
+
+    Ok(lines.join("\n"))
+}
+
 pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Response {
     let id = req.id.clone();
     match req.method.as_str() {
@@ -202,24 +223,24 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 .unwrap_or(false);
             let content_param = req.params.get("content").and_then(|v| v.as_str());
             if let Some(file) = file {
-                // Read content from param or file
-                let content_result = if let Some(c) = content_param {
-                    Ok(c.to_string())
+                // Get snippet: from content param (filter lines) or file (read only needed lines)
+                let snippet_result = if let Some(c) = content_param {
+                    // Content provided - filter to requested lines
+                    Ok(c.lines()
+                        .enumerate()
+                        .filter(|(idx, _)| {
+                            let line_no = idx + 1;
+                            line_no >= start_line && line_no <= end_line
+                        })
+                        .map(|(_, l)| l)
+                        .collect::<Vec<_>>()
+                        .join("\n"))
                 } else {
-                    fs::read_to_string(file)
+                    // Read only the requested line range from file
+                    read_line_range(Path::new(file), start_line, end_line)
                 };
-                match content_result {
-                    Ok(content) => {
-                        let snippet: String = content
-                            .lines()
-                            .enumerate()
-                            .filter(|(idx, _)| {
-                                let line_no = idx + 1;
-                                line_no >= start_line && line_no <= end_line
-                            })
-                            .map(|(_, l)| l)
-                            .collect::<Vec<_>>()
-                            .join("\n");
+                match snippet_result {
+                    Ok(snippet) => {
 
                         if snippet.is_empty() {
                             return Response::result(id, json!({"content": "", "references": []}));
