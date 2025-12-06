@@ -2,6 +2,7 @@
 --
 -- Note positions are computed server-side when content is provided.
 -- This module renders notes at server-computed displayLine positions.
+-- Server provides formattedLines with comment prefix and text wrapping.
 local config = require("hemis.config")
 
 local M = {}
@@ -12,124 +13,27 @@ M.ns_id = vim.api.nvim_create_namespace("hemis_notes")
 -- Highlight groups
 local function setup_highlights()
   vim.api.nvim_set_hl(0, "HemisNote", { fg = "#4682B4", italic = true, default = true })
-  vim.api.nvim_set_hl(0, "HemisNoteStale", { fg = "#CC6666", italic = true, default = true })
+  vim.api.nvim_set_hl(0, "HemisNoteStale", { fg = "#808080", italic = true, default = true })
   vim.api.nvim_set_hl(0, "HemisNoteMarker", { fg = "#4682B4", bold = true, default = true })
 end
 
 setup_highlights()
 
--- Get comment prefix for current filetype
-local function get_comment_prefix()
-  local cs = vim.bo.commentstring
-  if cs and cs ~= "" then
-    -- Extract comment prefix from commentstring (e.g., "// %s" -> "//")
-    local prefix = cs:match("^(.-)%%s") or cs:match("^(.-) ") or cs
-    prefix = prefix:gsub("%s+$", "")
-    if prefix ~= "" then
-      return prefix .. " "
-    end
-  end
-
-  -- Fallback based on filetype
-  local ft = vim.bo.filetype
-  local prefixes = {
-    lua = "-- ",
-    python = "# ",
-    rust = "// ",
-    go = "// ",
-    javascript = "// ",
-    typescript = "// ",
-    c = "// ",
-    cpp = "// ",
-    java = "// ",
-    sh = "# ",
-    bash = "# ",
-    zsh = "# ",
-    ruby = "# ",
-    vim = '" ',
-  }
-  return prefixes[ft] or "// "
-end
-
--- Wrap text at specified width
-local function wrap_text(text, width)
-  if width <= 0 or #text <= width then
-    return { text }
-  end
-
-  local lines = {}
-  local remaining = text
-
-  while #remaining > width do
-    -- Find last space within width
-    local break_pos = width
-    for i = width, 1, -1 do
-      if remaining:sub(i, i) == " " then
-        break_pos = i
-        break
-      end
-    end
-
-    -- If no space found, hard break at width
-    if break_pos == width and remaining:sub(width, width) ~= " " then
-      -- Check if we're in the middle of a word
-      local has_space = false
-      for i = width, 1, -1 do
-        if remaining:sub(i, i) == " " then
-          has_space = true
-          break_pos = i
-          break
-        end
-      end
-      if not has_space then
-        break_pos = width
-      end
-    end
-
-    local line = remaining:sub(1, break_pos):gsub("%s+$", "")
-    table.insert(lines, line)
-    remaining = remaining:sub(break_pos + 1):gsub("^%s+", "")
-  end
-
-  if #remaining > 0 then
-    table.insert(lines, remaining)
-  end
-
-  return lines
-end
-
--- Format note text as comment lines
--- Uses server-provided formattedLines when available, otherwise formats locally
-local function format_note_lines(note, prefix)
+-- Format note text as virtual lines for display
+-- Server MUST provide formattedLines (includes comment prefix and wrapping)
+local function format_note_lines(note)
   local lines = {}
   local hl = note.stale and "HemisNoteStale" or "HemisNote"
 
-  -- Use server-provided formatted lines if available
-  if note.formattedLines and #note.formattedLines > 0 then
-    for _, formatted_line in ipairs(note.formattedLines) do
-      table.insert(lines, { { formatted_line, hl } })
-    end
-    return lines
+  if not note.formattedLines or #note.formattedLines == 0 then
+    -- Server bug: should always provide formattedLines when content is sent
+    vim.notify("[hemis] Note missing formattedLines - check server version", vim.log.levels.WARN)
+    return { { { "// " .. (note.text or ""):sub(1, 50), hl } } }
   end
 
-  -- Fallback: format locally (for backwards compatibility)
-  local text = note.text or note.summary or ""
-
-  -- Get wrap width from config or use window width minus prefix
-  local wrap_width = config.get("note_wrap_width") or 70
-  local effective_width = wrap_width - #prefix
-
-  for line in text:gmatch("[^\n]+") do
-    -- Skip lines that are only whitespace (prevents extra blank virtual lines)
-    if not line:match("^%s*$") then
-      -- Wrap long lines
-      local wrapped = wrap_text(line, effective_width)
-      for _, wrapped_line in ipairs(wrapped) do
-        table.insert(lines, { { prefix .. wrapped_line, hl } })
-      end
-    end
+  for _, formatted_line in ipairs(note.formattedLines) do
+    table.insert(lines, { { formatted_line, hl } })
   end
-
   return lines
 end
 
@@ -139,22 +43,11 @@ function M.clear(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, M.ns_id, 0, -1)
 end
 
--- Get the indentation of a line in a buffer
-local function get_line_indent(bufnr, line_nr)
-  local lines = vim.api.nvim_buf_get_lines(bufnr, line_nr, line_nr + 1, false)
-  if #lines == 0 then
-    return ""
-  end
-  local line_text = lines[1]
-  local indent = line_text:match("^(%s*)") or ""
-  return indent
-end
-
--- Render a single note
-function M.render_note(bufnr, note)
+-- Render a single note at its display position
+function M.render_note(bufnr, note, display_line, is_stale)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
-  local line = (note.line or 1) - 1 -- Convert to 0-indexed
+  local line = (display_line or note.line or 1) - 1 -- Convert to 0-indexed
   if line < 0 then
     line = 0
   end
@@ -164,11 +57,13 @@ function M.render_note(bufnr, note)
     line = max_lines - 1
   end
 
-  -- Get indentation to align note with code
-  local indent = get_line_indent(bufnr, line)
+  -- Override staleness if provided
+  local note_with_stale = note
+  if is_stale ~= nil then
+    note_with_stale = vim.tbl_extend("force", note, { stale = is_stale })
+  end
 
-  local prefix = get_comment_prefix()
-  local virt_lines = format_note_lines(note, indent .. prefix)
+  local virt_lines = format_note_lines(note_with_stale)
 
   if #virt_lines == 0 then
     return nil
@@ -177,9 +72,9 @@ function M.render_note(bufnr, note)
   local style = config.get("display_style") or "full"
 
   if style == "minimal" then
-    -- Single line indicator
+    -- Single line indicator at end of line
     local short_id = (note.id or ""):sub(1, 8)
-    local hl = note.stale and "HemisNoteStale" or "HemisNoteMarker"
+    local hl = note_with_stale.stale and "HemisNoteStale" or "HemisNoteMarker"
     return vim.api.nvim_buf_set_extmark(bufnr, M.ns_id, line, 0, {
       virt_text = { { "[n:" .. short_id .. "]", hl } },
       virt_text_pos = "eol",
@@ -196,20 +91,15 @@ function M.render_note(bufnr, note)
 end
 
 -- Get display position for a note
--- Server computes displayLine when content is provided; fall back to stored line otherwise
+-- Server MUST provide displayLine and computedStale when content is sent
 local function get_note_display_position(note)
-  if note.displayLine then
-    -- Prefer server-computed staleness when available (even if false)
-    local is_stale
-    if note.computedStale ~= nil then
-      is_stale = note.computedStale
-    else
-      is_stale = note.stale or false
-    end
-    return note.displayLine, is_stale
+  -- Use server-computed values (required when content is sent)
+  local display_line = note.displayLine or note.line
+  local is_stale = note.computedStale
+  if is_stale == nil then
+    is_stale = note.stale or false
   end
-  -- Fallback to stored position (for backwards compatibility or when server doesn't compute)
-  return note.line, note.stale or false
+  return display_line, is_stale
 end
 
 -- Render all notes for buffer
@@ -223,48 +113,10 @@ function M.render_notes(bufnr, notes)
     return
   end
 
-  -- Get display position and staleness for each note
-  -- Uses server-computed displayLine/computedStale when available
-  local display_notes = {}
+  -- Render each note at its server-computed display position
   for _, note in ipairs(notes) do
     local display_line, is_stale = get_note_display_position(note)
-    table.insert(display_notes, {
-      note = note,
-      display_line = display_line,
-      is_stale = is_stale,
-    })
-  end
-
-  -- Group by display line (not stored line)
-  local by_line = {}
-  for _, dn in ipairs(display_notes) do
-    local line = dn.display_line
-    by_line[line] = by_line[line] or {}
-    table.insert(by_line[line], dn)
-  end
-
-  -- Render grouped notes
-  for line, line_dns in pairs(by_line) do
-    -- Combine all notes at this display line
-    local combined_text = {}
-    local is_stale = false
-
-    for _, dn in ipairs(line_dns) do
-      local text = dn.note.text or dn.note.summary or ""
-      table.insert(combined_text, text)
-      if dn.is_stale then
-        is_stale = true
-      end
-    end
-
-    local combined_note = {
-      line = line,
-      text = table.concat(combined_text, "\n---\n"),
-      stale = is_stale,
-      id = line_dns[1].note.id,
-    }
-
-    M.render_note(bufnr, combined_note)
+    M.render_note(bufnr, note, display_line, is_stale)
   end
 end
 
