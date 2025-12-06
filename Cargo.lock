@@ -95,6 +95,7 @@ dependencies = [
  "anyhow",
  "assert_cmd",
  "atty",
+ "chrono",
  "dirs",
  "git",
  "index",
@@ -1013,6 +1014,7 @@ name = "notes"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "git",
  "git2",
  "once_cell",

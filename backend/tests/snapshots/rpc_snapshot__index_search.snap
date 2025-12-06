@@ -1,6 +1,5 @@
 ---
 source: backend/tests/rpc_snapshot.rs
-assertion_line: 286
 expression: responses
 ---
 [
@@ -22,6 +21,8 @@ expression: responses
     "result": [
       {
         "column": 3,
+        "displayDetail": "/tmp/foo.rs:1",
+        "displayLabel": "[File] foo.rs",
         "file": "/tmp/foo.rs",
         "kind": "file",
         "line": 1,

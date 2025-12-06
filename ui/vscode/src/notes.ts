@@ -14,8 +14,11 @@ export interface Note {
   blob?: string;
   stale?: boolean; // Server computes when content is provided
   formattedLines?: string[]; // Server-computed formatted lines with comment prefix
+  displayLine?: number; // Server-computed display line (may differ from stored line)
   createdAt: string;
   updatedAt: string;
+  formattedCreatedAt?: string; // Server-computed human-readable timestamp
+  formattedUpdatedAt?: string; // Server-computed human-readable timestamp
 }
 
 export interface CreateNoteParams {
@@ -93,6 +96,8 @@ export interface SearchHit {
   snippet?: string;
   noteId?: string;
   noteSummary?: string;
+  displayLabel?: string; // Server-computed label (e.g., "[Note] Summary")
+  displayDetail?: string; // Server-computed detail (e.g., "path/file.rs:42")
 }
 
 export async function search(query: string, projectRoot?: string, includeNotes = true): Promise<SearchHit[]> {
@@ -136,6 +141,7 @@ export interface ExplainResult {
     provider?: string;
     hadContext?: boolean;
     error?: string;
+    statusDisplay?: string; // Server-computed AI status string (e.g., "[AI: claude + project context]")
   };
 }
 
@@ -166,6 +172,7 @@ export interface IndexProjectResult {
   indexed: number;
   skipped: number;
   projectRoot: string;
+  statusMessage?: string; // Server-computed status message (e.g., "Project indexed: 42 files, analyzed with claude")
   ai?: {
     analyzed?: boolean;
     provider?: string;
@@ -186,12 +193,15 @@ export interface ProjectMeta {
   projectRoot: string;
   indexed: boolean;
   indexedAt?: number;
+  formattedIndexedAt?: string; // Server-computed human-readable timestamp
   indexedCommit?: string;
   analyzed: boolean;
   analyzedAt?: number;
+  formattedAnalyzedAt?: string; // Server-computed human-readable timestamp
   analysisCommit?: string;
   analysisProvider?: string;
   analysisStale: boolean;
+  analysisStatusDisplay?: string; // Server-computed status (e.g., "Up to date", "Stale (commit changed)")
   hasAnalysisFile: boolean;
   aiAvailable: boolean;
   currentCommit?: string;

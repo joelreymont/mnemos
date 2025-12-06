@@ -767,18 +767,21 @@ With prefix arg or INCLUDE-AI non-nil, also run AI analysis."
                 (setq params (append params '((includeAI . t))))))
            (resp (hemis--request "hemis/index-project" params))
            (indexed (alist-get 'indexed resp))
+           (status-msg (alist-get 'statusMessage resp))
            (ai-info (alist-get 'ai resp)))
-      (if ai-info
-          (let ((analyzed (alist-get 'analyzed ai-info))
-                (provider (alist-get 'provider ai-info))
-                (error-msg (alist-get 'error ai-info)))
-            (if analyzed
-                (message "Hemis: indexed %s files, analyzed with %s in %s"
-                         (or indexed "?") provider root)
-              (message "Hemis: indexed %s files (AI analysis failed: %s)"
-                       (or indexed "?") error-msg)))
-        (message "Hemis: indexed %s files in %s"
-                 (or indexed "?") root)))))
+      (if status-msg
+          (message "Hemis: %s in %s" status-msg root)
+        (if ai-info
+            (let ((analyzed (alist-get 'analyzed ai-info))
+                  (provider (alist-get 'provider ai-info))
+                  (error-msg (alist-get 'error ai-info)))
+              (if analyzed
+                  (message "Hemis: indexed %s files, analyzed with %s in %s"
+                           (or indexed "?") provider root)
+                (message "Hemis: indexed %s files (AI analysis failed: %s)"
+                         (or indexed "?") error-msg)))
+          (message "Hemis: indexed %s files in %s"
+                   (or indexed "?") root))))))
 
 (defun hemis-index-project-ai (&optional root)
   "Index all files under ROOT and run AI analysis."
@@ -797,20 +800,22 @@ With prefix arg or INCLUDE-AI non-nil, also run AI analysis."
       (insert (format "Project: %s\n\n" root))
       (insert (format "Indexed: %s\n"
                       (if (alist-get 'indexed resp) "Yes" "No")))
-      (when (alist-get 'indexedAt resp)
-        (insert (format "  Last indexed: %s\n"
-                        (format-time-string "%Y-%m-%d %H:%M:%S"
-                                            (alist-get 'indexedAt resp)))))
+      (when-let ((ts (or (alist-get 'formattedIndexedAt resp)
+                         (when (alist-get 'indexedAt resp)
+                           (format-time-string "%Y-%m-%d %H:%M:%S"
+                                               (alist-get 'indexedAt resp))))))
+        (insert (format "  Last indexed: %s\n" ts)))
       (insert "\n")
       (insert (format "AI Analysis: %s\n"
-                      (cond
-                       ((alist-get 'analyzed resp)
-                        (if (alist-get 'analysisStale resp)
-                            "Stale (commit changed)"
-                          "Up to date"))
-                       ((alist-get 'hasAnalysisFile resp)
-                        "Has file but not tracked")
-                       (t "Not analyzed"))))
+                      (or (alist-get 'analysisStatusDisplay resp)
+                          (cond
+                           ((alist-get 'analyzed resp)
+                            (if (alist-get 'analysisStale resp)
+                                "Stale (commit changed)"
+                              "Up to date"))
+                           ((alist-get 'hasAnalysisFile resp)
+                            "Has file but not tracked")
+                           (t "Not analyzed")))))
       (when (alist-get 'analysisProvider resp)
         (insert (format "  Provider: %s\n" (alist-get 'analysisProvider resp))))
       (insert "\n")
@@ -975,15 +980,19 @@ With prefix arg or USE-AI non-nil, use AI to explain."
       (erase-buffer)
       (insert (format "Explanation for %s:%d-%d\n" file start-line end-line))
       (when ai-info
-        (let ((provider (alist-get 'provider ai-info))
+        (let ((status-display (alist-get 'statusDisplay ai-info))
+              (provider (alist-get 'provider ai-info))
               (error-msg (alist-get 'error ai-info))
               (had-context (alist-get 'hadContext ai-info)))
-          (if provider
-              (insert (format "[AI: %s%s]\n"
-                              provider
-                              (if had-context " + project context" "")))
-            (when error-msg
-              (insert (format "[AI error: %s]\n" error-msg))))))
+          (cond
+           (status-display
+            (insert (format "%s\n" status-display)))
+           (provider
+            (insert (format "[AI: %s%s]\n"
+                            provider
+                            (if had-context " + project context" ""))))
+           (error-msg
+            (insert (format "[AI error: %s]\n" error-msg))))))
       (insert "\n")
       (if explanation
           (insert explanation)

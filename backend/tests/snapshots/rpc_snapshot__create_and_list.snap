@@ -10,6 +10,8 @@ expression: responses
       "column": 2,
       "createdAt": "<ts>",
       "file": "/tmp/test.rs",
+      "formattedCreatedAt": "<formatted_ts>",
+      "formattedUpdatedAt": "<formatted_ts>",
       "id": "<id>",
       "line": 3,
       "projectRoot": "/tmp",
@@ -31,9 +33,11 @@ expression: responses
         "column": 2,
         "createdAt": "<ts>",
         "file": "/tmp/test.rs",
+        "formattedCreatedAt": "<formatted_ts>",
         "formattedLines": [
           "// snapshot note"
         ],
+        "formattedUpdatedAt": "<formatted_ts>",
         "id": "<id>",
         "line": 3,
         "projectRoot": "/tmp",

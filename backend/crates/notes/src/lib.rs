@@ -43,6 +43,12 @@ pub struct Note {
     pub formatted_lines: Option<Vec<String>>,
     pub created_at: i64,
     pub updated_at: i64,
+    /// Human-readable formatted created_at timestamp (YYYY-MM-DD HH:MM:SS)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub formatted_created_at: Option<String>,
+    /// Human-readable formatted updated_at timestamp (YYYY-MM-DD HH:MM:SS)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub formatted_updated_at: Option<String>,
 }
 
 pub struct NoteFilters<'a> {
@@ -64,6 +70,16 @@ impl<'a> Clone for NoteFilters<'a> {
             include_stale: self.include_stale,
         }
     }
+}
+
+/// Format a Unix timestamp as YYYY-MM-DD HH:MM:SS in local timezone
+fn format_timestamp(ts: i64) -> String {
+    use chrono::{Local, TimeZone};
+    Local
+        .timestamp_opt(ts, 0)
+        .single()
+        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_else(|| ts.to_string())
 }
 
 fn summarize(text: &str) -> String {
@@ -143,6 +159,7 @@ pub fn create(
     // Parse and store links to other notes
     update_edges(conn, &id, project_root, text)?;
     let short_id = id.chars().take(8).collect();
+    let formatted_ts = format_timestamp(ts);
     Ok(Note {
         id,
         short_id,
@@ -161,6 +178,8 @@ pub fn create(
         formatted_lines: None,
         created_at: ts,
         updated_at: ts,
+        formatted_created_at: Some(formatted_ts.clone()),
+        formatted_updated_at: Some(formatted_ts),
     })
 }
 
@@ -169,6 +188,8 @@ fn map_note(row: &rusqlite::Row<'_>, stale: bool) -> Result<Note> {
     let tags: Option<String> = row.get("tags").ok();
     let id: String = row.get("id")?;
     let short_id = id.chars().take(8).collect();
+    let created_at: i64 = row.get("created_at")?;
+    let updated_at: i64 = row.get("updated_at")?;
     Ok(Note {
         id,
         short_id,
@@ -187,8 +208,10 @@ fn map_note(row: &rusqlite::Row<'_>, stale: bool) -> Result<Note> {
         node_text_hash: row.get("node_text_hash").ok(),
         stale,
         formatted_lines: None,
-        created_at: row.get("created_at")?,
-        updated_at: row.get("updated_at")?,
+        created_at,
+        updated_at,
+        formatted_created_at: Some(format_timestamp(created_at)),
+        formatted_updated_at: Some(format_timestamp(updated_at)),
     })
 }
 
@@ -342,6 +365,7 @@ pub fn update(
     note.tags = new_tags;
     note.summary = summary;
     note.updated_at = now;
+    note.formatted_updated_at = Some(format_timestamp(now));
     Ok(note)
 }
 
@@ -473,6 +497,7 @@ pub fn reattach(
     note.node_text_hash = node_text_hash;
     note.stale = false;
     note.updated_at = now;
+    note.formatted_updated_at = Some(format_timestamp(now));
     Ok(note)
 }
 

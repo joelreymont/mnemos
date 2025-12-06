@@ -10,6 +10,8 @@ expression: responses
       "column": 1,
       "createdAt": "<ts>",
       "file": "/tmp/test.rs",
+      "formattedCreatedAt": "<formatted_ts>",
+      "formattedUpdatedAt": "<formatted_ts>",
       "id": "<id>",
       "line": 5,
       "nodePath": [
@@ -33,6 +35,8 @@ expression: responses
         "column": 1,
         "createdAt": "<ts>",
         "file": "/tmp/test.rs",
+        "formattedCreatedAt": "<formatted_ts>",
+        "formattedUpdatedAt": "<formatted_ts>",
         "id": "<id>",
         "line": 5,
         "nodePath": [

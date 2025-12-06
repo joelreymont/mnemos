@@ -673,8 +673,8 @@ function M.explain_region()
   local create_done = false
   local create_err = nil
 
-  local provider = ai_result.ai and ai_result.ai.provider or "AI"
-  local text = string.format("[%s] %s", provider, ai_result.explanation)
+  local status_prefix = (ai_result.ai and ai_result.ai.statusDisplay) or ("[" .. (ai_result.ai and ai_result.ai.provider or "AI") .. "]")
+  local text = string.format("%s %s", status_prefix, ai_result.explanation)
 
   notes.create(text, {
     anchor = anchor,
@@ -754,8 +754,8 @@ function M.explain_region_full()
   local create_done = false
   local create_err = nil
 
-  local provider = ai_result.ai and ai_result.ai.provider or "AI"
-  local text = string.format("[%s detailed] %s", provider, ai_result.explanation)
+  local status_prefix = (ai_result.ai and ai_result.ai.statusDisplay) or ("[" .. (ai_result.ai and ai_result.ai.provider or "AI") .. " detailed]")
+  local text = string.format("%s %s", status_prefix, ai_result.explanation)
 
   notes.create(text, {
     anchor = anchor,
@@ -788,17 +788,21 @@ function M.project_meta()
     table.insert(lines, string.format("Project: %s", result.projectRoot or "unknown"))
     table.insert(lines, "")
     table.insert(lines, string.format("Indexed: %s", result.indexed and "Yes" or "No"))
-    if result.indexedAt then
+    if result.formattedIndexedAt then
+      table.insert(lines, string.format("  Last indexed: %s", result.formattedIndexedAt))
+    elseif result.indexedAt then
       table.insert(lines, string.format("  Last indexed: %s", os.date("%Y-%m-%d %H:%M:%S", result.indexedAt)))
     end
     table.insert(lines, "")
-    local analysis_status
-    if result.analyzed then
-      analysis_status = result.analysisStale and "Stale (commit changed)" or "Up to date"
-    elseif result.hasAnalysisFile then
-      analysis_status = "Has file but not tracked"
-    else
-      analysis_status = "Not analyzed"
+    local analysis_status = result.analysisStatusDisplay
+    if not analysis_status then
+      if result.analyzed then
+        analysis_status = result.analysisStale and "Stale (commit changed)" or "Up to date"
+      elseif result.hasAnalysisFile then
+        analysis_status = "Has file but not tracked"
+      else
+        analysis_status = "Not analyzed"
+      end
     end
     table.insert(lines, string.format("AI Analysis: %s", analysis_status))
     if result.analysisProvider then

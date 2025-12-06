@@ -351,9 +351,9 @@ export async function searchCommand(): Promise<void> {
     }
 
     const items = hits.map((hit: SearchHit) => ({
-      label: hit.kind === 'note' ? `[Note] ${hit.noteSummary || ''}` : `[File] ${path.basename(hit.file)}`,
+      label: hit.displayLabel || (hit.kind === 'note' ? `[Note] ${hit.noteSummary || ''}` : `[File] ${path.basename(hit.file)}`),
       description: `Score: ${hit.score.toFixed(2)}`,
-      detail: hit.line ? `${hit.file}:${hit.line}` : hit.file,
+      detail: hit.displayDetail || (hit.line ? `${hit.file}:${hit.line}` : hit.file),
       hit,
     }));
 
@@ -513,8 +513,8 @@ export async function viewNoteCommand(): Promise<void> {
     `# Note`,
     ``,
     `**File:** ${note.file}:${note.line}`,
-    `**Created:** ${new Date(Number(note.createdAt) * 1000).toLocaleString()}`,
-    `**Updated:** ${new Date(Number(note.updatedAt) * 1000).toLocaleString()}`,
+    `**Created:** ${note.formattedCreatedAt || new Date(Number(note.createdAt) * 1000).toLocaleString()}`,
+    `**Updated:** ${note.formattedUpdatedAt || new Date(Number(note.updatedAt) * 1000).toLocaleString()}`,
     note.stale ? `**Status:** STALE` : '',
     ``,
     `---`,
@@ -635,7 +635,9 @@ export async function explainRegionAICommand(): Promise<void> {
           ];
 
           if (result.ai) {
-            if (result.ai.provider) {
+            if (result.ai.statusDisplay) {
+              lines.push(`*${result.ai.statusDisplay}*`);
+            } else if (result.ai.provider) {
               const suffix = result.ai.hadContext ? ' + project context' : '';
               lines.push(`*[AI: ${result.ai.provider}${suffix}]*`);
             } else if (result.ai.error) {
@@ -684,14 +686,17 @@ export async function indexProjectAICommand(): Promise<void> {
     async () => {
       try {
         const result = await indexProjectWithAI(projectRoot, true);
-        let msg = `Indexed ${result.indexed} files`;
-        if (result.ai) {
-          if (result.ai.analyzed) {
-            msg += `, analyzed with ${result.ai.provider}`;
-          } else if (result.ai.error) {
-            msg += ` (AI failed: ${result.ai.error})`;
+        const msg = result.statusMessage || (() => {
+          let m = `Indexed ${result.indexed} files`;
+          if (result.ai) {
+            if (result.ai.analyzed) {
+              m += `, analyzed with ${result.ai.provider}`;
+            } else if (result.ai.error) {
+              m += ` (AI failed: ${result.ai.error})`;
+            }
           }
-        }
+          return m;
+        })();
         vscode.window.showInformationMessage(msg);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -717,20 +722,23 @@ export async function projectMetaCommand(): Promise<void> {
       `**Indexed:** ${meta.indexed ? 'Yes' : 'No'}`,
     ];
 
-    if (meta.indexedAt) {
+    if (meta.formattedIndexedAt) {
+      lines.push(`  - Last indexed: ${meta.formattedIndexedAt}`);
+    } else if (meta.indexedAt) {
       lines.push(`  - Last indexed: ${new Date(meta.indexedAt * 1000).toLocaleString()}`);
     }
 
     lines.push('');
 
-    let analysisStatus: string;
-    if (meta.analyzed) {
-      analysisStatus = meta.analysisStale ? 'Stale (commit changed)' : 'Up to date';
-    } else if (meta.hasAnalysisFile) {
-      analysisStatus = 'Has file but not tracked';
-    } else {
-      analysisStatus = 'Not analyzed';
-    }
+    const analysisStatus = meta.analysisStatusDisplay || (() => {
+      if (meta.analyzed) {
+        return meta.analysisStale ? 'Stale (commit changed)' : 'Up to date';
+      } else if (meta.hasAnalysisFile) {
+        return 'Has file but not tracked';
+      } else {
+        return 'Not analyzed';
+      }
+    })();
 
     lines.push(`**AI Analysis:** ${analysisStatus}`);
     if (meta.analysisProvider) {

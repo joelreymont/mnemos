@@ -1,6 +1,5 @@
 ---
 source: backend/tests/rpc_snapshot.rs
-assertion_line: 680
 expression: responses
 ---
 [
@@ -12,6 +11,7 @@ expression: responses
       "ok": true,
       "projectRoot": "/tmp",
       "skipped": 0,
+      "statusMessage": "Project indexed: 1 files",
       "truncated": false
     }
   },
@@ -21,6 +21,8 @@ expression: responses
     "result": [
       {
         "column": 3,
+        "displayDetail": "/private/tmp/foo.rs:1",
+        "displayLabel": "[File] foo.rs",
         "file": "/private/tmp/foo.rs",
         "kind": "file",
         "line": 1,

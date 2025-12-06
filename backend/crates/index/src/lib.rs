@@ -82,6 +82,35 @@ pub struct SearchHit {
     pub note_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note_summary: Option<String>,
+    /// Human-readable label for display (e.g., "[Note] Summary" or "[File] filename.rs")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_label: Option<String>,
+    /// Human-readable detail for display (e.g., "path/to/file.rs:42")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_detail: Option<String>,
+}
+
+impl SearchHit {
+    /// Compute display fields based on hit kind and other fields
+    pub fn with_display_fields(mut self) -> Self {
+        let kind = self.kind.as_deref().unwrap_or("file");
+        self.display_label = Some(match kind {
+            "note" => format!("[Note] {}", self.note_summary.as_deref().unwrap_or("")),
+            _ => {
+                let basename = std::path::Path::new(&self.file)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&self.file);
+                format!("[File] {}", basename)
+            }
+        });
+        self.display_detail = Some(if self.line > 0 {
+            format!("{}:{}", self.file, self.line)
+        } else {
+            self.file.clone()
+        });
+        self
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -453,6 +482,10 @@ pub fn search(
                 let pos = query_terms.first()
                     .and_then(|term| line_lower.find(term))
                     .unwrap_or(0);
+                let basename = std::path::Path::new(&file)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&file);
                 hits.push(SearchHit {
                     file: file.clone(),
                     line: idx + 1,
@@ -462,6 +495,8 @@ pub fn search(
                     kind: Some("file".into()),
                     note_id: None,
                     note_summary: None,
+                    display_label: Some(format!("[File] {}", basename)),
+                    display_detail: Some(format!("{}:{}", file, idx + 1)),
                 });
             }
         }
@@ -599,8 +634,14 @@ pub fn semantic_search(
         }
         let score = dot(&vector, query_vector);
 
+        let file: String = row.get("file")?;
+        let basename = std::path::Path::new(&file)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&file)
+            .to_string();
         let hit = SearchHit {
-            file: row.get("file")?,
+            file: file.clone(),
             line: 1,
             column: 0,
             text: row.get("text")?,
@@ -608,6 +649,8 @@ pub fn semantic_search(
             kind: Some("semantic".into()),
             note_id: None,
             note_summary: None,
+            display_label: Some(format!("[File] {}", basename)),
+            display_detail: Some(file),
         };
 
         if heap.len() < top_k {

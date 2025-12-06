@@ -148,6 +148,31 @@ fn list_files(root: &Path) -> anyhow::Result<ListFilesResult> {
     Ok(ListFilesResult { files, truncated })
 }
 
+/// Format a Unix timestamp as YYYY-MM-DD HH:MM:SS in local timezone
+fn format_timestamp(ts: i64) -> String {
+    use chrono::{Local, TimeZone};
+    Local
+        .timestamp_opt(ts, 0)
+        .single()
+        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_else(|| ts.to_string())
+}
+
+/// Compute human-readable analysis status display string
+fn compute_analysis_status(analyzed: bool, analysis_stale: bool, has_file: bool) -> &'static str {
+    if analyzed {
+        if analysis_stale {
+            "Stale (commit changed)"
+        } else {
+            "Up to date"
+        }
+    } else if has_file {
+        "Has file but not tracked"
+    } else {
+        "Not analyzed"
+    }
+}
+
 /// Read only the specified line range from a file.
 /// Line numbers are 1-indexed. Returns lines joined by newlines.
 fn read_line_range(path: &Path, start_line: usize, end_line: usize) -> std::io::Result<String> {
@@ -290,23 +315,28 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                             // Try AI explanation (works with or without project index)
                             match ai_cli::explain_region(&root_path, file, start_line, end_line, &snippet, detailed) {
                                 Ok((provider, explanation, had_context)) => {
+                                    let context_suffix = if had_context { " + project context" } else { "" };
+                                    let ai_status = format!("[AI: {}{}]", provider.as_str(), context_suffix);
                                     Response::result(id, json!({
                                         "content": snippet,
                                         "explanation": explanation,
                                         "references": [],
                                         "ai": {
                                             "provider": provider.as_str(),
-                                            "hadContext": had_context
+                                            "hadContext": had_context,
+                                            "statusDisplay": ai_status
                                         }
                                     }))
                                 }
                                 Err(e) => {
                                     // AI failed, return snippet with error info
+                                    let ai_status = format!("[AI error: {}]", e);
                                     Response::result(id, json!({
                                         "content": snippet,
                                         "references": [],
                                         "ai": {
-                                            "error": e.to_string()
+                                            "error": e.to_string(),
+                                            "statusDisplay": ai_status
                                         }
                                     }))
                                 }
@@ -389,6 +419,8 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                     kind: Some("note".into()),
                                     note_id: Some(n.id.clone()),
                                     note_summary: Some(n.summary.clone()),
+                                    display_label: Some(format!("[Note] {}", n.summary)),
+                                    display_detail: Some(format!("{}:{}", n.file, line)),
                                 });
                             }
                         }
@@ -479,12 +511,26 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                             files_indexed: indexed,
                         });
 
+                        // Build human-readable status message
+                        let status_message = match &ai_result {
+                            Some(ai) if ai.get("analyzed") == Some(&json!(true)) => {
+                                let provider = ai.get("provider").and_then(|v| v.as_str()).unwrap_or("AI");
+                                format!("Project indexed: {} files, analyzed with {}", indexed, provider)
+                            }
+                            Some(ai) if ai.get("error").is_some() => {
+                                let error = ai.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                format!("Project indexed: {} files (AI failed: {})", indexed, error)
+                            }
+                            _ => format!("Project indexed: {} files", indexed),
+                        };
+
                         let mut result = json!({
                             "ok": true,
                             "indexed": indexed,
                             "skipped": skipped,
                             "truncated": truncated,
-                            "projectRoot": root
+                            "projectRoot": root,
+                            "statusMessage": status_message
                         });
                         if let Some(ai) = ai_result {
                             result["ai"] = ai;
@@ -590,16 +636,23 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                             .unwrap_or(true);
                         let has_analysis = ai_cli::has_analysis(Path::new(proj));
                         let ai_available = ai_cli::CliProvider::from_env().is_some();
+                        let analyzed = meta.analyzed_at.is_some();
+                        let analysis_status = compute_analysis_status(analyzed, analysis_stale, has_analysis);
+                        let formatted_indexed_at = meta.indexed_at.map(format_timestamp);
+                        let formatted_analyzed_at = meta.analyzed_at.map(format_timestamp);
                         Response::result(id, json!({
                             "projectRoot": proj,
                             "indexed": meta.indexed_at.is_some(),
                             "indexedAt": meta.indexed_at,
+                            "formattedIndexedAt": formatted_indexed_at,
                             "indexedCommit": meta.indexed_commit_sha,
-                            "analyzed": meta.analyzed_at.is_some(),
+                            "analyzed": analyzed,
                             "analyzedAt": meta.analyzed_at,
+                            "formattedAnalyzedAt": formatted_analyzed_at,
                             "analysisCommit": meta.analysis_commit_sha,
                             "analysisProvider": meta.analysis_provider,
                             "analysisStale": analysis_stale,
+                            "analysisStatusDisplay": analysis_status,
                             "hasAnalysisFile": has_analysis,
                             "aiAvailable": ai_available,
                             "currentCommit": current_commit
@@ -610,11 +663,13 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         let has_analysis = ai_cli::has_analysis(Path::new(proj));
                         let ai_available = ai_cli::CliProvider::from_env().is_some();
                         let current_commit = git::head_commit(Path::new(proj));
+                        let analysis_status = compute_analysis_status(false, true, has_analysis);
                         Response::result(id, json!({
                             "projectRoot": proj,
                             "indexed": false,
                             "analyzed": false,
                             "analysisStale": true,
+                            "analysisStatusDisplay": analysis_status,
                             "hasAnalysisFile": has_analysis,
                             "aiAvailable": ai_available,
                             "currentCommit": current_commit

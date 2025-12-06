@@ -13,6 +13,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
+chrono = { workspace = true }
 rpc = { path = "crates/rpc" }
 notes = { path = "crates/notes" }
 index = { path = "crates/index" }

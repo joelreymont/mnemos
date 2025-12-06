@@ -25,6 +25,13 @@ fn scrub_obj(obj: &mut serde_json::Map<String, Value>) {
     if obj.contains_key("updatedAt") {
         obj.insert("updatedAt".into(), json!("<ts>"));
     }
+    // Scrub formatted timestamps (human-readable versions)
+    if obj.contains_key("formattedCreatedAt") {
+        obj.insert("formattedCreatedAt".into(), json!("<formatted_ts>"));
+    }
+    if obj.contains_key("formattedUpdatedAt") {
+        obj.insert("formattedUpdatedAt".into(), json!("<formatted_ts>"));
+    }
     // Scrub UUIDs from text and summary fields
     for key in ["text", "summary"] {
         if let Some(Value::String(s)) = obj.get(key) {
@@ -664,6 +671,12 @@ fn snapshot_index_project() -> anyhow::Result<()> {
                             if let Some(file) = val.get_mut("file") {
                                 if let Some(s) = file.as_str() {
                                     *file = Value::String(s.replace(root_prefix.as_str(), "/tmp"));
+                                }
+                            }
+                            // Also replace paths in displayDetail
+                            if let Some(detail) = val.get_mut("displayDetail") {
+                                if let Some(s) = detail.as_str() {
+                                    *detail = Value::String(s.replace(root_prefix.as_str(), "/tmp"));
                                 }
                             }
                         }
