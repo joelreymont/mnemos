@@ -70,7 +70,7 @@ pub fn comment_prefix_for_file(path: &Path) -> &'static str {
         .unwrap_or("//")
 }
 
-/// Wrap text at specified width, breaking at word boundaries
+/// Wrap text at specified width (in characters), breaking at word boundaries
 pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return vec![text.to_string()];
@@ -83,22 +83,30 @@ pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
             continue; // Skip empty lines
         }
 
-        if paragraph.len() <= width {
+        let char_count = paragraph.chars().count();
+        if char_count <= width {
             lines.push(paragraph.to_string());
             continue;
         }
 
         let mut remaining = paragraph;
         while !remaining.is_empty() {
-            if remaining.len() <= width {
+            let rem_chars = remaining.chars().count();
+            if rem_chars <= width {
                 lines.push(remaining.to_string());
                 break;
             }
 
-            // Find last space within width
-            let break_pos = remaining[..width]
-                .rfind(' ')
-                .unwrap_or(width); // Hard break if no space
+            // Find the byte index of the width-th character
+            let width_byte_idx = remaining
+                .char_indices()
+                .nth(width)
+                .map(|(i, _)| i)
+                .unwrap_or(remaining.len());
+
+            // Find last space within width (using byte slice up to char boundary)
+            let slice = &remaining[..width_byte_idx];
+            let break_pos = slice.rfind(' ').unwrap_or(width_byte_idx);
 
             let (line, rest) = remaining.split_at(break_pos);
             lines.push(line.trim_end().to_string());
@@ -194,5 +202,55 @@ mod tests {
         let text = "Line one\nLine two";
         let lines = format_note_lines(text, "rust", Some(80), false);
         assert_eq!(lines, vec!["// Line one", "// Line two"]);
+    }
+
+    // Property-based tests
+
+    #[quickcheck]
+    fn prop_wrap_text_respects_width(text: String, width: u8) -> bool {
+        let width = width as usize;
+        if width == 0 {
+            // Width 0 returns text as-is
+            return true;
+        }
+        let wrapped = wrap_text(&text, width);
+        // All lines should be <= width chars (words may exceed if no break point)
+        wrapped.iter().all(|line| {
+            let char_count = line.chars().count();
+            // If line exceeds width, it must be a single word (no spaces to break on)
+            char_count <= width || !line.contains(' ')
+        })
+    }
+
+    #[quickcheck]
+    fn prop_comment_prefix_never_empty(lang: String) -> bool {
+        !comment_prefix(&lang).is_empty()
+    }
+
+    #[quickcheck]
+    fn prop_format_note_lines_always_prefixed(text: String) -> bool {
+        let lines = format_note_lines(&text, "rust", Some(80), false);
+        // All lines must start with "// " (unless empty input)
+        lines.iter().all(|line| line.starts_with("// "))
+    }
+
+    #[quickcheck]
+    fn prop_stale_marker_appears_only_on_last_line(text: String) -> bool {
+        if text.trim().is_empty() {
+            return true;
+        }
+        let lines = format_note_lines(&text, "rust", Some(80), true);
+        if lines.is_empty() {
+            return true;
+        }
+        // Only last line should have [STALE]
+        let last_idx = lines.len() - 1;
+        lines.iter().enumerate().all(|(i, line)| {
+            if i == last_idx {
+                line.contains("[STALE]")
+            } else {
+                !line.contains("[STALE]")
+            }
+        })
     }
 }
