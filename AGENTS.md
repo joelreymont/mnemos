@@ -236,7 +236,9 @@ Test requirements:
 - Update Project Reference section after major changes (stable knowledge only)
 - Commit after completing major changes (don't batch unrelated work)
 
-**MANDATORY: ALWAYS create beads for new tasks.** Every bug, feature, or improvement MUST have a bead created via `mcp__hemis-mcp__bd_create` BEFORE starting work. No exceptions. Close beads when done. Never let tasks exist only in your head or in TodoWrite - beads are the source of truth for work items.
+**MANDATORY: ALWAYS create beads for new tasks.** Every bug, feature, or improvement MUST have a bead created via `mcp__hemis-mcp__bd_create` BEFORE starting work. No exceptions. This includes tasks the user gives you AND tasks you discover while working. Close beads when done. Never let tasks exist only in your head or in TodoWrite - beads are the source of truth for work items.
+
+**MANDATORY: Commit after closing beads.** When you complete work and close a bead, immediately commit those changes. Do not batch multiple unrelated bead completions into one commit. Each bead closure should result in a commit.
 
 ### Docs
 - See `docs/ARCHITECTURE.md` for backend/frontend architecture and stale-note behavior.
