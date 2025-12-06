@@ -609,6 +609,55 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 Response::error(id, INVALID_PARAMS, "missing projectRoot")
             }
         }
+        "hemis/buffer-context" => {
+            // Returns projectRoot, commit, blob, language for a file
+            // UIs can drop their git shell calls and use this instead
+            if let Some(file) = req.params.get("file").and_then(|v| v.as_str()) {
+                let git_info = info_for_file(file);
+                let project_root = git_info.as_ref().map(|g| g.root.as_str())
+                    .or_else(|| git::find_root(Path::new(file)).as_deref().map(|_| ""))
+                    .unwrap_or_else(|| Path::new(file).parent().map(|p| p.to_str().unwrap_or("")).unwrap_or(""));
+                let project_root = if project_root.is_empty() {
+                    git::find_root(Path::new(file)).unwrap_or_else(|| {
+                        Path::new(file).parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
+                    })
+                } else {
+                    project_root.to_string()
+                };
+                let commit = git_info.as_ref().map(|g| g.commit.as_str());
+                let blob = git_info.as_ref().and_then(|g| g.blob.as_deref());
+                let language = parser.language_for_file(Path::new(file));
+                Response::result(id, json!({
+                    "projectRoot": project_root,
+                    "commit": commit,
+                    "blob": blob,
+                    "language": language
+                }))
+            } else {
+                Response::error(id, INVALID_PARAMS, "missing file")
+            }
+        }
+        "notes/anchor" => {
+            // Compute anchor position for cursor, returns line/column/nodePath/nodeTextHash
+            // UIs can drop their Tree-sitter implementations
+            let file = req.params.get("file").and_then(|v| v.as_str());
+            let content = req.params.get("content").and_then(|v| v.as_str());
+            let cursor_line = req.params.get("cursorLine").and_then(|v| v.as_u64()).map(|v| v as u32);
+            let cursor_column = req.params.get("cursorColumn").and_then(|v| v.as_u64()).map(|v| v as u32);
+
+            match (file, content, cursor_line, cursor_column) {
+                (Some(file), Some(content), Some(line), Some(col)) => {
+                    let anchor = compute_anchor_position(parser, Path::new(file), content, line, col);
+                    Response::result(id, json!({
+                        "line": anchor.line,
+                        "column": anchor.column,
+                        "nodePath": anchor.node_path,
+                        "nodeTextHash": anchor.node_text_hash
+                    }))
+                }
+                _ => Response::error(id, INVALID_PARAMS, "missing file, content, cursorLine, or cursorColumn")
+            }
+        }
         "notes/list-for-file" => {
             let file = req.params.get("file").and_then(|v| v.as_str());
             if let Some(file) = file {
@@ -957,6 +1006,103 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing file")
+            }
+        }
+        "notes/explain-and-create" => {
+            // Combined AI explain + note creation in one RPC call
+            // UIs can trigger this for "explain this code and create a note" flow
+            let file = req.params.get("file").and_then(|v| v.as_str());
+            let content = req.params.get("content").and_then(|v| v.as_str());
+            let start_line = req.params.get("startLine").and_then(|v| v.as_u64()).unwrap_or(1);
+            let end_line = req.params.get("endLine").and_then(|v| v.as_u64()).unwrap_or(start_line);
+            let detailed = req.params.get("detailed").and_then(|v| v.as_bool()).unwrap_or(false);
+
+            match (file, content) {
+                (Some(file), Some(content)) => {
+                    // Validate line range
+                    if start_line == 0 || end_line < start_line {
+                        return Response::error(id, INVALID_PARAMS, "invalid line range");
+                    }
+                    let start_line_usize = start_line as usize;
+                    let end_line_usize = end_line as usize;
+
+                    // Extract snippet from content
+                    let snippet: String = content.lines()
+                        .enumerate()
+                        .filter(|(idx, _)| {
+                            let line_no = idx + 1;
+                            line_no >= start_line_usize && line_no <= end_line_usize
+                        })
+                        .map(|(_, l)| l)
+                        .collect::<Vec<_>>()
+                        .join("\n");
+
+                    if snippet.is_empty() {
+                        return Response::error(id, INVALID_PARAMS, "empty line range");
+                    }
+
+                    // Get project root
+                    let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
+                    let proj = resolve_project_root(proj_param, file);
+                    let root_path = Path::new(&proj);
+
+                    // Get AI explanation
+                    let (explanation, ai_info) = match ai_cli::explain_region(root_path, file, start_line_usize, end_line_usize, &snippet, detailed) {
+                        Ok((provider, explanation, had_context)) => {
+                            (explanation, json!({
+                                "provider": provider.as_str(),
+                                "hadContext": had_context
+                            }))
+                        }
+                        Err(e) => {
+                            return Response::result(id, json!({
+                                "note": null,
+                                "ai": { "error": e.to_string() }
+                            }));
+                        }
+                    };
+
+                    // Compute anchor position for start of region
+                    let ts_line = (start_line - 1) as u32;
+                    let anchor = compute_anchor_position(parser, Path::new(file), content, ts_line, 0);
+                    let node_path_value = if anchor.node_path.is_empty() {
+                        None
+                    } else {
+                        serde_json::to_value(&anchor.node_path).ok()
+                    };
+                    let anchored_line = i64::from(anchor.line) + 1;
+                    let anchored_column = i64::from(anchor.column);
+
+                    // Create the note with the AI explanation
+                    let git = info_for_file(file);
+                    match notes::create(
+                        db,
+                        file,
+                        &proj,
+                        anchored_line,
+                        anchored_column,
+                        node_path_value,
+                        json!([]),
+                        &explanation,
+                        git,
+                        anchor.node_text_hash,
+                    ) {
+                        Ok(n) => {
+                            events::emit(Event::NoteCreated {
+                                id: n.id.clone(),
+                                file: file.to_string(),
+                                line: anchored_line,
+                                project_root: Some(proj.clone()),
+                            });
+                            Response::result(id, json!({
+                                "note": n,
+                                "ai": ai_info
+                            }))
+                        }
+                        Err(_) => Response::error(id, INTERNAL_ERROR, "failed to create note"),
+                    }
+                }
+                _ => Response::error(id, INVALID_PARAMS, "missing file or content")
             }
         }
         "notes/delete" => {

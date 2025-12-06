@@ -147,6 +147,7 @@ pub fn format_note_lines(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quickcheck_macros::quickcheck;
 
     #[test]
     fn test_comment_prefix() {
