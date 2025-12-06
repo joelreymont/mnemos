@@ -140,19 +140,6 @@ function M.delete_note()
   end)
 end
 
--- Get project root from current buffer's file path
-local function get_project_root()
-  local file = vim.fn.expand("%:p")
-  local dir = vim.fn.fnamemodify(file, ":h")
-
-  local result = vim.fn.systemlist({ "git", "-C", dir, "rev-parse", "--show-toplevel" })
-  if result[1] and not result[1]:match("^fatal") then
-    return result[1]
-  end
-
-  return vim.fn.getcwd()
-end
-
 -- Edit note at cursor
 function M.edit_note()
   local note = display.get_note_at_cursor(M.buffer_notes)
@@ -162,7 +149,7 @@ function M.edit_note()
   end
 
   -- Capture project root before creating edit buffer (edit buffer has no file)
-  local project_root = get_project_root()
+  local project_root = notes.get_project_root()
 
   -- Create scratch buffer with existing text
   local buf = vim.api.nvim_create_buf(false, true)
@@ -228,7 +215,7 @@ function M.edit_note_buffer()
   end
 
   -- Capture project root before creating edit buffer
-  local project_root = get_project_root()
+  local project_root = notes.get_project_root()
   local note_id = note.id
 
   -- Create a new buffer in a horizontal split

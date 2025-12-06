@@ -160,15 +160,7 @@ Messages are timestamped and written to `hemis--debug-buffer' and log file."
   (setq hemis--process nil
         hemis--conn nil))
 
-(defun hemis--git-run (default-directory &rest args)
-  "Run git ARGS in DEFAULT-DIRECTORY, returning trimmed output or nil."
-  (when (and default-directory (executable-find "git"))
-    (with-temp-buffer
-      (let ((exit (apply #'process-file "git" nil t nil args)))
-        (when (zerop exit)
-          (string-trim (buffer-string)))))))
-
-;; NOTE: hemis--git-info removed - server now auto-computes commit/blob from file
+;; NOTE: Git helpers removed - server auto-computes commit/blob/projectRoot from file
 
 
 ;;; Process & JSON-RPC management (Unix socket mode)
@@ -522,36 +514,17 @@ Server computes anchor position, nodePath, and nodeTextHash from content."
     (buffer-substring (line-beginning-position)
                       (progn (back-to-indentation) (point)))))
 
-(defun hemis--comment-prefix ()
-  "Return a comment prefix suitable for the current buffer.
-Lisp modes use ;; since single semicolons are for end-of-line comments."
-  (let ((base (or (and (boundp 'comment-start) comment-start) "//")))
-    (if (string= (string-trim-right base) ";")
-        ";; "
-      (concat (string-trim-right base) " "))))
-
 (defun hemis--format-note-texts (texts pos &optional formatted-lines)
-  "Format TEXTS (list of strings) as comment lines above POS.
-If FORMATTED-LINES is provided (server-computed), use that instead."
-  (if formatted-lines
-      ;; Use server-provided formatted lines
-      (let ((indent (hemis--line-indentation pos)))
-        (concat (mapconcat #'identity formatted-lines "\n")
-                "\n" indent))
-    ;; Fallback: format locally (for backwards compatibility)
-    (let* ((indent (hemis--line-indentation pos))
-           (prefix (concat indent (hemis--comment-prefix)))
-           (body (mapconcat
-                  (lambda (t)
-                    (mapconcat (lambda (line)
-                               (concat prefix line))
-                               (split-string (or t "") "\n")
-                               "\n"))
-                  texts
-                  (concat "\n" indent)))
-           ;; Re-indent after the block so code resumes at the same column.
-           (suffix indent))
-      (concat body "\n" suffix))))
+  "Format TEXTS as comment lines above POS using server-provided FORMATTED-LINES.
+Server MUST provide formattedLines when content is sent.  Falls back to raw
+text with warning if server data is missing (indicates server bug)."
+  (let ((indent (hemis--line-indentation pos)))
+    (if formatted-lines
+        ;; Use server-provided formatted lines (normal path)
+        (concat (mapconcat #'identity formatted-lines "\n") "\n" indent)
+      ;; Server bug: should always provide formattedLines
+      (message "[hemis] Note missing formattedLines - check server version")
+      (concat "// " (car texts) "\n" indent))))
 
 
 ;;; Notes list mode (defined early so hemis-list-notes can use it)

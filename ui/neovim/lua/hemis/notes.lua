@@ -19,8 +19,8 @@ end
 local project_root_cache = {}
 
 -- Get project root (git root or cwd) - cached per directory
--- Still needed for project-level operations (index-project, project-meta, search)
-local function get_project_root()
+-- Exported for use by commands.lua (e.g., edit buffers with no file)
+function M.get_project_root()
   local file = vim.fn.expand("%:p")
   local dir = vim.fn.fnamemodify(file, ":h")
 
@@ -160,7 +160,7 @@ function M.search(query, opts, callback)
   opts = opts or {}
   local params = {
     query = query,
-    projectRoot = opts.project_root or get_project_root(),
+    projectRoot = opts.project_root or M.get_project_root(),
   }
   rpc.request("notes/search", params, callback)
 end
@@ -175,7 +175,7 @@ end
 -- Index project
 -- If include_ai is true, also run AI analysis
 function M.index_project(include_ai, callback)
-  local root = get_project_root()
+  local root = M.get_project_root()
   local params = { projectRoot = root }
   if include_ai then
     params.includeAI = true
@@ -203,7 +203,7 @@ function M.search_project(query, opts, callback)
   opts = opts or {}
   local params = {
     query = query,
-    projectRoot = get_project_root(),
+    projectRoot = M.get_project_root(),
     includeNotes = opts.include_notes ~= false,
   }
   rpc.request("hemis/search", params, callback)
@@ -233,7 +233,7 @@ function M.explain_region(file, start_line, end_line, use_ai, detailed, callback
     file = file,
     startLine = start_line,
     endLine = end_line,
-    projectRoot = get_project_root(),
+    projectRoot = M.get_project_root(),
   }
   if content then
     params.content = content
@@ -249,7 +249,7 @@ end
 
 -- Get project metadata (indexing and AI analysis status)
 function M.project_meta(callback)
-  local root = get_project_root()
+  local root = M.get_project_root()
   rpc.request("hemis/project-meta", { projectRoot = root }, callback)
 end
 
