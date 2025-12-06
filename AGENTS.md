@@ -8,6 +8,8 @@ The demo driver (`hemis-demo`) takes control of keyboard/mouse. **Always ask for
 
 **ALWAYS use MCP tools. NEVER fall back to Bash when an MCP tool exists.**
 
+**If an MCP tool is broken, FIX IT IMMEDIATELY.** Do not work around broken tools with Bash. The MCP server is in `backend/tools/hemis_mcp/src/main.rs`. Rebuild with `cargo_build` (cwd: `backend/tools/hemis_mcp`, release: true).
+
 | Task | MCP Tool |
 |------|----------|
 | Git status | `git_context` |
