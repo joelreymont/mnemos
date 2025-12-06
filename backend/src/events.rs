@@ -33,6 +33,14 @@ pub enum Event {
     NoteDeleted {
         id: String,
     },
+    /// A note's display position changed (due to buffer edits)
+    NotePositionChanged {
+        id: String,
+        file: String,
+        old_line: i64,
+        new_line: i64,
+        stale: bool,
+    },
     /// AI explanation completed for a note
     AiComplete {
         note_id: String,
@@ -325,6 +333,14 @@ mod tests {
         serde_json::from_str::<serde_json::Value>(json.trim()).is_ok()
     }
 
+    // Property: to_json_line for NotePositionChanged produces valid JSON
+    #[quickcheck]
+    fn prop_note_position_changed_valid_json(id: String, file: String, old_line: i64, new_line: i64, stale: bool) -> bool {
+        let event = Event::NotePositionChanged { id, file, old_line, new_line, stale };
+        let json = event.to_json_line();
+        serde_json::from_str::<serde_json::Value>(json.trim()).is_ok()
+    }
+
     // Property: skip_serializing_if works - None fields are omitted
     #[test]
     fn test_none_fields_omitted() {
@@ -456,6 +472,40 @@ mod tests {
     }
 
     #[test]
+    fn test_event_note_position_changed_json() {
+        let event = Event::NotePositionChanged {
+            id: "abc123".to_string(),
+            file: "/tmp/test.rs".to_string(),
+            old_line: 10,
+            new_line: 15,
+            stale: false,
+        };
+
+        let json = event.to_json_line();
+        assert!(json.ends_with('\n'));
+        assert!(json.contains("\"type\":\"note-position-changed\""));
+        assert!(json.contains("\"id\":\"abc123\""));
+        assert!(json.contains("\"file\":\"/tmp/test.rs\""));
+        assert!(json.contains("\"old_line\":10"));
+        assert!(json.contains("\"new_line\":15"));
+        assert!(json.contains("\"stale\":false"));
+    }
+
+    #[test]
+    fn test_event_note_position_changed_stale() {
+        let event = Event::NotePositionChanged {
+            id: "xyz".to_string(),
+            file: "/test.rs".to_string(),
+            old_line: 5,
+            new_line: 5,
+            stale: true,
+        };
+
+        let json = event.to_json_line();
+        assert!(json.contains("\"stale\":true"));
+    }
+
+    #[test]
     fn test_event_json_line_ends_with_newline() {
         let events = vec![
             Event::NoteCreated {
@@ -478,6 +528,13 @@ mod tests {
             Event::FileIndexed {
                 file: "f".to_string(),
                 project: "p".to_string(),
+            },
+            Event::NotePositionChanged {
+                id: "1".to_string(),
+                file: "f".to_string(),
+                old_line: 10,
+                new_line: 12,
+                stale: false,
             },
         ];
 
@@ -523,6 +580,15 @@ mod tests {
             project: "p".to_string(),
         };
         assert!(file_indexed.to_json_line().contains("file-indexed"));
+
+        let position_changed = Event::NotePositionChanged {
+            id: "1".to_string(),
+            file: "f".to_string(),
+            old_line: 5,
+            new_line: 7,
+            stale: false,
+        };
+        assert!(position_changed.to_json_line().contains("note-position-changed"));
     }
 
     #[test]

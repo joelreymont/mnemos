@@ -1315,6 +1315,8 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     Ok(mut notes_list) => {
                         let file_path = Path::new(file);
                         for note in &mut notes_list {
+                            let old_line = note.line;
+                            let old_stale = note.stale;
                             // Convert from 1-based (database) to 0-based (tree-sitter)
                             let ts_line = (note.line - 1).max(0) as u32;
                             let ts_column = note.column.clamp(0, i64::from(u32::MAX)) as u32;
@@ -1328,8 +1330,20 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                 20,
                             );
                             // Convert result back from 0-based to 1-based (saturating to prevent overflow)
-                            note.line = i64::from(pos.line).saturating_add(1);
+                            let new_line = i64::from(pos.line).saturating_add(1);
+                            note.line = new_line;
                             note.stale = pos.stale;
+
+                            // Emit event if position or staleness changed
+                            if new_line != old_line || pos.stale != old_stale {
+                                events::emit(Event::NotePositionChanged {
+                                    id: note.id.clone(),
+                                    file: file.to_string(),
+                                    old_line,
+                                    new_line,
+                                    stale: pos.stale,
+                                });
+                            }
                         }
                         Response::result_from(id, notes_list)
                     }
