@@ -1,6 +1,5 @@
 ---
 source: backend/tests/rpc_snapshot.rs
-assertion_line: 811
 expression: responses
 ---
 [
@@ -14,6 +13,7 @@ expression: responses
       "id": "<id>",
       "line": 1,
       "projectRoot": "/tmp",
+      "shortId": "<shortId>",
       "stale": false,
       "summary": "Note A - the target",
       "tags": [],
@@ -31,6 +31,7 @@ expression: responses
       "id": "<id>",
       "line": 10,
       "projectRoot": "/tmp",
+      "shortId": "<shortId>",
       "stale": false,
       "summary": "Note B links to [[target][<uuid>",
       "tags": [],
@@ -49,6 +50,7 @@ expression: responses
         "id": "<id>",
         "line": 10,
         "projectRoot": "/tmp",
+        "shortId": "<shortId>",
         "stale": false,
         "summary": "Note B links to [[target][<uuid>",
         "tags": [],

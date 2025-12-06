@@ -50,7 +50,7 @@ export class NoteItem extends vscode.TreeItem {
 
     this.description = `L${note.line}`;
     this.tooltip = new vscode.MarkdownString(
-      `**${note.id.substring(0, 8)}**${note.stale ? ' [STALE]' : ''}\n\n${note.text}`
+      `**${note.shortId}**${note.stale ? ' [STALE]' : ''}\n\n${note.text}`
     );
 
     // Click to jump to note

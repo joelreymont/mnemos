@@ -284,7 +284,7 @@ export async function listNotesCommand(): Promise<void> {
     const items = notes.map((note) => ({
       label: `L${note.line}: ${note.text.split('\n')[0].substring(0, 50)}`,
       description: note.stale ? '[STALE]' : '',
-      detail: `ID: ${note.id.substring(0, 8)}`,
+      detail: `ID: ${note.shortId}`,
       note,
     }));
 

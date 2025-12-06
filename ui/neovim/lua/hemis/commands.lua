@@ -306,7 +306,7 @@ function M.list_notes()
     local lines = { "Hemis notes for " .. file, "" }
 
     for i, note in ipairs(result) do
-      local short_id = (note.id or ""):sub(1, 8)
+      local short_id = note.shortId or (note.id or ""):sub(1, 8)
       local stale = note.stale and " [stale]" or ""
       table.insert(lines, string.format("  %d [%s] L%d,C%d%s", i - 1, short_id, note.line or 0, note.column or 0, stale))
 
@@ -429,7 +429,7 @@ function M.insert_link(opts)
       local items = {}
       for _, note in ipairs(result) do
         local desc = note.summary or (note.text or ""):sub(1, 40)
-        local short_id = (note.id or ""):sub(1, 8)
+        local short_id = note.shortId or (note.id or ""):sub(1, 8)
         table.insert(items, string.format("%s (%s)", desc, short_id))
       end
 
@@ -525,12 +525,12 @@ function M.show_backlinks()
 
     -- Create backlinks buffer
     local buf = vim.api.nvim_create_buf(false, true)
-    local short_id = (note.id or ""):sub(1, 8)
+    local short_id = note.shortId or (note.id or ""):sub(1, 8)
 
     local lines = { string.format("Backlinks to note %s", short_id), string.format("(%d notes link to this note)", #result), "" }
 
     for i, n in ipairs(result) do
-      local n_short_id = (n.id or ""):sub(1, 8)
+      local n_short_id = n.shortId or (n.id or ""):sub(1, 8)
       table.insert(lines, string.format("  %d [%s] L%d,C%d", i - 1, n_short_id, n.line or 0, n.column or 0))
 
       local text = n.text or n.summary or ""

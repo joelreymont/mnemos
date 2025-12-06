@@ -12,6 +12,7 @@ suite('Hemis Decorations', () => {
   suite('formatNoteText', () => {
     const baseNote: Note = {
       id: 'abcd1234-5678-9012',
+      shortId: 'abcd1234',
       file: '/tmp/test.rs',
       line: 1,
       column: 0,

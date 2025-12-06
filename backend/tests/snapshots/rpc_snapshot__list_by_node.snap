@@ -17,6 +17,7 @@ expression: responses
         "body"
       ],
       "projectRoot": "/tmp",
+      "shortId": "<shortId>",
       "stale": false,
       "summary": "by-node",
       "tags": [],
@@ -39,6 +40,7 @@ expression: responses
           "body"
         ],
         "projectRoot": "/tmp",
+        "shortId": "<shortId>",
         "stale": false,
         "summary": "by-node",
         "tags": [],

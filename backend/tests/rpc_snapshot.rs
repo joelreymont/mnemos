@@ -16,6 +16,9 @@ fn scrub_obj(obj: &mut serde_json::Map<String, Value>) {
     if obj.contains_key("id") {
         obj.insert("id".into(), json!("<id>"));
     }
+    if obj.contains_key("shortId") {
+        obj.insert("shortId".into(), json!("<shortId>"));
+    }
     if obj.contains_key("createdAt") {
         obj.insert("createdAt".into(), json!("<ts>"));
     }

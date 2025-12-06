@@ -3,6 +3,7 @@ import { getRpcClient } from './rpc';
 
 export interface Note {
   id: string;
+  shortId: string; // Server-computed first 8 chars of ID
   file: string;
   line: number;
   column: number;

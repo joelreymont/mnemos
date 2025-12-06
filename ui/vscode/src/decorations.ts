@@ -25,7 +25,7 @@ export const editorDecorations: Map<string, vscode.DecorationOptions[]> = new Ma
 // Server provides formattedLines when content is sent
 export function formatNoteText(note: Note, style: 'full' | 'minimal'): string {
   if (style === 'minimal') {
-    return `[n:${note.id.substring(0, 8)}]`;
+    return `[n:${note.shortId}]`;
   }
 
   // Server provides formattedLines; fallback to raw text if missing
@@ -63,7 +63,7 @@ export function renderNotes(editor: vscode.TextEditor, notes: Note[]): void {
         },
       },
       hoverMessage: new vscode.MarkdownString(
-        `**Note** (${note.id.substring(0, 8)})${isStale ? ' [STALE]' : ''}\n\n${note.text}`
+        `**Note** (${note.shortId})${isStale ? ' [STALE]' : ''}\n\n${note.text}`
       ),
     };
 
@@ -104,7 +104,7 @@ export async function refreshNotes(editor: vscode.TextEditor): Promise<void> {
     // Send content so server computes displayLine positions
     const notes = await listNotes(file, projectRoot, true, content);
     debug(`refreshNotes: received ${notes.length} notes`);
-    debugVerbose('refreshNotes: notes', notes.map(n => ({ id: n.id.substring(0, 8), line: n.line, displayLine: n.displayLine })));
+    debugVerbose('refreshNotes: notes', notes.map(n => ({ id: n.shortId, line: n.line })));
     renderNotes(editor, notes);
   } catch (err) {
     // Backend might not be running, silently ignore

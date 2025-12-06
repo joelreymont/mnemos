@@ -69,7 +69,7 @@ function M.render_note(bufnr, note, display_line, is_stale)
 
   if style == "minimal" then
     -- Single line indicator at end of line
-    local short_id = (note.id or ""):sub(1, 8)
+    local short_id = note.shortId or (note.id or ""):sub(1, 8)
     local hl = note_with_stale.stale and "HemisNoteStale" or "HemisNoteMarker"
     return vim.api.nvim_buf_set_extmark(bufnr, M.ns_id, line, 0, {
       virt_text = { { "[n:" .. short_id .. "]", hl } },

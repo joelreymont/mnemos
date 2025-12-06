@@ -18,6 +18,8 @@ static LINK_RE: Lazy<Regex> =
 #[serde(rename_all = "camelCase")]
 pub struct Note {
     pub id: String,
+    /// First 8 characters of the ID for display
+    pub short_id: String,
     pub file: String,
     pub project_root: String,
     pub line: i64,
@@ -140,8 +142,10 @@ pub fn create(
          &[&id, &file, &project_root, &line, &column, &node_path_str, &tags_str, &text, &summary, &commit, &blob, &node_text_hash, &ts, &ts])?;
     // Parse and store links to other notes
     update_edges(conn, &id, project_root, text)?;
+    let short_id = id.chars().take(8).collect();
     Ok(Note {
         id,
+        short_id,
         file: file.to_string(),
         project_root: project_root.to_string(),
         line,
@@ -163,8 +167,11 @@ pub fn create(
 fn map_note(row: &rusqlite::Row<'_>, stale: bool) -> Result<Note> {
     let node_path: Option<String> = row.get("node_path").ok();
     let tags: Option<String> = row.get("tags").ok();
+    let id: String = row.get("id")?;
+    let short_id = id.chars().take(8).collect();
     Ok(Note {
-        id: row.get("id")?,
+        id,
+        short_id,
         file: row.get("file")?,
         project_root: row.get("project_root")?,
         line: row.get("line")?,
