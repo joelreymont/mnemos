@@ -40,16 +40,17 @@ suite('Hemis Decorations', () => {
       assert.strictEqual(result, '// Test note text');
     });
 
-    test('stale note fallback includes [STALE] marker', () => {
+    test('stale note fallback uses same format as fresh (color indicates staleness)', () => {
+      // Staleness is indicated by rendering color, not text markers
       const staleNote: Note = { ...baseNote, stale: true };
       const result = formatNoteText(staleNote, 'full');
-      assert.ok(result.includes('[STALE]'), 'Should include [STALE] marker');
+      assert.strictEqual(result, '// Test note text');
     });
 
-    test('fresh note has no [STALE] marker', () => {
+    test('fresh note fallback uses raw text', () => {
       const freshNote: Note = { ...baseNote, stale: false };
       const result = formatNoteText(freshNote, 'full');
-      assert.ok(!result.includes('[STALE]'), 'Should not include [STALE] marker');
+      assert.strictEqual(result, '// Test note text');
     });
 
     test('server formattedLines take precedence over local stale marker', () => {

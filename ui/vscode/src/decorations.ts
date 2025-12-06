@@ -22,20 +22,17 @@ const staleNoteDecorationType = vscode.window.createTextEditorDecorationType({
 export const editorDecorations: Map<string, vscode.DecorationOptions[]> = new Map();
 
 // Format note text for display
-// Server provides formattedLines with correct comment prefix and wrapping
+// Server provides formattedLines when content is sent
 export function formatNoteText(note: Note, style: 'full' | 'minimal'): string {
   if (style === 'minimal') {
     return `[n:${note.id.substring(0, 8)}]`;
   }
 
-  // Use server-provided formatted lines (includes comment prefix, wrapping, stale marker)
+  // Server provides formattedLines; fallback to raw text if missing
   if (note.formattedLines && note.formattedLines.length > 0) {
     return note.formattedLines.join('\n');
   }
-
-  // Fallback: raw text (server should always provide formattedLines when content is sent)
-  const staleMarker = note.stale ? ' [STALE]' : '';
-  return `// ${note.text}${staleMarker}`;
+  return `// ${note.text}`;
 }
 
 export function renderNotes(editor: vscode.TextEditor, notes: Note[]): void {

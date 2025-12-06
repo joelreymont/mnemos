@@ -20,18 +20,14 @@ end
 setup_highlights()
 
 -- Format note text as virtual lines for display
--- Server MUST provide formattedLines (includes comment prefix and wrapping)
+-- Server provides formattedLines when content is sent
 local function format_note_lines(note)
   local lines = {}
   local hl = note.stale and "HemisNoteStale" or "HemisNote"
 
-  if not note.formattedLines or #note.formattedLines == 0 then
-    -- Server bug: should always provide formattedLines when content is sent
-    vim.notify("[hemis] Note missing formattedLines - check server version", vim.log.levels.WARN)
-    return { { { "// " .. (note.text or ""):sub(1, 50), hl } } }
-  end
-
-  for _, formatted_line in ipairs(note.formattedLines) do
+  -- Server provides formattedLines; fallback to raw text if missing
+  local formatted = note.formattedLines or { "// " .. (note.text or ""):sub(1, 50) }
+  for _, formatted_line in ipairs(formatted) do
     table.insert(lines, { { formatted_line, hl } })
   end
   return lines

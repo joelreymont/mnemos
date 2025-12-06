@@ -516,14 +516,11 @@ Server computes anchor position, nodePath, and nodeTextHash from content."
 
 (defun hemis--format-note-texts (texts pos &optional formatted-lines)
   "Format TEXTS as comment lines above POS using server-provided FORMATTED-LINES.
-Server MUST provide formattedLines when content is sent.  Falls back to raw
-text with warning if server data is missing (indicates server bug)."
+Server provides formattedLines when content is sent; falls back to raw text."
   (let ((indent (hemis--line-indentation pos)))
     (if formatted-lines
-        ;; Use server-provided formatted lines (normal path)
         (concat (mapconcat #'identity formatted-lines "\n") "\n" indent)
-      ;; Server bug: should always provide formattedLines
-      (message "[hemis] Note missing formattedLines - check server version")
+      ;; Fallback to raw text if formattedLines missing
       (concat "// " (car texts) "\n" indent))))
 
 
