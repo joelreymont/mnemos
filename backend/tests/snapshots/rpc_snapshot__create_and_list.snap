@@ -1,5 +1,6 @@
 ---
 source: backend/tests/rpc_snapshot.rs
+assertion_line: 101
 expression: responses
 ---
 [
@@ -30,6 +31,9 @@ expression: responses
         "column": 2,
         "createdAt": "<ts>",
         "file": "/tmp/test.rs",
+        "formattedLines": [
+          "// snapshot note"
+        ],
         "id": "<id>",
         "line": 3,
         "projectRoot": "/tmp",

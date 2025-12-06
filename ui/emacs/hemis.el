@@ -530,21 +530,28 @@ Lisp modes use ;; since single semicolons are for end-of-line comments."
         ";; "
       (concat (string-trim-right base) " "))))
 
-(defun hemis--format-note-texts (texts pos)
-  "Format TEXTS (list of strings) as comment lines above POS."
-  (let* ((indent (hemis--line-indentation pos))
-         (prefix (concat indent (hemis--comment-prefix)))
-         (body (mapconcat
-                (lambda (t)
-                  (mapconcat (lambda (line)
-                             (concat prefix line))
-                             (split-string (or t "") "\n")
-                             "\n"))
-                texts
-                (concat "\n" indent)))
-         ;; Re-indent after the block so code resumes at the same column.
-         (suffix indent))
-    (concat body "\n" suffix)))
+(defun hemis--format-note-texts (texts pos &optional formatted-lines)
+  "Format TEXTS (list of strings) as comment lines above POS.
+If FORMATTED-LINES is provided (server-computed), use that instead."
+  (if formatted-lines
+      ;; Use server-provided formatted lines
+      (let ((indent (hemis--line-indentation pos)))
+        (concat (mapconcat #'identity formatted-lines "\n")
+                "\n" indent))
+    ;; Fallback: format locally (for backwards compatibility)
+    (let* ((indent (hemis--line-indentation pos))
+           (prefix (concat indent (hemis--comment-prefix)))
+           (body (mapconcat
+                  (lambda (t)
+                    (mapconcat (lambda (line)
+                               (concat prefix line))
+                               (split-string (or t "") "\n")
+                               "\n"))
+                  texts
+                  (concat "\n" indent)))
+           ;; Re-indent after the block so code resumes at the same column.
+           (suffix indent))
+      (concat body "\n" suffix))))
 
 
 ;;; Notes list mode (defined early so hemis-list-notes can use it)
@@ -666,13 +673,20 @@ RET inserts a newline; use C-c C-c to finish or C-c C-k to cancel."
 (defun hemis--make-note-overlay (note)
   "Create an overlay in the current buffer from NOTE.
 NOTE is an alist or plist parsed from JSON, keys like :id, :line, :column, :summary.
-When server provides displayLine, use that instead of stored line."
+When server provides displayLine, use that instead of stored line.
+When server provides formattedLines, use that for display instead of local formatting."
   (let* ((id     (hemis--note-get note 'id))
          ;; Prefer server-computed displayLine when available
          (line   (or (hemis--note-get note 'displayLine)
                      (hemis--note-get note 'line)))
          (col    (or (hemis--note-get note 'column) 0))
          (text   (or (hemis--note-text note) "Note"))
+         ;; Server-provided formatted lines (as vector from JSON)
+         (formatted-raw (hemis--note-get note 'formattedLines))
+         (formatted (when formatted-raw
+                      (if (vectorp formatted-raw)
+                          (append formatted-raw nil)
+                        formatted-raw)))
          (pos (hemis--anchor-position line col))
          (line-bol (save-excursion (goto-char pos) (line-beginning-position)))
          ;; Drop stale overlays from other buffers or dead overlays.
@@ -692,6 +706,7 @@ When server provides displayLine, use that instead of stored line."
       (overlay-put marker-ov 'hemis-note-count 0)
       (overlay-put marker-ov 'hemis-note-ids nil)
       (overlay-put marker-ov 'hemis-note-texts nil)
+      (overlay-put marker-ov 'hemis-note-formatted nil)
       (overlay-put marker-ov 'priority 9999)
       (overlay-put marker-ov 'evaporate nil)
       (push marker-ov new-list))
@@ -699,10 +714,15 @@ When server provides displayLine, use that instead of stored line."
            (ids (cons id (overlay-get marker-ov 'hemis-note-ids)))
            (texts (append (overlay-get marker-ov 'hemis-note-texts)
                           (list text)))
-           (display (hemis--format-note-texts texts line-bol)))
+           ;; Collect all formatted lines from all notes at this position
+           (all-formatted (append (overlay-get marker-ov 'hemis-note-formatted)
+                                  formatted))
+           ;; Use server-formatted lines if available, otherwise format locally
+           (display (hemis--format-note-texts texts line-bol all-formatted)))
       (overlay-put marker-ov 'hemis-note-count count)
       (overlay-put marker-ov 'hemis-note-ids ids)
       (overlay-put marker-ov 'hemis-note-texts texts)
+      (overlay-put marker-ov 'hemis-note-formatted all-formatted)
       (overlay-put marker-ov 'before-string
                    (propertize display
                                'face '(:foreground "SteelBlue"

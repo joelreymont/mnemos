@@ -50,11 +50,18 @@ export function getCommentPrefix(languageId: string): string {
 }
 
 // Export for testing
+// Uses server-provided formattedLines when available, otherwise formats locally
 export function formatNoteText(note: Note, languageId: string, style: 'full' | 'minimal'): string {
   if (style === 'minimal') {
     return `[n:${note.id.substring(0, 8)}]`;
   }
 
+  // Use server-provided formatted lines if available
+  if (note.formattedLines && note.formattedLines.length > 0) {
+    return note.formattedLines.join('\n');
+  }
+
+  // Fallback: format locally (for backwards compatibility)
   const prefix = getCommentPrefix(languageId);
   const lines = note.text.split('\n');
   const staleMarker = note.stale ? ' [STALE]' : '';

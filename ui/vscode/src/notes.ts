@@ -13,6 +13,7 @@ export interface Note {
   stale?: boolean;
   displayLine?: number; // Server-computed display position
   computedStale?: boolean; // Server-computed staleness
+  formattedLines?: string[]; // Server-computed formatted lines with comment prefix
   createdAt: string;
   updatedAt: string;
 }

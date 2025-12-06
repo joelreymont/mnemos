@@ -99,10 +99,21 @@ local function wrap_text(text, width)
 end
 
 -- Format note text as comment lines
+-- Uses server-provided formattedLines when available, otherwise formats locally
 local function format_note_lines(note, prefix)
   local lines = {}
-  local text = note.text or note.summary or ""
   local hl = note.stale and "HemisNoteStale" or "HemisNote"
+
+  -- Use server-provided formatted lines if available
+  if note.formattedLines and #note.formattedLines > 0 then
+    for _, formatted_line in ipairs(note.formattedLines) do
+      table.insert(lines, { { formatted_line, hl } })
+    end
+    return lines
+  end
+
+  -- Fallback: format locally (for backwards compatibility)
+  local text = note.text or note.summary or ""
 
   -- Get wrap width from config or use window width minus prefix
   local wrap_width = config.get("note_wrap_width") or 70

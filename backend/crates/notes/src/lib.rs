@@ -36,6 +36,9 @@ pub struct Note {
     pub node_text_hash: Option<String>,
     #[serde(default)]
     pub stale: bool,
+    /// Server-computed formatted lines (with comment prefix and wrapping)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub formatted_lines: Option<Vec<String>>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -151,6 +154,7 @@ pub fn create(
         blob_sha: blob,
         node_text_hash,
         stale: false,
+        formatted_lines: None,
         created_at: ts,
         updated_at: ts,
     })
@@ -175,6 +179,7 @@ fn map_note(row: &rusqlite::Row<'_>, stale: bool) -> Result<Note> {
         blob_sha: row.get("blob_sha").ok(),
         node_text_hash: row.get("node_text_hash").ok(),
         stale,
+        formatted_lines: None,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
     })

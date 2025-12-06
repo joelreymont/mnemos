@@ -48,6 +48,7 @@ struct ListFilesResult {
 
 pub mod ai_cli;
 pub mod config;
+pub mod display;
 pub mod events;
 pub mod preload;
 pub mod server;
@@ -642,6 +643,13 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     blob: blob.as_deref(),
                     include_stale,
                 };
+                // Optional formatting params
+                let language = req.params.get("language").and_then(|v| v.as_str());
+                let wrap_width = req
+                    .params
+                    .get("wrapWidth")
+                    .and_then(|v| v.as_u64())
+                    .map(|w| w as usize);
                 match notes::list_for_file(db, filters) {
                     Ok(mut notes_list) => {
                         // If content is provided, compute display positions server-side
@@ -663,6 +671,26 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                 // Convert result back from 0-based to 1-based (saturating to prevent overflow)
                                 note.line = i64::from(pos.line).saturating_add(1);
                                 note.stale = pos.stale;
+                            }
+                        }
+                        // If language is provided, compute formatted lines server-side
+                        // Uses file extension as fallback if no language specified
+                        let lang = language
+                            .map(String::from)
+                            .or_else(|| {
+                                Path::new(file)
+                                    .extension()
+                                    .and_then(|e| e.to_str())
+                                    .map(String::from)
+                            });
+                        if let Some(lang) = lang {
+                            for note in &mut notes_list {
+                                note.formatted_lines = Some(display::format_note_lines(
+                                    &note.text,
+                                    &lang,
+                                    wrap_width,
+                                    note.stale,
+                                ));
                             }
                         }
                         Response::result_from(id, notes_list)
