@@ -236,25 +236,17 @@ export function getProjectRoot(): string | null {
 }
 
 // Helper to get note at current cursor position
+// Uses server-side notes/get-at-position for efficiency
 export async function getNoteAtCursor(
   editor: vscode.TextEditor
 ): Promise<Note | null> {
+  const client = getRpcClient();
   const document = editor.document;
   const position = editor.selection.active;
   const file = document.uri.fsPath;
   const line = position.line + 1; // 1-indexed
   const content = document.getText();
 
-  // Server auto-computes projectRoot from file
-  const notes = await listNotes(file, undefined, true, content);
-
-  // Find note at cursor line using displayLine (server-computed) or stored line
-  for (const note of notes) {
-    const displayLine = note.displayLine ?? note.line;
-    if (displayLine === line) {
-      return note;
-    }
-  }
-
-  return null;
+  // Server computes display positions and returns the note at the line, or null
+  return client.request<Note | null>('notes/get-at-position', { file, line, content });
 }

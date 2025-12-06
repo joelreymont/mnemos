@@ -701,6 +701,68 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 Response::error(id, INVALID_PARAMS, "missing file")
             }
         }
+        "notes/get-at-position" => {
+            // Returns the note at a specific position in a file, or null if none
+            let file = req.params.get("file").and_then(|v| v.as_str());
+            let line = req.params.get("line").and_then(|v| v.as_i64());
+            let content = req.params.get("content").and_then(|v| v.as_str());
+            if let (Some(file), Some(target_line), Some(content)) = (file, line, content) {
+                let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
+                let proj = resolve_project_root(proj_param, file);
+                // Auto-fill git info
+                let git_info = info_for_file(file);
+                let commit = git_info.as_ref().map(|g| g.commit.clone());
+                let blob = git_info.as_ref().and_then(|g| g.blob.clone());
+                let filters = NoteFilters {
+                    file,
+                    project_root: &proj,
+                    node_path: None,
+                    commit: commit.as_deref(),
+                    blob: blob.as_deref(),
+                    include_stale: true,
+                };
+                match notes::list_for_file(db, filters) {
+                    Ok(mut notes_list) => {
+                        let file_path = Path::new(file);
+                        // Compute display positions and find the matching note
+                        for note in &mut notes_list {
+                            let ts_line = (note.line - 1).max(0) as u32;
+                            let ts_column = note.column.clamp(0, i64::from(u32::MAX)) as u32;
+                            let pos = compute_display_position(
+                                parser,
+                                file_path,
+                                content,
+                                ts_line,
+                                ts_column,
+                                note.node_text_hash.as_deref(),
+                                20,
+                            );
+                            note.line = i64::from(pos.line).saturating_add(1);
+                            note.stale = pos.stale;
+                        }
+                        // Find note at target line
+                        let found = notes_list.into_iter().find(|n| n.line == target_line);
+                        // Apply formatting if found
+                        if let Some(mut note) = found {
+                            let lang = Path::new(file)
+                                .extension()
+                                .and_then(|e| e.to_str())
+                                .map(String::from);
+                            if let Some(lang) = lang {
+                                note.formatted_lines =
+                                    Some(display::format_note_lines(&note.text, &lang, None, note.stale));
+                            }
+                            Response::result_from(id, Some(note))
+                        } else {
+                            Response::result_from(id, Option::<notes::Note>::None)
+                        }
+                    }
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
+                }
+            } else {
+                Response::error(id, INVALID_PARAMS, "missing file, line, or content")
+            }
+        }
         "notes/list-project" => {
             if let Some(proj) = req.params.get("projectRoot").and_then(|v| v.as_str()) {
                 let limit = req
