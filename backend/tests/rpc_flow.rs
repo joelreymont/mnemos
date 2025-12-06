@@ -1726,9 +1726,8 @@ fn buffer_update_recomputes_positions() -> anyhow::Result<()> {
 }
 
 /// Test dynamic grammar loading: fetch, build, and use a grammar.
-/// This test requires tree-sitter CLI to be installed.
+/// Skips gracefully if tree-sitter CLI is not installed.
 #[test]
-#[ignore] // Run with: cargo test --test rpc_flow dynamic_grammar -- --ignored
 fn dynamic_grammar_fetch_build_and_use() -> anyhow::Result<()> {
     // Skip if tree-sitter CLI is not available
     let ts_check = Command::new("tree-sitter").arg("--version").output();
@@ -2404,6 +2403,77 @@ fn get_note_not_found() -> anyhow::Result<()> {
 
     assert!(resp.error.is_some(), "should return error for non-existent note");
     assert!(resp.error.as_ref().unwrap().message.contains("not found"));
+
+    Ok(())
+}
+
+// Test notes/create and notes/update trim whitespace from text
+#[test]
+fn create_and_update_trim_text() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+
+    // Create a note with leading/trailing whitespace
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 10,
+            "column": 5,
+            "text": "  \n  trimmed note text  \n  ",
+            "tags": []
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("create response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let result = resp.result.expect("should have result");
+    let note_id = result.get("id").and_then(|v| v.as_str()).unwrap().to_string();
+
+    // Verify created text is trimmed
+    assert_eq!(
+        result.get("text").and_then(|v| v.as_str()).unwrap(),
+        "trimmed note text"
+    );
+
+    // Update the note with whitespace-padded text
+    let req_update = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/update",
+        "params": {
+            "id": note_id,
+            "text": "\t\tupdated trimmed text\t\t"
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_update.len(), req_update);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("update response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let result = resp.result.expect("should have result");
+
+    // Verify updated text is trimmed
+    assert_eq!(
+        result.get("text").and_then(|v| v.as_str()).unwrap(),
+        "updated trimmed text"
+    );
 
     Ok(())
 }

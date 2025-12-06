@@ -1120,10 +1120,10 @@ Use C-c C-c to save, C-c C-k to cancel."
   "Save the note being edited in the current buffer."
   (interactive)
   (let ((id hemis--edit-buffer-note-id)
-        (text (string-trim (buffer-string))))
+        (text (buffer-string))) ; Backend trims
     (unless id
       (user-error "No note ID in this buffer"))
-    (when (string-empty-p text)
+    (when (string-empty-p (string-trim text))
       (user-error "Note text cannot be empty"))
     (hemis-update-note id text)
     (set-buffer-modified-p nil)

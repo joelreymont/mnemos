@@ -248,7 +248,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Flaky: notify events unreliable in CI/test environments
     fn test_detects_file_change() {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test.txt");

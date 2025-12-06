@@ -971,7 +971,8 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .params
                     .get("text")
                     .and_then(|v| v.as_str())
-                    .unwrap_or_default();
+                    .unwrap_or_default()
+                    .trim();
                 // If content is provided, compute anchor position, node_path, and hash server-side
                 // This includes adjusting line/column to the significant node's start
                 // Otherwise, use client-provided values (backwards compatibility)
@@ -1146,7 +1147,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
         }
         "notes/update" => {
             if let Some(note_id) = req.params.get("id").and_then(|v| v.as_str()) {
-                let text = req.params.get("text").and_then(|v| v.as_str());
+                let text = req.params.get("text").and_then(|v| v.as_str()).map(str::trim);
                 let tags = req.params.get("tags").cloned();
                 match notes::update(db, note_id, text, tags) {
                     Ok(n) => {

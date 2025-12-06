@@ -40,9 +40,8 @@ function M.add_note()
       return
     end
 
-    -- Trim whitespace from input
-    text = text:gsub("^%s+", ""):gsub("%s+$", "")
-    if text == "" then
+    -- Backend trims, but skip if only whitespace
+    if not text:match("%S") then
       return
     end
 
@@ -88,11 +87,12 @@ function M.add_note_multiline()
   -- Save callback
   local function save_note()
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    local text = table.concat(lines, "\n"):gsub("^%s+", ""):gsub("%s+$", "")
+    local text = table.concat(lines, "\n")
 
     vim.api.nvim_win_close(win, true)
 
-    if text ~= "" then
+    -- Backend trims, but skip if only whitespace
+    if text:match("%S") then
       -- Pass captured position to create (server handles tree-sitter)
       notes.create(text, {
         anchor = anchor,
@@ -175,11 +175,12 @@ function M.edit_note()
 
   local function save()
     local new_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    local text = table.concat(new_lines, "\n"):gsub("^%s+", ""):gsub("%s+$", "")
+    local text = table.concat(new_lines, "\n")
 
     vim.api.nvim_win_close(win, true)
 
-    if text ~= "" then
+    -- Backend trims, but skip if only whitespace
+    if text:match("%S") then
       notes.update(note.id, text, {}, function(err, _)
         if not err then
           M.refresh()
@@ -239,9 +240,10 @@ function M.edit_note_buffer()
     buffer = buf,
     callback = function()
       local new_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-      local text = table.concat(new_lines, "\n"):gsub("^%s+", ""):gsub("%s+$", "")
+      local text = table.concat(new_lines, "\n")
 
-      if text ~= "" then
+      -- Backend trims, but skip if only whitespace
+      if text:match("%S") then
         notes.update(note_id, text, {}, function(err, _)
           if err then
             vim.notify("Failed to save note: " .. (err.message or "unknown"), vim.log.levels.ERROR)

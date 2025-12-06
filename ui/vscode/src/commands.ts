@@ -221,8 +221,8 @@ export async function editNoteBufferCommand(): Promise<void> {
   // Watch for save
   const saveDisposable = vscode.workspace.onDidSaveTextDocument(async (savedDoc) => {
     if (savedDoc === editDoc) {
-      const newText = savedDoc.getText().trim();
-      if (newText && newText !== originalText) {
+      const newText = savedDoc.getText(); // Backend trims
+      if (newText.trim() && newText !== originalText) {
         try {
           await updateNote({ id: noteId, text: newText });
           vscode.window.showInformationMessage('Note saved');
