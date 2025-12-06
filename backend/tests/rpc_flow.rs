@@ -4125,3 +4125,300 @@ fn event_socket_receives_update_and_delete_events() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn notes_get_at_position_returns_note() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let dir = tempfile::tempdir()?;
+    let file = dir.path().join("test.rs");
+    fs::write(&file, "fn main() {\n    println!(\"hello\");\n}\n")?;
+
+    // Create a note at line 2
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": file.to_str().unwrap(),
+            "projectRoot": dir.path().to_str().unwrap(),
+            "line": 2,
+            "column": 4,
+            "text": "Print statement"
+        }
+    })
+    .to_string();
+
+    // Get note at position line 2
+    let req_get = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/get-at-position",
+        "params": {
+            "file": file.to_str().unwrap(),
+            "projectRoot": dir.path().to_str().unwrap(),
+            "line": 2,
+            "content": "fn main() {\n    println!(\"hello\");\n}\n"
+        }
+    })
+    .to_string();
+
+    // Get note at non-existent position
+    let req_get_none = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "notes/get-at-position",
+        "params": {
+            "file": file.to_str().unwrap(),
+            "projectRoot": dir.path().to_str().unwrap(),
+            "line": 99,
+            "content": "fn main() {\n    println!(\"hello\");\n}\n"
+        }
+    })
+    .to_string();
+
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        req_create.len(),
+        req_create,
+        req_get.len(),
+        req_get,
+        req_get_none.len(),
+        req_get_none
+    );
+
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    assert_eq!(bodies.len(), 3, "expected three responses");
+
+    // Check get-at-position found the note
+    let get_resp: Response = serde_json::from_slice(&bodies[1])?;
+    let note = get_resp.result.expect("get-at-position should return result");
+    assert!(note.get("id").is_some(), "should find note at position");
+    assert_eq!(
+        note.get("text").and_then(|v| v.as_str()),
+        Some("Print statement")
+    );
+
+    // Check get-at-position returns null for non-existent position
+    // The raw JSON has "result":null which serde deserializes as result: None (not Some(Null))
+    // So we check the raw JSON instead
+    let raw_none: serde_json::Value = serde_json::from_slice(&bodies[2])?;
+    assert_eq!(
+        raw_none.get("result"),
+        Some(&serde_json::Value::Null),
+        "should return null for non-existent position"
+    );
+    assert!(
+        raw_none.get("error").is_none(),
+        "should not have error for non-existent position"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn notes_link_suggestions_returns_formatted_links() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let dir = tempfile::tempdir()?;
+    let file = dir.path().join("test.rs");
+    fs::write(&file, "fn main() {}\n")?;
+
+    // Create notes with specific text
+    let req_create1 = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": file.to_str().unwrap(),
+            "projectRoot": dir.path().to_str().unwrap(),
+            "line": 1,
+            "column": 0,
+            "text": "Main entry point for the application"
+        }
+    })
+    .to_string();
+
+    let req_create2 = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/create",
+        "params": {
+            "file": file.to_str().unwrap(),
+            "projectRoot": dir.path().to_str().unwrap(),
+            "line": 1,
+            "column": 3,
+            "text": "Another note about main function"
+        }
+    })
+    .to_string();
+
+    // Get link suggestions matching "main"
+    let req_suggestions = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "notes/link-suggestions",
+        "params": {
+            "query": "main",
+            "projectRoot": dir.path().to_str().unwrap()
+        }
+    })
+    .to_string();
+
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        req_create1.len(),
+        req_create1,
+        req_create2.len(),
+        req_create2,
+        req_suggestions.len(),
+        req_suggestions
+    );
+
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    assert_eq!(bodies.len(), 3, "expected three responses");
+
+    // Check link suggestions
+    let suggestions_resp: Response = serde_json::from_slice(&bodies[2])?;
+    let suggestions = suggestions_resp
+        .result
+        .expect("link-suggestions should return result")
+        .as_array()
+        .expect("should be array")
+        .clone();
+
+    assert!(
+        suggestions.len() >= 2,
+        "should find at least 2 notes matching 'main'"
+    );
+
+    // Check format of suggestions
+    for suggestion in &suggestions {
+        let formatted = suggestion.get("formatted").and_then(|v| v.as_str());
+        assert!(formatted.is_some(), "suggestion should have formatted field");
+        let formatted = formatted.unwrap();
+        assert!(
+            formatted.starts_with("[[") && formatted.ends_with("]]"),
+            "formatted should be [[desc][id]] format"
+        );
+        assert!(
+            suggestion.get("noteId").is_some(),
+            "suggestion should have noteId"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn notes_anchor_computes_position() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let dir = tempfile::tempdir()?;
+    let file = dir.path().join("test.rs");
+    let content = "fn main() {\n    let x = 5;\n}\n";
+    fs::write(&file, content)?;
+
+    // Request anchor position at line 1 (0-indexed), column 0
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/anchor",
+        "params": {
+            "file": file.to_str().unwrap(),
+            "content": content,
+            "cursorLine": 1,
+            "cursorColumn": 4
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let result = resp.result.expect("anchor should return result");
+
+    // Should have line, column, nodePath fields
+    assert!(result.get("line").is_some(), "should have line");
+    assert!(result.get("column").is_some(), "should have column");
+    assert!(result.get("nodePath").is_some(), "should have nodePath");
+
+    Ok(())
+}
+
+#[test]
+fn buffer_context_returns_git_and_language() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let dir = tempfile::tempdir()?;
+
+    // Initialize git repo
+    git(dir.path(), &["init"])?;
+    git(dir.path(), &["config", "user.email", "test@test.com"])?;
+    git(dir.path(), &["config", "user.name", "Test"])?;
+
+    let file = dir.path().join("test.rs");
+    fs::write(&file, "fn main() {}\n")?;
+    git(dir.path(), &["add", "."])?;
+    git(dir.path(), &["-c", "commit.gpgsign=false", "commit", "-m", "init"])?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/buffer-context",
+        "params": {
+            "file": file.to_str().unwrap()
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let result = resp.result.expect("buffer-context should return result");
+
+    // Should have projectRoot, commit, language
+    assert!(result.get("projectRoot").is_some(), "should have projectRoot");
+    assert!(result.get("commit").is_some(), "should have commit");
+    assert_eq!(
+        result.get("language").and_then(|v| v.as_str()),
+        Some("rust"),
+        "should detect rust language"
+    );
+
+    Ok(())
+}
