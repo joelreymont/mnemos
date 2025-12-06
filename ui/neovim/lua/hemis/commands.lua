@@ -148,8 +148,8 @@ function M.edit_note()
     return
   end
 
-  -- Capture project root before creating edit buffer (edit buffer has no file)
-  local project_root = notes.get_project_root()
+  -- Capture file path before creating edit buffer (edit buffer has no file)
+  local file = vim.fn.expand("%:p")
 
   -- Create scratch buffer with existing text
   local buf = vim.api.nvim_create_buf(false, true)
@@ -199,10 +199,10 @@ function M.edit_note()
   vim.keymap.set("n", "<CR>", save, { buffer = buf })
 
   -- Add insert-link keymap for the edit buffer (uses same prefix as main keymaps)
-  -- Pass captured project_root since edit buffer has no associated file
+  -- Pass captured file since edit buffer has no associated file
   local prefix = config.get("keymap_prefix") or "<leader>h"
   vim.keymap.set({ "n", "i" }, prefix .. "k", function()
-    M.insert_link({ project_root = project_root })
+    M.insert_link({ file = file })
   end, { buffer = buf, desc = "Hemis: Insert link" })
 end
 
@@ -214,8 +214,8 @@ function M.edit_note_buffer()
     return
   end
 
-  -- Capture project root before creating edit buffer
-  local project_root = notes.get_project_root()
+  -- Capture file path before creating edit buffer
+  local file = vim.fn.expand("%:p")
   local note_id = note.id
 
   -- Create a new buffer in a horizontal split
@@ -278,7 +278,7 @@ function M.edit_note_buffer()
   -- Add insert-link keymap
   local prefix = config.get("keymap_prefix") or "<leader>h"
   vim.keymap.set({ "n", "i" }, prefix .. "k", function()
-    M.insert_link({ project_root = project_root })
+    M.insert_link({ file = file })
   end, { buffer = buf, desc = "Hemis: Insert link" })
 
   vim.notify("Editing note in buffer. :w to save, q to close.", vim.log.levels.INFO)
@@ -410,7 +410,7 @@ function M.search()
 end
 
 -- Insert note link
--- opts.project_root can override the auto-detected project root (useful from edit buffers)
+-- opts.file can override the current file (useful from edit buffers with no file)
 function M.insert_link(opts)
   opts = opts or {}
   vim.ui.input({ prompt = "Search notes: " }, function(query)
@@ -418,7 +418,7 @@ function M.insert_link(opts)
       return
     end
 
-    notes.search(query, { project_root = opts.project_root }, function(err, result)
+    notes.search(query, { file = opts.file }, function(err, result)
       if err or not result or #result == 0 then
         vim.notify("No notes found", vim.log.levels.WARN)
         return

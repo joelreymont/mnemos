@@ -328,7 +328,12 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 .get("query")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
+            // projectRoot is optional - computed from file if not provided
+            let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
+            let file_param = req.params.get("file").and_then(|v| v.as_str());
+            let proj = proj_param
+                .map(|s| s.to_string())
+                .or_else(|| file_param.map(|f| resolve_project_root(None, &f)));
             let include_notes = req
                 .params
                 .get("includeNotes")
@@ -355,16 +360,16 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             if query.trim().is_empty() && query_vec.is_none() {
                 return Response::result(id, json!([]));
             }
-            match idx::search(db, query, proj) {
+            match idx::search(db, query, proj.as_deref()) {
                 Ok(mut results) => {
                     // If a query vector is provided, blend semantic hits.
                     if let Some(vec) = query_vec {
-                        if let Ok(mut semantic_hits) = idx::semantic_search(db, &vec, proj, 5) {
+                        if let Ok(mut semantic_hits) = idx::semantic_search(db, &vec, proj.as_deref(), 5) {
                             results.append(&mut semantic_hits);
                         }
                     }
                     if include_notes {
-                        if let Ok(notes) = notes::search(db, query, proj, None, 0) {
+                        if let Ok(notes) = notes::search(db, query, proj.as_deref(), None, 0) {
                             for n in notes {
                                 // Safe conversion: skip notes with out-of-bounds coordinates
                                 let line = match usize::try_from(n.line) {
@@ -394,7 +399,13 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             }
         }
         "hemis/index-project" => {
-            if let Some(root) = req.params.get("projectRoot").and_then(|v| v.as_str()) {
+            // projectRoot is optional - computed from file if not provided
+            let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
+            let file_param = req.params.get("file").and_then(|v| v.as_str());
+            let root_opt = proj_param
+                .map(|s| s.to_string())
+                .or_else(|| file_param.map(|f| resolve_project_root(None, f)));
+            if let Some(root) = root_opt.as_deref() {
                 let mut indexed = 0;
                 let mut skipped = 0;
                 let include_ai = req
@@ -563,7 +574,13 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             }
         }
         "hemis/project-meta" => {
-            if let Some(proj) = req.params.get("projectRoot").and_then(|v| v.as_str()) {
+            // projectRoot is optional - computed from file if not provided
+            let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
+            let file_param = req.params.get("file").and_then(|v| v.as_str());
+            let proj_opt = proj_param
+                .map(|s| s.to_string())
+                .or_else(|| file_param.map(|f| resolve_project_root(None, f)));
+            if let Some(proj) = proj_opt.as_deref() {
                 match storage::get_project_meta(db, proj) {
                     Ok(Some(meta)) => {
                         // Check if analysis is stale by comparing to current HEAD
@@ -838,7 +855,12 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 .get("query")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
+            // projectRoot is optional - computed from file if not provided
+            let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
+            let file_param = req.params.get("file").and_then(|v| v.as_str());
+            let proj = proj_param
+                .map(|s| s.to_string())
+                .or_else(|| file_param.map(|f| resolve_project_root(None, f)));
             let limit = req
                 .params
                 .get("limit")
@@ -849,7 +871,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 .get("offset")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0) as usize;
-            match notes::search(db, query, proj, limit, offset) {
+            match notes::search(db, query, proj.as_deref(), limit, offset) {
                 Ok(n) => Response::result_from(id, n),
                 Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
             }

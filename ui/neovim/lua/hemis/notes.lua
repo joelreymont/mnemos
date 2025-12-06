@@ -2,6 +2,7 @@
 local rpc = require("hemis.rpc")
 -- NOTE: treesitter module no longer needed - server computes anchor position from content
 -- NOTE: git info (commit/blob) no longer needed - server auto-computes from file
+-- NOTE: projectRoot no longer needed - server computes from file via git::find_root()
 
 local M = {}
 
@@ -15,36 +16,9 @@ local function get_cursor_position()
   }
 end
 
--- Cache for project root per directory (still needed for project-level operations)
-local project_root_cache = {}
-
--- Get project root (git root or cwd) - cached per directory
--- Exported for use by commands.lua (e.g., edit buffers with no file)
-function M.get_project_root()
-  local file = vim.fn.expand("%:p")
-  local dir = vim.fn.fnamemodify(file, ":h")
-
-  -- Check cache first
-  if project_root_cache[dir] then
-    return project_root_cache[dir]
-  end
-
-  local result = vim.fn.systemlist({ "git", "-C", dir, "rev-parse", "--show-toplevel" })
-  local root
-  if result[1] and not result[1]:match("^fatal") then
-    root = result[1]
-  else
-    root = vim.fn.getcwd()
-  end
-
-  -- Cache the result
-  project_root_cache[dir] = root
-  return root
-end
-
--- Clear all caches (for testing)
-function M.clear_all_caches()
-  project_root_cache = {}
+-- Get current file path
+local function get_current_file()
+  return vim.fn.expand("%:p")
 end
 
 -- Get buffer content as a single string
@@ -55,9 +29,9 @@ local function get_buffer_content(bufnr)
 end
 
 -- Build params for current buffer
--- Server auto-computes projectRoot, commit, blob from file when not provided
+-- Server auto-computes projectRoot, commit, blob from file
 local function buffer_params(include_content)
-  local file = vim.fn.expand("%:p")
+  local file = get_current_file()
 
   local params = {
     file = file,
@@ -150,7 +124,7 @@ function M.delete(id, callback)
 end
 
 -- Search notes
--- opts.project_root can override the auto-detected project root
+-- Server computes projectRoot from file
 function M.search(query, opts, callback)
   -- Support old signature: M.search(query, callback)
   if type(opts) == "function" then
@@ -160,7 +134,7 @@ function M.search(query, opts, callback)
   opts = opts or {}
   local params = {
     query = query,
-    projectRoot = opts.project_root or M.get_project_root(),
+    file = opts.file or get_current_file(), -- Server computes projectRoot from file
   }
   rpc.request("notes/search", params, callback)
 end
@@ -173,10 +147,10 @@ function M.list_by_node(node_path, callback)
 end
 
 -- Index project
+-- Server computes projectRoot from file via git::find_root()
 -- If include_ai is true, also run AI analysis
 function M.index_project(include_ai, callback)
-  local root = M.get_project_root()
-  local params = { projectRoot = root }
+  local params = { file = get_current_file() } -- Server computes projectRoot
   if include_ai then
     params.includeAI = true
   end
@@ -199,11 +173,12 @@ function M.index_project(include_ai, callback)
 end
 
 -- Search files and notes
+-- Server computes projectRoot from file
 function M.search_project(query, opts, callback)
   opts = opts or {}
   local params = {
     query = query,
-    projectRoot = M.get_project_root(),
+    file = get_current_file(), -- Server computes projectRoot
     includeNotes = opts.include_notes ~= false,
   }
   rpc.request("hemis/search", params, callback)
@@ -220,6 +195,7 @@ function M.backlinks(id, callback)
 end
 
 -- Explain region (for LLM context)
+-- Server computes projectRoot from file
 -- If use_ai is true, will use AI to generate explanation
 -- If detailed is true, will generate a comprehensive explanation
 function M.explain_region(file, start_line, end_line, use_ai, detailed, callback)
@@ -233,7 +209,7 @@ function M.explain_region(file, start_line, end_line, use_ai, detailed, callback
     file = file,
     startLine = start_line,
     endLine = end_line,
-    projectRoot = M.get_project_root(),
+    -- Server computes projectRoot from file
   }
   if content then
     params.content = content
@@ -248,9 +224,9 @@ function M.explain_region(file, start_line, end_line, use_ai, detailed, callback
 end
 
 -- Get project metadata (indexing and AI analysis status)
+-- Server computes projectRoot from file
 function M.project_meta(callback)
-  local root = M.get_project_root()
-  rpc.request("hemis/project-meta", { projectRoot = root }, callback)
+  rpc.request("hemis/project-meta", { file = get_current_file() }, callback)
 end
 
 -- Reattach a stale note to a new position
@@ -260,7 +236,7 @@ function M.reattach(id, opts, callback)
 
   -- Use pre-captured cursor position if provided, otherwise capture now
   local anchor = opts.anchor or get_cursor_position()
-  local file = vim.fn.expand("%:p")
+  local file = get_current_file()
 
   -- Send content so server can compute anchor and hash
   local content = get_buffer_content()
@@ -288,7 +264,7 @@ end
 -- Send buffer update for real-time position tracking
 -- Called on TextChanged with debouncing (see commands.lua)
 function M.buffer_update(callback)
-  local file = vim.fn.expand("%:p")
+  local file = get_current_file()
   local content = get_buffer_content()
 
   rpc.request("notes/buffer-update", {
