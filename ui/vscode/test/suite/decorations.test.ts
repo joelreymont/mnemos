@@ -4,30 +4,11 @@
 import * as assert from 'assert';
 import {
   formatNoteText,
-  getCommentPrefix,
   editorDecorations,
 } from '../../src/decorations';
 import { Note } from '../../src/notes';
 
 suite('Hemis Decorations', () => {
-  suite('getCommentPrefix', () => {
-    test('returns // for rust', () => {
-      assert.strictEqual(getCommentPrefix('rust'), '//');
-    });
-
-    test('returns # for python', () => {
-      assert.strictEqual(getCommentPrefix('python'), '#');
-    });
-
-    test('returns -- for lua', () => {
-      assert.strictEqual(getCommentPrefix('lua'), '--');
-    });
-
-    test('returns // for unknown languages', () => {
-      assert.strictEqual(getCommentPrefix('unknown'), '//');
-    });
-  });
-
   suite('formatNoteText', () => {
     const baseNote: Note = {
       id: 'abcd1234-5678-9012',
@@ -41,49 +22,45 @@ suite('Hemis Decorations', () => {
     };
 
     test('minimal style shows [n:xxxx] format', () => {
-      const result = formatNoteText(baseNote, 'rust', 'minimal');
+      const result = formatNoteText(baseNote, 'minimal');
       assert.strictEqual(result, '[n:abcd1234]');
     });
 
-    test('full style includes comment prefix', () => {
-      const result = formatNoteText(baseNote, 'rust', 'full');
-      assert.ok(result.startsWith('//'), 'Should start with // for rust');
-      assert.ok(result.includes('Test note text'), 'Should include note text');
+    test('uses server-provided formattedLines when available', () => {
+      const noteWithFormatted: Note = {
+        ...baseNote,
+        formattedLines: ['// Server formatted line 1', '// Server formatted line 2'],
+      };
+      const result = formatNoteText(noteWithFormatted, 'full');
+      assert.strictEqual(result, '// Server formatted line 1\n// Server formatted line 2');
     });
 
-    test('stale note has [STALE] marker', () => {
+    test('fallback uses raw text with // prefix when no formattedLines', () => {
+      const result = formatNoteText(baseNote, 'full');
+      assert.strictEqual(result, '// Test note text');
+    });
+
+    test('stale note fallback includes [STALE] marker', () => {
       const staleNote: Note = { ...baseNote, stale: true };
-      const result = formatNoteText(staleNote, 'rust', 'full');
+      const result = formatNoteText(staleNote, 'full');
       assert.ok(result.includes('[STALE]'), 'Should include [STALE] marker');
     });
 
     test('fresh note has no [STALE] marker', () => {
       const freshNote: Note = { ...baseNote, stale: false };
-      const result = formatNoteText(freshNote, 'rust', 'full');
+      const result = formatNoteText(freshNote, 'full');
       assert.ok(!result.includes('[STALE]'), 'Should not include [STALE] marker');
     });
 
-    test('multiline note formats each line with prefix', () => {
-      const multilineNote: Note = {
+    test('server formattedLines take precedence over local stale marker', () => {
+      // Server already includes [STALE] in formattedLines, so we trust that
+      const noteWithStaleFromServer: Note = {
         ...baseNote,
-        text: 'Line one\nLine two\nLine three',
+        stale: true,
+        formattedLines: ['// Server note [STALE]'],
       };
-      const result = formatNoteText(multilineNote, 'rust', 'full');
-      const lines = result.split('\n');
-      assert.strictEqual(lines.length, 3, 'Should have 3 lines');
-      assert.ok(lines[0].startsWith('// Line one'), 'First line should have prefix');
-      assert.ok(lines[1].startsWith('// Line two'), 'Second line should have prefix');
-      assert.ok(lines[2].startsWith('// Line three'), 'Third line should have prefix');
-    });
-
-    test('python uses # comment prefix', () => {
-      const result = formatNoteText(baseNote, 'python', 'full');
-      assert.ok(result.startsWith('#'), 'Should start with # for python');
-    });
-
-    test('lua uses -- comment prefix', () => {
-      const result = formatNoteText(baseNote, 'lua', 'full');
-      assert.ok(result.startsWith('--'), 'Should start with -- for lua');
+      const result = formatNoteText(noteWithStaleFromServer, 'full');
+      assert.strictEqual(result, '// Server note [STALE]');
     });
   });
 
@@ -108,10 +85,3 @@ suite('Hemis Decorations', () => {
     });
   });
 });
-
-// Additional integration tests would go here when running with @vscode/test-electron
-// These would:
-// 1. Open a temp document
-// 2. Call renderNotes with test data
-// 3. Verify editorDecorations contains expected DecorationOptions
-// 4. Check contentText, color, hoverMessage fields

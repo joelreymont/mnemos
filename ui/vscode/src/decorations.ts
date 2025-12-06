@@ -21,66 +21,25 @@ const staleNoteDecorationType = vscode.window.createTextEditorDecorationType({
 // Track decorations per editor (exported for testing)
 export const editorDecorations: Map<string, vscode.DecorationOptions[]> = new Map();
 
-// Export for testing
-export function getCommentPrefix(languageId: string): string {
-  const commentPrefixes: Record<string, string> = {
-    rust: '//',
-    typescript: '//',
-    javascript: '//',
-    python: '#',
-    go: '//',
-    java: '//',
-    c: '//',
-    cpp: '//',
-    csharp: '//',
-    ruby: '#',
-    shell: '#',
-    bash: '#',
-    lua: '--',
-    sql: '--',
-    haskell: '--',
-    elm: '--',
-    html: '<!--',
-    css: '/*',
-    scss: '//',
-    yaml: '#',
-    toml: '#',
-  };
-  return commentPrefixes[languageId] || '//';
-}
-
-// Export for testing
-// Uses server-provided formattedLines when available, otherwise formats locally
-export function formatNoteText(note: Note, languageId: string, style: 'full' | 'minimal'): string {
+// Format note text for display
+// Server provides formattedLines with correct comment prefix and wrapping
+export function formatNoteText(note: Note, style: 'full' | 'minimal'): string {
   if (style === 'minimal') {
     return `[n:${note.id.substring(0, 8)}]`;
   }
 
-  // Use server-provided formatted lines if available
+  // Use server-provided formatted lines (includes comment prefix, wrapping, stale marker)
   if (note.formattedLines && note.formattedLines.length > 0) {
     return note.formattedLines.join('\n');
   }
 
-  // Fallback: format locally (for backwards compatibility)
-  const prefix = getCommentPrefix(languageId);
-  const lines = note.text.split('\n');
+  // Fallback: raw text (server should always provide formattedLines when content is sent)
   const staleMarker = note.stale ? ' [STALE]' : '';
-
-  if (lines.length === 1) {
-    return `${prefix} ${lines[0]}${staleMarker}`;
-  }
-
-  return lines.map((line, i) => {
-    if (i === lines.length - 1) {
-      return `${prefix} ${line}${staleMarker}`;
-    }
-    return `${prefix} ${line}`;
-  }).join('\n');
+  return `// ${note.text}${staleMarker}`;
 }
 
 export function renderNotes(editor: vscode.TextEditor, notes: Note[]): void {
   const config = getConfig();
-  const languageId = editor.document.languageId;
   const decorations: vscode.DecorationOptions[] = [];
   const staleDecorations: vscode.DecorationOptions[] = [];
   debug(`renderNotes: ${notes.length} notes for ${editor.document.fileName}`);
@@ -94,7 +53,7 @@ export function renderNotes(editor: vscode.TextEditor, notes: Note[]): void {
     // Use server-computed staleness when available
     const isStale = note.computedStale ?? note.stale ?? false;
 
-    const text = formatNoteText({ ...note, stale: isStale }, languageId, config.displayStyle);
+    const text = formatNoteText({ ...note, stale: isStale }, config.displayStyle);
     const color = isStale ? '#808080' : '#4682B4';
 
     const decoration: vscode.DecorationOptions = {
