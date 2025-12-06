@@ -10,9 +10,7 @@ export interface Note {
   nodePath: string[];
   commit?: string;
   blob?: string;
-  stale?: boolean;
-  displayLine?: number; // Server-computed display position
-  computedStale?: boolean; // Server-computed staleness
+  stale?: boolean; // Server computes when content is provided
   formattedLines?: string[]; // Server-computed formatted lines with comment prefix
   createdAt: string;
   updatedAt: string;

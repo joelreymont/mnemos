@@ -482,10 +482,8 @@ function M.reattach_note()
     return
   end
 
-  -- Check staleness from server-computed value or stored stale flag
-  local is_stale = note.computedStale or note.stale or false
-
-  if not is_stale then
+  -- Server computes staleness when content is provided
+  if not note.stale then
     vim.notify("Note is not stale", vim.log.levels.INFO)
     return
   end

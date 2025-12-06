@@ -91,15 +91,10 @@ function M.render_note(bufnr, note, display_line, is_stale)
 end
 
 -- Get display position for a note
--- Server MUST provide displayLine and computedStale when content is sent
+-- Server computes position and staleness when content is provided,
+-- updating the note's line and stale fields directly
 local function get_note_display_position(note)
-  -- Use server-computed values (required when content is sent)
-  local display_line = note.displayLine or note.line
-  local is_stale = note.computedStale
-  if is_stale == nil then
-    is_stale = note.stale or false
-  end
-  return display_line, is_stale
+  return note.line, note.stale or false
 end
 
 -- Render all notes for buffer

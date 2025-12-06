@@ -71,7 +71,7 @@ function M.create(text, opts, callback)
 end
 
 -- List notes for current buffer
--- Server computes displayLine and computedStale from content when provided
+-- Server updates note.line and note.stale with computed values when content is provided
 function M.list_for_buffer(callback, include_content)
   -- Default to including content for position tracking
   if include_content == nil then

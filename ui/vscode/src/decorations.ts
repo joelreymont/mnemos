@@ -45,15 +45,14 @@ export function renderNotes(editor: vscode.TextEditor, notes: Note[]): void {
   debug(`renderNotes: ${notes.length} notes for ${editor.document.fileName}`);
 
   for (const note of notes) {
-    // Use server-computed displayLine when available, otherwise stored line
-    const displayLine = note.displayLine ?? note.line;
-    const line = Math.max(0, displayLine - 1); // Convert to 0-indexed
+    // Server updates note.line with computed position when content is provided
+    const line = Math.max(0, note.line - 1); // Convert to 0-indexed
     const range = new vscode.Range(line, 0, line, 0);
 
-    // Use server-computed staleness when available
-    const isStale = note.computedStale ?? note.stale ?? false;
+    // Server computes staleness when content is provided
+    const isStale = note.stale ?? false;
 
-    const text = formatNoteText({ ...note, stale: isStale }, config.displayStyle);
+    const text = formatNoteText(note, config.displayStyle);
     const color = isStale ? '#808080' : '#4682B4';
 
     const decoration: vscode.DecorationOptions = {
