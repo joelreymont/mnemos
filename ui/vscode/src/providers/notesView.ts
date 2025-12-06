@@ -46,7 +46,7 @@ export class NotesTreeDataProvider implements vscode.TreeDataProvider<NoteItem> 
 
 export class NoteItem extends vscode.TreeItem {
   constructor(public readonly note: Note) {
-    super(note.text.split('\n')[0].substring(0, 50), vscode.TreeItemCollapsibleState.None);
+    super(note.summary, vscode.TreeItemCollapsibleState.None);
 
     this.description = `L${note.line}`;
     this.tooltip = new vscode.MarkdownString(

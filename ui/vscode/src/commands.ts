@@ -103,7 +103,7 @@ export async function deleteNoteCommand(): Promise<void> {
   }
 
   const confirm = await vscode.window.showWarningMessage(
-    `Delete note "${note.text.substring(0, 50)}..."?`,
+    `Delete note "${note.summary}"?`,
     { modal: true },
     'Delete'
   );
@@ -282,7 +282,7 @@ export async function listNotesCommand(): Promise<void> {
     }
 
     const items = notes.map((note) => ({
-      label: `L${note.line}: ${note.text.split('\n')[0].substring(0, 50)}`,
+      label: `L${note.line}: ${note.summary}`,
       description: note.stale ? '[STALE]' : '',
       detail: `ID: ${note.shortId}`,
       note,
@@ -469,7 +469,7 @@ export async function backlinksCommand(): Promise<void> {
     }
 
     const items = backlinks.map((n) => ({
-      label: n.text.split('\n')[0].substring(0, 50),
+      label: n.summary,
       description: path.basename(n.file),
       detail: `Line ${n.line}`,
       note: n,

@@ -8,6 +8,7 @@ export interface Note {
   line: number;
   column: number;
   text: string;
+  summary: string; // Server-computed first line, truncated to 60 chars
   nodePath: string[];
   commit?: string;
   blob?: string;
