@@ -168,15 +168,7 @@ Messages are timestamped and written to `hemis--debug-buffer' and log file."
         (when (zerop exit)
           (string-trim (buffer-string)))))))
 
-(defun hemis--git-info (file)
-  "Return alist with commit/blob for FILE, or nil if not in git."
-  (let* ((default-directory (file-name-directory file))
-         (root (hemis--git-run default-directory "rev-parse" "--show-toplevel"))
-         (commit (and root (hemis--git-run root "rev-parse" "HEAD")))
-         (blob (and root (hemis--git-run root "hash-object" file))))
-    (when commit
-      `((commit . ,commit)
-        (blob . ,blob)))))
+;; NOTE: hemis--git-info removed - server now auto-computes commit/blob from file
 
 
 ;;; Process & JSON-RPC management (Unix socket mode)
@@ -766,15 +758,10 @@ NOTES is a list of note objects (alist/plist) from the backend."
 (defun hemis--buffer-params (&optional include-content)
   "Return an alist describing the current buffer for the backend.
 When INCLUDE-CONTENT is non-nil, include buffer content for server-side
-position tracking."
-  (let* ((file (or (buffer-file-name) (buffer-name)))
-         (root (or (hemis--project-root) default-directory))
-         (git (and (buffer-file-name) (hemis--git-info (buffer-file-name)))))
+position tracking.  Server auto-computes projectRoot, commit, and blob
+from the file path when not provided."
+  (let ((file (or (buffer-file-name) (buffer-name))))
     `((file . ,file)
-      (projectRoot . ,root)
-      ,@(when git
-          `((commit . ,(alist-get 'commit git))
-            (blob . ,(alist-get 'blob git))))
       ,@(when include-content
           `((content . ,(hemis--buffer-content)))))))
 

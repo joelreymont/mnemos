@@ -955,15 +955,6 @@ function M.setup_autocommands()
     })
   end
 
-  -- Clear git cache on buffer write (blob SHA changes)
-  vim.api.nvim_create_autocmd("BufWritePost", {
-    group = group,
-    pattern = "*",
-    callback = function(ev)
-      notes.clear_git_cache(ev.buf)
-    end,
-  })
-
   -- Cleanup on exit
   vim.api.nvim_create_autocmd("VimLeavePre", {
     group = group,

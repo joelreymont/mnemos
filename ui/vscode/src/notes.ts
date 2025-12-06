@@ -19,7 +19,7 @@ export interface Note {
 
 export interface CreateNoteParams {
   file: string;
-  projectRoot: string;
+  projectRoot?: string; // Server auto-computes from file if not provided
   line: number;
   column: number;
   text: string;
@@ -54,12 +54,19 @@ export async function deleteNote(id: string): Promise<void> {
 
 export async function listNotes(
   file: string,
-  projectRoot: string,
+  projectRoot?: string, // Server auto-computes from file if not provided
   includeStale = true,
   content?: string
 ): Promise<Note[]> {
   const client = getRpcClient();
-  return client.request<Note[]>('notes/list-for-file', { file, projectRoot, includeStale, content });
+  const params: Record<string, unknown> = { file, includeStale };
+  if (projectRoot) {
+    params.projectRoot = projectRoot;
+  }
+  if (content) {
+    params.content = content;
+  }
+  return client.request<Note[]>('notes/list-for-file', params);
 }
 
 export async function listNotesByNode(
@@ -235,15 +242,10 @@ export async function getNoteAtCursor(
   const position = editor.selection.active;
   const file = document.uri.fsPath;
   const line = position.line + 1; // 1-indexed
-  const projectRoot = getProjectRoot();
   const content = document.getText();
 
-  if (!projectRoot) {
-    return null;
-  }
-
-  // Send content so server computes displayLine
-  const notes = await listNotes(file, projectRoot, true, content);
+  // Server auto-computes projectRoot from file
+  const notes = await listNotes(file, undefined, true, content);
 
   // Find note at cursor line using displayLine (server-computed) or stored line
   for (const note of notes) {

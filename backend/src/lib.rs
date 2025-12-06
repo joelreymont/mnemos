@@ -13,6 +13,23 @@ use treesitter::{
     ParserService,
 };
 
+/// Resolve project root: use provided value, or compute from file path via git.
+/// Falls back to file's parent directory if not in a git repo.
+fn resolve_project_root(provided: Option<&str>, file: &str) -> String {
+    if let Some(pr) = provided {
+        return pr.to_string();
+    }
+    if let Some(git_root) = git::find_root(Path::new(file)) {
+        return git_root;
+    }
+    // Fallback: file's parent directory
+    Path::new(file)
+        .parent()
+        .unwrap_or(Path::new("."))
+        .to_string_lossy()
+        .into_owned()
+}
+
 use events::Event;
 
 /// Internal struct for file listing (used by index-project)
@@ -593,10 +610,25 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
         }
         "notes/list-for-file" => {
             let file = req.params.get("file").and_then(|v| v.as_str());
-            let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
-            if let (Some(file), Some(proj)) = (file, proj) {
-                let commit = req.params.get("commit").and_then(|v| v.as_str());
-                let blob = req.params.get("blob").and_then(|v| v.as_str());
+            if let Some(file) = file {
+                // projectRoot is now optional - computed from file if not provided
+                let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
+                let proj = resolve_project_root(proj_param, file);
+                // commit/blob are now optional - computed from file via git if not provided
+                // Only auto-fill from git if NEITHER is explicitly provided (to allow staleness testing)
+                let req_commit = req.params.get("commit").and_then(|v| v.as_str());
+                let req_blob = req.params.get("blob").and_then(|v| v.as_str());
+                let (commit, blob) = if req_commit.is_none() && req_blob.is_none() {
+                    // Neither provided - auto-fill both from git
+                    let git_info = info_for_file(file);
+                    (
+                        git_info.as_ref().map(|g| g.commit.clone()),
+                        git_info.as_ref().and_then(|g| g.blob.clone()),
+                    )
+                } else {
+                    // At least one explicitly provided - use what was given
+                    (req_commit.map(String::from), req_blob.map(String::from))
+                };
                 let include_stale = req
                     .params
                     .get("includeStale")
@@ -604,10 +636,10 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .unwrap_or(false);
                 let filters = NoteFilters {
                     file,
-                    project_root: proj,
+                    project_root: &proj,
                     node_path: None,
-                    commit,
-                    blob,
+                    commit: commit.as_deref(),
+                    blob: blob.as_deref(),
                     include_stale,
                 };
                 match notes::list_for_file(db, filters) {
@@ -638,7 +670,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
-                Response::error(id, INVALID_PARAMS, "missing file/projectRoot")
+                Response::error(id, INVALID_PARAMS, "missing file")
             }
         }
         "notes/list-project" => {
@@ -685,11 +717,24 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
         }
         "notes/list-by-node" => {
             let file = req.params.get("file").and_then(|v| v.as_str());
-            let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
             let node = req.params.get("nodePath").cloned();
-            if let (Some(file), Some(proj)) = (file, proj) {
-                let commit = req.params.get("commit").and_then(|v| v.as_str());
-                let blob = req.params.get("blob").and_then(|v| v.as_str());
+            if let Some(file) = file {
+                // projectRoot is now optional - computed from file if not provided
+                let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
+                let proj = resolve_project_root(proj_param, file);
+                // commit/blob are now optional - computed from file via git if not provided
+                // Only auto-fill from git if NEITHER is explicitly provided (to allow staleness testing)
+                let req_commit = req.params.get("commit").and_then(|v| v.as_str());
+                let req_blob = req.params.get("blob").and_then(|v| v.as_str());
+                let (commit, blob) = if req_commit.is_none() && req_blob.is_none() {
+                    let git_info = info_for_file(file);
+                    (
+                        git_info.as_ref().map(|g| g.commit.clone()),
+                        git_info.as_ref().and_then(|g| g.blob.clone()),
+                    )
+                } else {
+                    (req_commit.map(String::from), req_blob.map(String::from))
+                };
                 let include_stale = req
                     .params
                     .get("includeStale")
@@ -697,10 +742,10 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .unwrap_or(false);
                 let filters = NoteFilters {
                     file,
-                    project_root: proj,
+                    project_root: &proj,
                     node_path: node,
-                    commit,
-                    blob,
+                    commit: commit.as_deref(),
+                    blob: blob.as_deref(),
                     include_stale,
                 };
                 match notes::list_by_node(db, filters) {
@@ -708,13 +753,15 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
-                Response::error(id, INVALID_PARAMS, "missing file/projectRoot")
+                Response::error(id, INVALID_PARAMS, "missing file")
             }
         }
         "notes/create" => {
             let file = req.params.get("file").and_then(|v| v.as_str());
-            let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
-            if let (Some(file), Some(proj)) = (file, proj) {
+            if let Some(file) = file {
+                // projectRoot is now optional - computed from file if not provided
+                let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
+                let proj = resolve_project_root(proj_param, file);
                 let line = req
                     .params
                     .get("line")
@@ -766,7 +813,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 match notes::create(
                     db,
                     file,
-                    proj,
+                    &proj,
                     final_line,
                     final_column,
                     node_path,
@@ -781,14 +828,14 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                             id: n.id.clone(),
                             file: file.to_string(),
                             line: final_line,
-                            project_root: Some(proj.to_string()),
+                            project_root: Some(proj.clone()),
                         });
                         Response::result_from(id, n)
                     }
                     Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
-                Response::error(id, INVALID_PARAMS, "missing file/projectRoot")
+                Response::error(id, INVALID_PARAMS, "missing file")
             }
         }
         "notes/delete" => {
@@ -949,19 +996,21 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
         }
         "index/add-file" => {
             let file = req.params.get("file").and_then(|v| v.as_str());
-            let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
             let content = req
                 .params
                 .get("content")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            if let (Some(file), Some(proj)) = (file, proj) {
-                match idx::add_file(db, file, proj, content) {
+            if let Some(file) = file {
+                // projectRoot is now optional - computed from file if not provided
+                let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
+                let proj = resolve_project_root(proj_param, file);
+                match idx::add_file(db, file, &proj, content) {
                     Ok(info) => Response::result_from(id, info),
                     Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
-                Response::error(id, INVALID_PARAMS, "missing file/projectRoot")
+                Response::error(id, INVALID_PARAMS, "missing file")
             }
         }
         "index/search" => {

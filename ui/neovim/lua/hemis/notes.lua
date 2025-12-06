@@ -1,6 +1,7 @@
 -- Note operations for Hemis
 local rpc = require("hemis.rpc")
 -- NOTE: treesitter module no longer needed - server computes anchor position from content
+-- NOTE: git info (commit/blob) no longer needed - server auto-computes from file
 
 local M = {}
 
@@ -14,41 +15,11 @@ local function get_cursor_position()
   }
 end
 
--- Cache for git info per buffer (cleared on buffer write)
-local git_cache = {}
-
--- Get git info for file (cached per buffer)
-local function get_git_info(file, bufnr)
-  bufnr = bufnr or vim.api.nvim_get_current_buf()
-
-  -- Check cache first
-  if git_cache[bufnr] and git_cache[bufnr].file == file then
-    return git_cache[bufnr].commit, git_cache[bufnr].blob
-  end
-
-  local dir = vim.fn.fnamemodify(file, ":h")
-
-  -- Get commit SHA
-  local commit_result = vim.fn.systemlist({ "git", "-C", dir, "rev-parse", "HEAD" })
-  local commit = (commit_result[1] and not commit_result[1]:match("^fatal")) and commit_result[1] or nil
-
-  -- Get blob SHA
-  local blob_result = vim.fn.systemlist({ "git", "-C", dir, "ls-files", "-s", file })
-  local blob = nil
-  if blob_result[1] then
-    blob = blob_result[1]:match("^%d+%s+(%x+)")
-  end
-
-  -- Cache the result
-  git_cache[bufnr] = { file = file, commit = commit, blob = blob }
-
-  return commit, blob
-end
-
--- Cache for project root per directory
+-- Cache for project root per directory (still needed for project-level operations)
 local project_root_cache = {}
 
 -- Get project root (git root or cwd) - cached per directory
+-- Still needed for project-level operations (index-project, project-meta, search)
 local function get_project_root()
   local file = vim.fn.expand("%:p")
   local dir = vim.fn.fnamemodify(file, ":h")
@@ -71,14 +42,8 @@ local function get_project_root()
   return root
 end
 
--- Clear git cache for a buffer (call on BufWritePost)
-function M.clear_git_cache(bufnr)
-  git_cache[bufnr] = nil
-end
-
 -- Clear all caches (for testing)
 function M.clear_all_caches()
-  git_cache = {}
   project_root_cache = {}
 end
 
@@ -90,15 +55,12 @@ local function get_buffer_content(bufnr)
 end
 
 -- Build params for current buffer
+-- Server auto-computes projectRoot, commit, blob from file when not provided
 local function buffer_params(include_content)
   local file = vim.fn.expand("%:p")
-  local commit, blob = get_git_info(file)
 
   local params = {
     file = file,
-    projectRoot = get_project_root(),
-    commit = commit,
-    blob = blob,
     includeStale = true,
   }
 
