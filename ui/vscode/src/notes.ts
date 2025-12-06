@@ -200,6 +200,24 @@ export async function bufferUpdate(file: string, content: string): Promise<Note[
   return client.request<Note[]>('notes/buffer-update', { file, content });
 }
 
+// Reattach a stale note to the current cursor position
+export async function reattachNote(
+  id: string,
+  file: string,
+  line: number,
+  column: number,
+  content: string
+): Promise<Note> {
+  const client = getRpcClient();
+  return client.request<Note>('notes/reattach', {
+    id,
+    file,
+    line,
+    column,
+    content,
+  });
+}
+
 // Helper to get project root from workspace
 export function getProjectRoot(): string | null {
   const workspaceFolders = vscode.workspace.workspaceFolders;

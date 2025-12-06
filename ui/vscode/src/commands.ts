@@ -15,6 +15,7 @@ import {
   getNoteAtCursor,
   getProjectRoot,
   getProjectMeta,
+  reattachNote,
   Note,
   SearchHit,
 } from './notes';
@@ -121,6 +122,41 @@ export async function deleteNoteCommand(): Promise<void> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     vscode.window.showErrorMessage(`Failed to delete note: ${message}`);
+  }
+}
+
+export async function reattachNoteCommand(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    vscode.window.showErrorMessage('No active editor');
+    return;
+  }
+
+  const note = await getNoteAtCursor(editor);
+  if (!note) {
+    vscode.window.showInformationMessage('No note at cursor position');
+    return;
+  }
+
+  if (!note.stale) {
+    vscode.window.showInformationMessage('Note is not stale');
+    return;
+  }
+
+  const document = editor.document;
+  const position = editor.selection.active;
+  const file = document.uri.fsPath;
+  const line = position.line + 1; // 1-indexed
+  const column = position.character;
+  const content = document.getText();
+
+  try {
+    await reattachNote(note.id, file, line, column, content);
+    await refreshNotes(editor);
+    vscode.window.showInformationMessage('Note reattached');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`Failed to reattach note: ${message}`);
   }
 }
 
@@ -722,6 +758,7 @@ export function registerCommands(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('hemis.addNote', addNoteCommand),
     vscode.commands.registerCommand('hemis.deleteNote', deleteNoteCommand),
+    vscode.commands.registerCommand('hemis.reattachNote', reattachNoteCommand),
     vscode.commands.registerCommand('hemis.editNote', editNoteCommand),
     vscode.commands.registerCommand('hemis.refreshNotes', refreshNotesCommand),
     vscode.commands.registerCommand('hemis.listNotes', listNotesCommand),

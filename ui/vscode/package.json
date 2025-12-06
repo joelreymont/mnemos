@@ -31,6 +31,10 @@
         "title": "Hemis: Delete Note"
       },
       {
+        "command": "hemis.reattachNote",
+        "title": "Hemis: Reattach Stale Note"
+      },
+      {
         "command": "hemis.editNote",
         "title": "Hemis: Edit Note"
       },
@@ -157,6 +161,12 @@
         "command": "hemis.deleteNote",
         "key": "ctrl+shift+h d",
         "mac": "cmd+shift+h d",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "hemis.reattachNote",
+        "key": "ctrl+shift+h shift+r",
+        "mac": "cmd+shift+h shift+r",
         "when": "editorTextFocus"
       },
       {
