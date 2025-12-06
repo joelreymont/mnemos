@@ -805,6 +805,37 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
             }
         }
+        "notes/link-suggestions" => {
+            // Returns note search results formatted as link suggestions
+            let query = req
+                .params
+                .get("query")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
+            match notes::search(db, query, proj, Some(10), 0) {
+                Ok(notes_list) => {
+                    let suggestions: Vec<serde_json::Value> = notes_list
+                        .into_iter()
+                        .map(|n| {
+                            let summary = n.text.lines().next().unwrap_or("").to_string();
+                            let short_summary = if summary.len() > 50 {
+                                format!("{}...", &summary[..47])
+                            } else {
+                                summary.clone()
+                            };
+                            serde_json::json!({
+                                "noteId": n.id,
+                                "summary": short_summary,
+                                "formatted": format!("[[{}][{}]]", short_summary, n.id)
+                            })
+                        })
+                        .collect();
+                    Response::result_from(id, suggestions)
+                }
+                Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
+            }
+        }
         "notes/list-by-node" => {
             let file = req.params.get("file").and_then(|v| v.as_str());
             let node = req.params.get("nodePath").cloned();
