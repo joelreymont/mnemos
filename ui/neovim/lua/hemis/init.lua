@@ -7,7 +7,7 @@ local M = {}
 M.rpc = require("hemis.rpc")
 M.notes = require("hemis.notes")
 M.display = require("hemis.display")
-M.treesitter = require("hemis.treesitter")
+-- NOTE: treesitter module removed - server now handles anchor position, nodePath, and nodeTextHash
 M.commands = require("hemis.commands")
 M.config = require("hemis.config")
 

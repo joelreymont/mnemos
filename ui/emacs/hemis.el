@@ -506,47 +506,22 @@ When FORCE is non-nil, attempt installation even if `major-mode` is not Rust."
     (hemis--ensure-rust-grammar)
     (treesit-ready-p major-mode)))
 
-(defun hemis--node-path-at-point (&optional max-depth)
-  "Return list of node types from innermost to outermost at point.
-Limits to MAX-DEPTH parents (default 6) to avoid excessively long chains."
-  (when (hemis--treesit-available-p)
-    (let* ((node (treesit-node-at (point)))
-           (depth (or max-depth 6))
-           (path '()))
-      (while (and node (> depth 0))
-        (push (treesit-node-type node) path)
-        (setq node (treesit-node-parent node)
-              depth (1- depth)))
-      (nreverse path))))
+;; NOTE: hemis--node-path-at-point removed - server computes nodePath from content
 
 (defun hemis--anchor-position (line col)
-  "Return buffer position to anchor a note at LINE and COL.
-Prefers Tree-sitter node start; falls back to symbol/word start."
+  "Return buffer position at LINE and COL.
+Server computes actual anchor position from content when creating notes."
   (save-excursion
     (goto-char (point-min))
     (forward-line (max 0 (1- (or line 1))))
     (move-to-column (or col 0))
-    (let ((pos (point)))
-      (cond
-       ((hemis--treesit-available-p)
-        (or (when-let ((node (treesit-node-at pos)))
-              (treesit-node-start node))
-            pos))
-       (t
-        (let ((bounds (or (bounds-of-thing-at-point 'symbol)
-                          (bounds-of-thing-at-point 'word))))
-          (if (and bounds (>= pos (car bounds)) (<= pos (cdr bounds)))
-              (car bounds)
-            pos)))))))
+    (point)))
 
 (defun hemis--note-anchor ()
-  "Return plist describing where to anchor a note at point.
-Prefers the start of the Tree-sitter node at point; falls back to point."
-  (let* ((pos (hemis--anchor-position (line-number-at-pos) (current-column))))
-    (save-excursion
-      (goto-char pos)
-      (list :line (line-number-at-pos)
-            :column (current-column)))))
+  "Return plist with current cursor line and column.
+Server computes anchor position, nodePath, and nodeTextHash from content."
+  (list :line (line-number-at-pos)
+        :column (current-column)))
 
 (defun hemis--line-indentation (pos)
   "Return indentation (whitespace) of the line at POS."

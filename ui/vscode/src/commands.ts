@@ -21,11 +21,8 @@ import {
 } from './notes';
 import { refreshNotes } from './decorations';
 
-// Simple node path extraction (placeholder until Tree-sitter is integrated)
-function getNodePath(): string[] {
-  // For now, return empty - Tree-sitter integration would provide real node paths
-  return [];
-}
+// Node path is now computed server-side when content is provided
+// No local tree-sitter needed
 
 // Jump to a note's location (used by tree view click)
 export async function jumpToNoteCommand(note: Note): Promise<void> {
@@ -81,7 +78,7 @@ export async function addNoteCommand(): Promise<void> {
       line: position.line + 1, // 1-indexed
       column: position.character,
       text,
-      nodePath: getNodePath(),
+      content: document.getText(), // Server computes nodePath and hash from content
     });
 
     await refreshNotes(editor);

@@ -23,8 +23,8 @@ export interface CreateNoteParams {
   line: number;
   column: number;
   text: string;
-  content?: string; // Buffer content for server-side hash computation
-  nodePath?: string[]; // Optional fallback if content not provided
+  content?: string; // Buffer content - server computes anchor position, nodePath, and hash
+  nodePath?: string[]; // Deprecated: only used if content not provided (backwards compat)
 }
 
 export interface UpdateNoteParams {

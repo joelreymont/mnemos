@@ -9,8 +9,8 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use treesitter::{
-    compute_display_position, compute_hash_at_position, compute_node_path, default_config,
-    GrammarRegistry, ParserService,
+    compute_anchor_position, compute_display_position, default_config, GrammarRegistry,
+    ParserService,
 };
 
 use events::Event;
@@ -733,22 +733,25 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .get("text")
                     .and_then(|v| v.as_str())
                     .unwrap_or_default();
-                // If content is provided, compute node_path and node_text_hash server-side
+                // If content is provided, compute anchor position, node_path, and hash server-side
+                // This includes adjusting line/column to the significant node's start
                 // Otherwise, use client-provided values (backwards compatibility)
                 let content = req.params.get("content").and_then(|v| v.as_str());
-                let (node_path, node_text_hash) = if let Some(content) = content {
+                let (final_line, final_column, node_path, node_text_hash) = if let Some(content) = content {
                     let file_path = Path::new(file);
                     // Convert from 1-based (client) to 0-based (tree-sitter)
                     let ts_line = (line - 1).max(0) as u32;
                     let ts_column = column as u32;
-                    let computed_path = compute_node_path(parser, file_path, content, ts_line, ts_column);
-                    let computed_hash = compute_hash_at_position(parser, file_path, content, ts_line, ts_column);
-                    let node_path_value = if computed_path.is_empty() {
+                    let anchor = compute_anchor_position(parser, file_path, content, ts_line, ts_column);
+                    let node_path_value = if anchor.node_path.is_empty() {
                         None
                     } else {
-                        serde_json::to_value(&computed_path).ok()
+                        serde_json::to_value(&anchor.node_path).ok()
                     };
-                    (node_path_value, computed_hash)
+                    // Convert back to 1-based for storage
+                    let anchored_line = i64::from(anchor.line) + 1;
+                    let anchored_column = i64::from(anchor.column);
+                    (anchored_line, anchored_column, node_path_value, anchor.node_text_hash)
                 } else {
                     // Backwards compatibility: use client-provided values
                     let node_path = req.params.get("nodePath").cloned();
@@ -757,15 +760,15 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         .get("nodeTextHash")
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string());
-                    (node_path, node_text_hash)
+                    (line, column, node_path, node_text_hash)
                 };
                 let git = info_for_file(file);
                 match notes::create(
                     db,
                     file,
                     proj,
-                    line,
-                    column,
+                    final_line,
+                    final_column,
                     node_path,
                     tags,
                     text,
@@ -777,7 +780,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         events::emit(Event::NoteCreated {
                             id: n.id.clone(),
                             file: file.to_string(),
-                            line,
+                            line: final_line,
                             project_root: Some(proj.to_string()),
                         });
                         Response::result_from(id, n)
@@ -862,21 +865,23 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .and_then(|v| v.as_i64())
                     .unwrap_or(0)
                     .clamp(0, i64::from(u32::MAX)); // Clamp to valid u32 range
-                // If content is provided, compute node_path and hash server-side
+                // If content is provided, compute anchor position, node_path and hash server-side
                 let content = req.params.get("content").and_then(|v| v.as_str());
-                let (node_path, node_text_hash) = if let (Some(content), Some(file)) = (content, file) {
+                let (final_line, final_column, node_path, node_text_hash) = if let (Some(content), Some(file)) = (content, file) {
                     let file_path = Path::new(file);
                     // Convert from 1-based (client) to 0-based (tree-sitter)
                     let ts_line = (line - 1).max(0) as u32;
                     let ts_column = column as u32;
-                    let computed_path = compute_node_path(parser, file_path, content, ts_line, ts_column);
-                    let computed_hash = compute_hash_at_position(parser, file_path, content, ts_line, ts_column);
-                    let node_path_value = if computed_path.is_empty() {
+                    let anchor = compute_anchor_position(parser, file_path, content, ts_line, ts_column);
+                    let node_path_value = if anchor.node_path.is_empty() {
                         None
                     } else {
-                        serde_json::to_value(&computed_path).ok()
+                        serde_json::to_value(&anchor.node_path).ok()
                     };
-                    (node_path_value, computed_hash)
+                    // Convert back to 1-based for storage
+                    let anchored_line = i64::from(anchor.line) + 1;
+                    let anchored_column = i64::from(anchor.column);
+                    (anchored_line, anchored_column, node_path_value, anchor.node_text_hash)
                 } else {
                     // Backwards compatibility
                     let node_path = req.params.get("nodePath").cloned();
@@ -885,10 +890,10 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         .get("nodeTextHash")
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string());
-                    (node_path, node_text_hash)
+                    (line, column, node_path, node_text_hash)
                 };
                 let git = file.and_then(info_for_file);
-                match notes::reattach(db, note_id, line, column, node_path, git, node_text_hash) {
+                match notes::reattach(db, note_id, final_line, final_column, node_path, git, node_text_hash) {
                     Ok(n) => Response::result_from(id, n),
                     // "not found" is safe to expose (no sensitive details)
                     Err(e) if e.to_string().contains("not found") => {

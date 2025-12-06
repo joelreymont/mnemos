@@ -12,8 +12,8 @@ pub use config::{config_dir, default_config, load_config, GrammarSource, Grammar
 pub use grammar::{GrammarRegistry, Language};
 pub use parser::ParserService;
 pub use position::{
-    compute_display_position, compute_hash_at_position, compute_node_path, DisplayPosition,
-    PositionReason,
+    compute_anchor_position, compute_display_position, compute_hash_at_position, compute_node_path,
+    AnchorPosition, DisplayPosition, PositionReason,
 };
 
 use thiserror::Error;

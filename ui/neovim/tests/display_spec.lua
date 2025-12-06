@@ -601,16 +601,13 @@ impl Default for Config {
       assert.equals(16, state.extmarks[1].line)
     end)
 
-    it("displays note as fresh when hash matches stored line", function()
-      -- Note with matching hash at stored position should be fresh
+    it("displays note as fresh when server marks it fresh", function()
+      -- Note with computedStale = false should be displayed as fresh
       local display = require("hemis.display")
-      local ts = require("hemis.treesitter")
 
-      -- Get the actual hash at line 16 (fn new)
-      local hash = ts.get_hash_at_position(buf, 16, 4)
-
+      -- Server computed staleness (hash matches at stored position)
       local notes = {
-        { id = "note-1", line = 16, column = 4, text = "Factory method", nodeTextHash = hash },
+        { id = "note-1", line = 16, column = 4, text = "Factory method", computedStale = false },
       }
 
       display.render_notes(buf, notes)
@@ -618,14 +615,14 @@ impl Default for Config {
 
       local state = helpers.capture_display_state(buf)
       assert.equals(1, #state.extmarks)
-      -- Should NOT use HemisNoteStale since hash matches
+      -- Should NOT use HemisNoteStale since server says not stale
       local has_stale = false
       for _, hl in ipairs(state.extmarks[1].hl_groups) do
         if hl == "HemisNoteStale" then
           has_stale = true
         end
       end
-      assert.is_false(has_stale, "Note should be fresh when hash matches")
+      assert.is_false(has_stale, "Note should be fresh when server marks computedStale = false")
     end)
 
     it("finds note at new position when server provides displayLine", function()

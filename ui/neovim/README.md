@@ -47,9 +47,8 @@ lua/hemis/
   init.lua        # Main module, setup()
   config.lua      # Configuration
   rpc.lua         # JSON-RPC client
-  notes.lua       # Note operations
+  notes.lua       # Note operations (server handles anchor/nodePath computation)
   display.lua     # Virtual text rendering
-  treesitter.lua  # Node path extraction
   commands.lua    # Commands and keymaps
 plugin/
   hemis.lua       # Entry point

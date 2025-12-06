@@ -47,7 +47,7 @@ Every bug fix and feature MUST include tests. Write tests FIRST or alongside imp
 - Work continuously without pausing unless blocked
 - Break work into small steps, execute end-to-end
 
-**MANDATORY: Create beads for ALL new tasks** via `bd_create` BEFORE starting work. This includes tasks you discover while working. Close beads when done.
+**MANDATORY: Create beads for ALL new tasks** via `bd_create` BEFORE starting work. This applies to bug fixes, new features, refactors, and any tasks discovered while working. No exceptions. Close beads when done.
 
 **MANDATORY: Commit after closing beads.** Each bead closure = one commit.
 

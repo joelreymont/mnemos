@@ -22,13 +22,17 @@ function M.refresh()
   end)
 end
 
+-- Get raw cursor position (server handles anchor adjustment)
+local function get_cursor_position()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  return { line = cursor[1], column = cursor[2] }
+end
+
 -- Add note at cursor
 function M.add_note()
   -- Capture position BEFORE opening input UI (which changes buffer context)
-  local ts = require("hemis.treesitter")
-  local anchor = ts.get_anchor_position()
-  local node_path = ts.get_node_path()
-  local node_text_hash = ts.get_node_text_hash()
+  -- Server computes anchor, nodePath, nodeTextHash from content
+  local anchor = get_cursor_position()
   local source_buf = vim.api.nvim_get_current_buf()
 
   vim.ui.input({ prompt = "Note: " }, function(text)
@@ -42,11 +46,9 @@ function M.add_note()
       return
     end
 
-    -- Pass captured position to create
+    -- Pass captured position to create (server handles tree-sitter)
     notes.create(text, {
       anchor = anchor,
-      node_path = node_path,
-      node_text_hash = node_text_hash,
       source_buf = source_buf,
     }, function(err, _)
       if not err then
@@ -59,10 +61,8 @@ end
 -- Add multi-line note
 function M.add_note_multiline()
   -- Capture position BEFORE opening input UI (which changes buffer context)
-  local ts = require("hemis.treesitter")
-  local anchor = ts.get_anchor_position()
-  local node_path = ts.get_node_path()
-  local node_text_hash = ts.get_node_text_hash()
+  -- Server computes anchor, nodePath, nodeTextHash from content
+  local anchor = get_cursor_position()
   local source_buf = vim.api.nvim_get_current_buf()
 
   -- Create a scratch buffer for note input
@@ -93,11 +93,9 @@ function M.add_note_multiline()
     vim.api.nvim_win_close(win, true)
 
     if text ~= "" then
-      -- Pass captured position to create
+      -- Pass captured position to create (server handles tree-sitter)
       notes.create(text, {
         anchor = anchor,
-        node_path = node_path,
-        node_text_hash = node_text_hash,
         source_buf = source_buf,
       }, function(err, _)
         if not err then
@@ -503,18 +501,13 @@ function M.reattach_note()
     return
   end
 
-  -- Capture position before any async operations
-  local ts = require("hemis.treesitter")
-  local anchor = ts.get_anchor_position()
-  local node_path = ts.get_node_path()
-  local node_text_hash = ts.get_node_text_hash()
+  -- Capture raw cursor position (server computes anchor from content)
+  local anchor = get_cursor_position()
 
   vim.ui.select({ "Yes", "No" }, { prompt = "Reattach note to current position?" }, function(choice)
     if choice == "Yes" then
       notes.reattach(note.id, {
         anchor = anchor,
-        node_path = node_path,
-        node_text_hash = node_text_hash,
       }, function(err, _)
         if not err then
           M.refresh()
@@ -650,12 +643,9 @@ function M.explain_region()
     return
   end
 
-  -- Capture tree-sitter info at the start of the selection
-  local ts = require("hemis.treesitter")
+  -- Capture raw cursor position at start of selection (server computes anchor from content)
   vim.api.nvim_win_set_cursor(0, { start_line, 0 })
-  local anchor = ts.get_anchor_position()
-  local node_path = ts.get_node_path()
-  local node_text_hash = ts.get_node_text_hash()
+  local anchor = get_cursor_position()
   local source_buf = vim.api.nvim_get_current_buf()
   local file = vim.fn.expand("%:p")
 
@@ -701,8 +691,6 @@ function M.explain_region()
 
   notes.create(text, {
     anchor = anchor,
-    node_path = node_path,
-    node_text_hash = node_text_hash,
     source_buf = source_buf,
   }, function(err, _)
     create_err = err
@@ -737,12 +725,9 @@ function M.explain_region_full()
     return
   end
 
-  -- Capture tree-sitter info at the start of the selection
-  local ts = require("hemis.treesitter")
+  -- Capture raw cursor position at start of selection (server computes anchor from content)
   vim.api.nvim_win_set_cursor(0, { start_line, 0 })
-  local anchor = ts.get_anchor_position()
-  local node_path = ts.get_node_path()
-  local node_text_hash = ts.get_node_text_hash()
+  local anchor = get_cursor_position()
   local source_buf = vim.api.nvim_get_current_buf()
   local file = vim.fn.expand("%:p")
 
@@ -787,8 +772,6 @@ function M.explain_region_full()
 
   notes.create(text, {
     anchor = anchor,
-    node_path = node_path,
-    node_text_hash = node_text_hash,
     source_buf = source_buf,
   }, function(err, _)
     create_err = err

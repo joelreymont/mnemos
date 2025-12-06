@@ -7,7 +7,7 @@
 // - swift_test: Run swift test and return compact summary
 // - bd_context: Return beads in compact form
 // - git_context: Return git status/diff compactly
-// - ask_oracle: Ask codex -m o3 for help with difficult questions
+// - ask_oracle: Ask codex for help with difficult questions
 
 use std::borrow::Cow;
 use std::process::{Command, Stdio};
@@ -251,7 +251,7 @@ pub struct RebuildMcpRequest {}
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct AskOracleRequest {
-    /// The question to ask the oracle (codex -m o3)
+    /// The question to ask the oracle (codex with default model)
     pub question: String,
 }
 
@@ -605,7 +605,7 @@ impl HemisServer {
         const ORACLE_TIMEOUT: Duration = Duration::from_secs(300);
 
         let mut cmd = Command::new("codex");
-        cmd.args(["-m", "o3", "-p", &req.question]);
+        cmd.args(["exec", &req.question]);
 
         match run_command_with_timeout(cmd, ORACLE_TIMEOUT) {
             Ok((stdout, _)) => {

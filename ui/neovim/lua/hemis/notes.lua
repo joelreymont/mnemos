@@ -1,8 +1,18 @@
 -- Note operations for Hemis
 local rpc = require("hemis.rpc")
-local ts = require("hemis.treesitter")
+-- NOTE: treesitter module no longer needed - server computes anchor position from content
 
 local M = {}
+
+-- Get raw cursor position (1-indexed line, 0-indexed column)
+-- Server handles anchor adjustment when content is provided
+local function get_cursor_position()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  return {
+    line = cursor[1],     -- 1-indexed
+    column = cursor[2],   -- 0-indexed
+  }
+end
 
 -- Cache for git info per buffer (cleared on buffer write)
 local git_cache = {}
@@ -101,25 +111,19 @@ local function buffer_params(include_content)
 end
 
 -- Create a note at cursor
--- Server computes nodeTextHash and nodePath from content when provided
+-- Server computes anchor position, nodeTextHash, and nodePath from content
 function M.create(text, opts, callback)
   opts = opts or {}
 
-  -- Use pre-captured position if provided, otherwise capture now
-  local anchor = opts.anchor or ts.get_anchor_position()
-  -- Send content so server can compute hash/nodePath (fallback to UI-computed if no content)
+  -- Use pre-captured cursor position if provided, otherwise capture now
+  local anchor = opts.anchor or get_cursor_position()
+  -- Send content so server can compute anchor, hash, and nodePath
   local params = buffer_params(true) -- include content
 
   params.line = anchor.line
   params.column = anchor.column
   params.text = text
   params.tags = opts.tags
-
-  -- Only send UI-computed values as fallback (server prefers to compute from content)
-  if not params.content then
-    params.nodePath = opts.node_path or ts.get_node_path()
-    params.nodeTextHash = opts.node_text_hash or ts.get_node_text_hash()
-  end
 
   rpc.request("notes/create", params, function(err, result)
     if callback then
@@ -288,15 +292,15 @@ function M.project_meta(callback)
 end
 
 -- Reattach a stale note to a new position
+-- Server computes anchor position and nodeTextHash from content
 function M.reattach(id, opts, callback)
   opts = opts or {}
 
-  -- Use pre-captured position if provided, otherwise capture now
-  local ts = require("hemis.treesitter")
-  local anchor = opts.anchor or ts.get_anchor_position()
+  -- Use pre-captured cursor position if provided, otherwise capture now
+  local anchor = opts.anchor or get_cursor_position()
   local file = vim.fn.expand("%:p")
 
-  -- Send content so server can compute hash (fallback to UI-computed if needed)
+  -- Send content so server can compute anchor and hash
   local content = get_buffer_content()
 
   local params = {
@@ -306,12 +310,6 @@ function M.reattach(id, opts, callback)
     column = anchor.column,
     content = content,
   }
-
-  -- Only send UI-computed values as fallback
-  if not content then
-    params.nodePath = opts.node_path or ts.get_node_path()
-    params.nodeTextHash = opts.node_text_hash or ts.get_node_text_hash()
-  end
 
   rpc.request("notes/reattach", params, function(err, result)
     if callback then

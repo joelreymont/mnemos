@@ -157,6 +157,102 @@ pub fn compute_hash_at_position(
     Some(ParserService::node_hash(&node, content))
 }
 
+/// Result of computing an anchor position for a note
+#[derive(Debug, Clone)]
+pub struct AnchorPosition {
+    /// Adjusted line (0-indexed, start of significant node)
+    pub line: u32,
+    /// Adjusted column (0-indexed, start of significant node)
+    pub column: u32,
+    /// Node path from root to significant node
+    pub node_path: Vec<String>,
+    /// Hash of the significant node's first line
+    pub node_text_hash: Option<String>,
+}
+
+/// Compute anchor position from raw cursor coordinates
+///
+/// This replicates the UI-side anchor logic:
+/// 1. If column is 0 or in whitespace, find first non-whitespace column
+/// 2. Find the significant node at that position
+/// 3. Return the node's start position, path, and hash
+///
+/// UIs can call this with raw cursor position and get back the proper anchor.
+pub fn compute_anchor_position(
+    service: &mut ParserService,
+    file: &Path,
+    content: &str,
+    cursor_line: u32,
+    cursor_column: u32,
+) -> AnchorPosition {
+    let lang_name = match service.language_for_file(file) {
+        Some(name) => name.to_string(),
+        None => {
+            // No grammar - return cursor position as-is
+            return AnchorPosition {
+                line: cursor_line,
+                column: cursor_column,
+                node_path: Vec::new(),
+                node_text_hash: None,
+            };
+        }
+    };
+
+    let settings = service.registry().config().get_language(&lang_name).cloned();
+
+    let tree = match service.parse(file, content) {
+        Ok(tree) => tree,
+        Err(_) => {
+            return AnchorPosition {
+                line: cursor_line,
+                column: cursor_column,
+                node_path: Vec::new(),
+                node_text_hash: None,
+            };
+        }
+    };
+
+    // Find significant node at position (handles whitespace skipping internally)
+    let Some(node) = ParserService::node_at_position(tree, content, cursor_line, cursor_column, settings.as_ref()) else {
+        return AnchorPosition {
+            line: cursor_line,
+            column: cursor_column,
+            node_path: Vec::new(),
+            node_text_hash: None,
+        };
+    };
+
+    // Get the node's start position as the anchor
+    let start = node.start_position();
+    let anchor_line = start.row as u32;
+    let anchor_column = start.column as u32;
+
+    // Only use node start if it's on the same line as cursor
+    // This prevents anchoring to a parent node that starts many lines above
+    let (final_line, final_column) = if anchor_line == cursor_line {
+        (anchor_line, anchor_column)
+    } else {
+        (cursor_line, cursor_column)
+    };
+
+    // Compute node path
+    let node_path = ParserService::node_path(tree, content, final_line, final_column, settings.as_ref());
+
+    // Compute hash
+    let node_text_hash = if let Some(node) = ParserService::node_at_position(tree, content, final_line, final_column, settings.as_ref()) {
+        Some(ParserService::node_hash(&node, content))
+    } else {
+        None
+    };
+
+    AnchorPosition {
+        line: final_line,
+        column: final_column,
+        node_path,
+        node_text_hash,
+    }
+}
+
 /// Compute node path at a position
 pub fn compute_node_path(
     service: &mut ParserService,
