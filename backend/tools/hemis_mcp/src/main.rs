@@ -7,6 +7,7 @@
 // - swift_test: Run swift test and return compact summary
 // - bd_context: Return beads in compact form
 // - git_context: Return git status/diff compactly
+// - ask_oracle: Ask codex -m o3 for help with difficult questions
 
 use std::borrow::Cow;
 use std::process::{Command, Stdio};
@@ -247,6 +248,12 @@ pub struct SwiftTestRequest {
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct RebuildMcpRequest {}
+
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct AskOracleRequest {
+    /// The question to ask the oracle (codex -m o3)
+    pub question: String,
+}
 
 // ============================================================================
 // Server implementation
@@ -586,6 +593,25 @@ impl HemisServer {
                 Ok(CallToolResult::success(vec![Content::text(summary)]))
             }
             Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("ERROR: {}", e))]))
+        }
+    }
+
+    #[tool(description = "Ask the oracle (codex -m o3) for help with difficult questions. Use for complex reasoning or when you need a second opinion.")]
+    fn ask_oracle(
+        &self,
+        Parameters(req): Parameters<AskOracleRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        // Use a longer timeout for o3 responses (5 minutes)
+        const ORACLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+        let mut cmd = Command::new("codex");
+        cmd.args(["-m", "o3", "-p", &req.question]);
+
+        match run_command_with_timeout(cmd, ORACLE_TIMEOUT) {
+            Ok((stdout, _)) => {
+                Ok(CallToolResult::success(vec![Content::text(stdout.trim().to_string())]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("ORACLE ERROR: {}", e))]))
         }
     }
 }

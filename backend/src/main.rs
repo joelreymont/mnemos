@@ -615,9 +615,11 @@ fn print_help() {
     println!("USAGE:");
     println!("    hemis [OPTIONS]");
     println!("    hemis grammar <COMMAND>");
+    println!("    hemis oracle <QUESTION>");
     println!();
     println!("SUBCOMMANDS:");
     println!("    grammar        Manage tree-sitter grammars (list, fetch, build)");
+    println!("    oracle         Ask codex -m o3 for help with difficult questions");
     println!();
     println!("OPTIONS:");
     println!("    --serve, -s            Run as server (Unix socket at ~/.hemis/hemis.sock)");
@@ -720,12 +722,51 @@ fn run_load_snapshot(config: &ResolvedConfig, path: &str) -> Result<()> {
     Ok(())
 }
 
+/// Run the oracle command (ask codex -m o3)
+fn run_oracle_command(args: &[String]) -> Result<()> {
+    if args.is_empty() {
+        println!("Usage: hemis oracle <QUESTION>");
+        println!();
+        println!("Ask codex -m o3 (the oracle) for help with difficult questions.");
+        println!();
+        println!("Examples:");
+        println!("    hemis oracle \"How do I implement a trie in Rust?\"");
+        println!("    hemis oracle \"What's the best way to handle async errors?\"");
+        return Ok(());
+    }
+
+    // Join all arguments as the question
+    let question = args.join(" ");
+    println!("Asking the oracle...");
+    println!();
+
+    let output = Command::new("codex")
+        .args(["-m", "o3", "-p", &question])
+        .output()?;
+
+    if output.status.success() {
+        let response = String::from_utf8_lossy(&output.stdout);
+        println!("{}", response.trim());
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprintln!("Oracle error: {}", stderr.trim());
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
     // Check for grammar subcommand first
     if args.len() > 1 && args[1] == "grammar" {
         return run_grammar_command(&args[2..]);
+    }
+
+    // Check for oracle subcommand
+    if args.len() > 1 && args[1] == "oracle" {
+        return run_oracle_command(&args[2..]);
     }
 
     if args.contains(&"--version".to_string()) || args.contains(&"-v".to_string()) {
