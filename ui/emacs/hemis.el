@@ -973,6 +973,28 @@ With prefix arg or INCLUDE-AI non-nil, also run AI analysis."
                   `((projectRoot . ,hemis--project-root-override)))
   (message "Hemis: project set to %s" hemis--project-root-override))
 
+(defun hemis-reattach-note ()
+  "Reattach the stale note at point to the current cursor position.
+Use this when a note becomes stale due to code changes."
+  (interactive)
+  (let* ((note (or (get-text-property (point) 'hemis-note)
+                   (hemis--note-at-overlay (point))))
+         (id (and note (hemis--note-get note 'id))))
+    (unless id
+      (user-error "No note at point"))
+    (let* ((file (buffer-file-name))
+           (line (line-number-at-pos))
+           (column (current-column))
+           (content (buffer-substring-no-properties (point-min) (point-max)))
+           (params `((id . ,id)
+                     (file . ,file)
+                     (line . ,line)
+                     (column . ,column)
+                     (content . ,content))))
+      (hemis--request "notes/reattach" params)
+      (message "Hemis: note reattached")
+      (hemis-refresh-notes))))
+
 (defun hemis-explain-region (beg end &optional use-ai)
   "Request an explanation for the region from BEG to END.
 With prefix arg or USE-AI non-nil, use AI to explain."
@@ -1368,8 +1390,12 @@ Otherwise, prompt for a note ID."
     (define-key map (kbd "C-c h s") #'hemis-search-project)
     (define-key map (kbd "C-c h k") #'hemis-insert-note-link)
     (define-key map (kbd "C-c h e") #'hemis-edit-note-at-point)
+    (define-key map (kbd "C-c h E") #'hemis-edit-note-buffer)
     (define-key map (kbd "C-c h d") #'hemis-delete-note-at-point)
     (define-key map (kbd "C-c h b") #'hemis-show-backlinks)
+    (define-key map (kbd "C-c h x") #'hemis-explain-region)
+    (define-key map (kbd "C-c h X") #'hemis-explain-region-ai)
+    (define-key map (kbd "C-c h R") #'hemis-reattach-note)
     (define-key map (kbd "C-c h S") #'hemis-status)
     (define-key map (kbd "C-c h ?") #'hemis-help)
     map)
@@ -1386,8 +1412,12 @@ Otherwise, prompt for a note ID."
     (define-key hemis-notes-mode-map (kbd "C-c h s") #'hemis-search-project)
     (define-key hemis-notes-mode-map (kbd "C-c h k") #'hemis-insert-note-link)
     (define-key hemis-notes-mode-map (kbd "C-c h e") #'hemis-edit-note-at-point)
+    (define-key hemis-notes-mode-map (kbd "C-c h E") #'hemis-edit-note-buffer)
     (define-key hemis-notes-mode-map (kbd "C-c h d") #'hemis-delete-note-at-point)
     (define-key hemis-notes-mode-map (kbd "C-c h b") #'hemis-show-backlinks)
+    (define-key hemis-notes-mode-map (kbd "C-c h x") #'hemis-explain-region)
+    (define-key hemis-notes-mode-map (kbd "C-c h X") #'hemis-explain-region-ai)
+    (define-key hemis-notes-mode-map (kbd "C-c h R") #'hemis-reattach-note)
     (define-key hemis-notes-mode-map (kbd "C-c h S") #'hemis-status)
     (define-key hemis-notes-mode-map (kbd "C-c h ?") #'hemis-help)))
 
@@ -1490,11 +1520,15 @@ Otherwise, prompt for a note ID."
   C-c h r    Refresh notes (reload from backend)
   C-c h l    List notes for current file
   C-c h e    Edit note at point
+  C-c h E    Edit note in buffer (for longer notes)
   C-c h d    Delete note at point
+  C-c h R    Reattach stale note to current position
   C-c h b    Show backlinks to note
   C-c h p    Index entire project
   C-c h s    Search project (files and notes)
   C-c h k    Insert a link to another note
+  C-c h x    Explain selected region
+  C-c h X    Explain region with AI
   C-c h S    Show status (note/file counts)
   C-c h ?    Show this help
 
