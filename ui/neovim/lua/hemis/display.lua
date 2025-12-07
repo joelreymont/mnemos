@@ -20,17 +20,20 @@ end
 setup_highlights()
 
 -- Format note text as virtual lines for display
--- Server provides formattedLines when content is sent
+-- Server always provides formattedLines and icon_hint
 local function format_note_lines(note)
   local lines = {}
 
-  -- Use icon_hint from backend if available, fallback to stale field
-  local icon_hint = note.icon_hint or note.iconHint
-  local is_stale = icon_hint == "stale" or note.stale
+  -- Backend guarantees icon_hint is always present
+  local is_stale = (note.icon_hint or note.iconHint) == "stale"
   local hl = is_stale and "HemisNoteStale" or "HemisNote"
 
-  -- Server provides formattedLines; fallback to raw text if missing
-  local formatted = note.formattedLines or note.formatted_lines or { "// " .. (note.text or ""):sub(1, 50) }
+  -- Backend provides formattedLines (may be empty if language unknown)
+  local formatted = note.formattedLines or note.formatted_lines or {}
+  if #formatted == 0 then
+    -- Only fallback if server returned empty array (no language detection)
+    formatted = { "// " .. (note.text or ""):sub(1, 50) }
+  end
   for _, formatted_line in ipairs(formatted) do
     table.insert(lines, { { formatted_line, hl } })
   end
@@ -73,12 +76,8 @@ function M.render_note(bufnr, note, display_line, is_stale)
 
   if style == "minimal" then
     -- Single line indicator at end of line
-    -- Use display_marker from backend if available
+    -- Backend guarantees display_marker is always present
     local marker = note.display_marker or note.displayMarker
-    if not marker then
-      local short_id = note.shortId or (note.id or ""):sub(1, 8)
-      marker = "[n:" .. short_id .. "]"
-    end
     local hl = note_with_stale.stale and "HemisNoteStale" or "HemisNoteMarker"
     return vim.api.nvim_buf_set_extmark(bufnr, M.ns_id, line, 0, {
       virt_text = { { marker, hl } },
@@ -179,12 +178,10 @@ function M.get_note_at_cursor_with_picker(notes, bufnr, callback)
   end
 
   -- Multiple notes - show picker
+  -- Backend guarantees display_label is always present
   local items = {}
   for _, note in ipairs(notes_at_cursor) do
-    local short_id = note.shortId or (note.id or ""):sub(1, 8)
-    local summary = note.summary or (note.text or ""):sub(1, 40)
-    local stale = note.stale and " [STALE]" or ""
-    table.insert(items, string.format("[%s] %s%s", short_id, summary, stale))
+    table.insert(items, note.display_label or note.displayLabel)
   end
 
   vim.ui.select(items, { prompt = "Multiple notes on this line:" }, function(_, idx)

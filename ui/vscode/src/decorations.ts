@@ -22,18 +22,12 @@ const staleNoteDecorationType = vscode.window.createTextEditorDecorationType({
 export const editorDecorations: Map<string, vscode.DecorationOptions[]> = new Map();
 
 // Format note text for display
-// Server provides formattedLines when content is sent
+// Backend guarantees displayMarker and formattedLines are always present
 export function formatNoteText(note: Note, style: 'full' | 'minimal'): string {
   if (style === 'minimal') {
-    // Use backend displayMarker if available
-    return note.displayMarker || `[n:${note.shortId}]`;
+    return note.displayMarker;
   }
-
-  // Server provides formattedLines; fallback to raw text if missing
-  if (note.formattedLines && note.formattedLines.length > 0) {
-    return note.formattedLines.join('\n');
-  }
-  return `// ${note.text}`;
+  return note.formattedLines.join('\n');
 }
 
 export function renderNotes(editor: vscode.TextEditor, notes: Note[]): void {
@@ -64,10 +58,8 @@ export function renderNotes(editor: vscode.TextEditor, notes: Note[]): void {
           textDecoration: 'none; display: block; margin-bottom: 2px;',
         },
       },
-      // Use backend hoverText if available, otherwise build locally
-      hoverMessage: new vscode.MarkdownString(
-        note.hoverText || `**Note** (${note.shortId})${isStale ? ' [STALE]' : ''}\n\n${note.text}`
-      ),
+      // Backend guarantees hoverText is always present
+      hoverMessage: new vscode.MarkdownString(note.hoverText),
     };
 
     if (isStale) {

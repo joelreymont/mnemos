@@ -615,12 +615,10 @@ Server computes anchor position, nodePath, and nodeTextHash from content."
 
 (defun hemis--format-note-texts (texts pos &optional formatted-lines)
   "Format TEXTS as comment lines above POS using server-provided FORMATTED-LINES.
-Server provides formattedLines when content is sent; falls back to raw text."
+Backend guarantees formattedLines is always present."
   (let ((indent (hemis--line-indentation pos)))
-    (if formatted-lines
-        (concat (mapconcat #'identity formatted-lines "\n") "\n" indent)
-      ;; Fallback to raw text if formattedLines missing
-      (concat "// " (car texts) "\n" indent))))
+    ;; Backend always provides formattedLines
+    (concat (mapconcat #'identity (or formatted-lines texts) "\n") "\n" indent)))
 
 
 ;;; Notes list mode (defined early so hemis-list-notes can use it)
@@ -743,7 +741,7 @@ RET inserts a newline; use C-c C-c to finish or C-c C-k to cancel."
   "Create an overlay in the current buffer from NOTE.
 NOTE is an alist or plist parsed from JSON, keys like :id, :line, :column, :summary.
 When server provides displayLine, use that instead of stored line.
-When server provides formattedLines, use that for display instead of local formatting."
+Server guarantees formattedLines is always present."
   (let* ((id     (hemis--note-get note 'id))
          ;; Prefer server-computed displayLine when available
          (line   (or (hemis--note-get note 'displayLine)
@@ -1209,7 +1207,8 @@ Shows picker if multiple notes at same position."
          (text (and note (hemis--note-text note))))
     (unless id
       (user-error "No note at point"))
-    (let* ((short-id (or (hemis--note-get note 'shortId) (substring id 0 8)))
+    ;; Backend guarantees shortId is always present
+    (let* ((short-id (hemis--note-get note 'shortId))
            (buf (get-buffer-create (format "*Hemis Edit: %s*" short-id))))
       (pop-to-buffer buf)
       (erase-buffer)
@@ -1275,9 +1274,8 @@ show picker for those. Otherwise show picker for all notes in file."
   (let* ((note-at-point (hemis--note-at-point-with-picker)))
     (if note-at-point
         ;; Selected note at cursor (possibly via picker)
-        (let* ((id (hemis--note-get note-at-point 'id))
-               (short-id (or (hemis--note-get note-at-point 'shortId)
-                             (if (> (length id) 8) (substring id 0 8) id)))
+        ;; Backend guarantees shortId is always present
+        (let* ((short-id (hemis--note-get note-at-point 'shortId))
                (summary (or (hemis--note-text note-at-point) "")))
           (hemis-set-selected-note note-at-point)
           (message "Selected note: %s - %s" short-id (truncate-string-to-width summary 40)))
@@ -1289,9 +1287,7 @@ show picker for those. Otherwise show picker for all notes in file."
         (if (null notes)
             (message "No notes in this file")
           (let* ((choices (mapcar (lambda (note)
-                                    (let* ((id (hemis--note-get note 'id))
-                                           (short-id (or (hemis--note-get note 'shortId)
-                                                         (if (> (length id) 8) (substring id 0 8) id)))
+                                    (let* ((short-id (hemis--note-get note 'shortId))
                                            (line (or (hemis--note-get note 'line) 0))
                                            (summary (or (hemis--note-text note) "")))
                                       (cons (format "[%s] L%d: %s" short-id line
@@ -1301,9 +1297,7 @@ show picker for those. Otherwise show picker for all notes in file."
                  (chosen (cdr (assoc (completing-read "Select note: " choices nil t)
                                      choices))))
             (when chosen
-              (let* ((id (hemis--note-get chosen 'id))
-                     (short-id (or (hemis--note-get chosen 'shortId)
-                                   (if (> (length id) 8) (substring id 0 8) id))))
+              (let* ((short-id (hemis--note-get chosen 'shortId)))
                 (hemis-set-selected-note chosen)
                 (message "Selected note: %s" short-id)))))))))
 
@@ -1352,9 +1346,7 @@ Returns nil if no note or user cancelled."
      (t
       ;; Multiple notes - show picker
       (let* ((choices (mapcar (lambda (note)
-                                (let* ((id (hemis--note-get note 'id))
-                                       (short-id (or (hemis--note-get note 'shortId)
-                                                     (if (> (length id) 8) (substring id 0 8) id)))
+                                (let* ((short-id (hemis--note-get note 'shortId))
                                        (summary (or (hemis--note-text note) "")))
                                   (cons (format "[%s] %s" short-id
                                                 (truncate-string-to-width summary 40))
@@ -1397,14 +1389,13 @@ Returns nil if no note or user cancelled."
                         (cdr (assoc 'file params))))
         (cl-loop for note in notes
                  for idx from 0 do
-                 (let* ((id   (hemis--note-get note 'id))
-                        (file (hemis--note-get note 'file))
+                 ;; Backend guarantees shortId is always present
+                 (let* ((file (hemis--note-get note 'file))
                         (line (or (hemis--note-get note 'line) 0))
                         (col  (or (hemis--note-get note 'column) 0))
                         (txt  (or (hemis--note-text note) ""))
                         (start (point))
-                        (short-id (or (hemis--note-get note 'shortId)
-                                      (if (> (length id) 8) (substring id 0 8) id)))
+                        (short-id (hemis--note-get note 'shortId))
                         (short-file (file-name-nondirectory (or file ""))))
                    ;; Header line with faces
                    (insert (propertize (format "%3d " idx)
@@ -1506,14 +1497,13 @@ Shows picker if multiple notes at same position."
             (insert "No backlinks found.\n")
           (cl-loop for note in backlinks
                    for idx from 0 do
-                   (let* ((nid   (hemis--note-get note 'id))
-                          (file (hemis--note-get note 'file))
+                   ;; Backend guarantees shortId is always present
+                   (let* ((file (hemis--note-get note 'file))
                           (line (or (hemis--note-get note 'line) 0))
                           (col  (or (hemis--note-get note 'column) 0))
                           (txt  (or (hemis--note-text note) ""))
                           (start (point))
-                          (short-id (or (hemis--note-get note 'shortId)
-                                        (if (> (length nid) 8) (substring nid 0 8) nid)))
+                          (short-id (hemis--note-get note 'shortId))
                           (short-file (file-name-nondirectory (or file ""))))
                      (insert (propertize (format "%3d " idx)
                                          'face 'hemis-note-list-index-face))

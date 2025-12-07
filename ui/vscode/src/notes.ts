@@ -13,15 +13,15 @@ export interface Note {
   commit?: string;
   blob?: string;
   stale?: boolean; // Server computes when content is provided
-  formattedLines?: string[]; // Server-computed formatted lines with comment prefix
+  formattedLines: string[]; // Server-computed formatted lines with comment prefix (guaranteed)
   displayLine?: number; // Server-computed display line (may differ from stored line)
   createdAt: string;
   updatedAt: string;
   formattedCreatedAt?: string; // Server-computed human-readable timestamp
   formattedUpdatedAt?: string; // Server-computed human-readable timestamp
-  hoverText?: string; // Server-computed ready-to-display hover content (markdown)
-  displayMarker?: string; // Server-computed minimal marker like "[n:abc123]"
-  iconHint?: 'fresh' | 'stale'; // Server-computed icon hint for color selection
+  hoverText: string; // Server-computed ready-to-display hover content (markdown, guaranteed)
+  displayMarker: string; // Server-computed minimal marker like "[n:abc123]" (guaranteed)
+  iconHint: 'fresh' | 'stale'; // Server-computed icon hint for color selection (guaranteed)
 }
 
 export interface CreateNoteParams {
@@ -99,8 +99,8 @@ export interface SearchHit {
   snippet?: string;
   noteId?: string;
   noteSummary?: string;
-  displayLabel?: string; // Server-computed label (e.g., "[Note] Summary")
-  displayDetail?: string; // Server-computed detail (e.g., "path/file.rs:42")
+  displayLabel: string; // Server-computed label (e.g., "[Note] Summary", guaranteed)
+  displayDetail: string; // Server-computed detail (e.g., "path/file.rs:42", guaranteed)
 }
 
 export async function search(query: string, projectRoot?: string, includeNotes = true): Promise<SearchHit[]> {
@@ -304,8 +304,9 @@ export async function getNoteAtCursorWithPicker(
   }
 
   // Multiple notes on the same line - show picker
+  // Backend guarantees displayMarker is always present
   const items = notesAtLine.map(note => ({
-    label: note.displayMarker || `[${note.shortId}]`,
+    label: note.displayMarker,
     description: note.summary,
     detail: note.stale ? '[STALE]' : undefined,
     note,

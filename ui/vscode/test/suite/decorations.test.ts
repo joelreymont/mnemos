@@ -21,6 +21,10 @@ suite('Hemis Decorations', () => {
       nodePath: [],
       createdAt: '2024-01-01',
       updatedAt: '2024-01-01',
+      formattedLines: ['// Test note text'],
+      hoverText: '**Note** (abcd1234)\n\nTest note text',
+      displayMarker: '[n:abcd1234]',
+      iconHint: 'fresh',
     };
 
     test('minimal style shows [n:xxxx] format', () => {
@@ -28,28 +32,28 @@ suite('Hemis Decorations', () => {
       assert.strictEqual(result, '[n:abcd1234]');
     });
 
-    test('uses server-provided formattedLines when available', () => {
-      const noteWithFormatted: Note = {
+    test('uses server-provided formattedLines for multi-line', () => {
+      const noteWithMultiLine: Note = {
         ...baseNote,
         formattedLines: ['// Server formatted line 1', '// Server formatted line 2'],
       };
-      const result = formatNoteText(noteWithFormatted, 'full');
+      const result = formatNoteText(noteWithMultiLine, 'full');
       assert.strictEqual(result, '// Server formatted line 1\n// Server formatted line 2');
     });
 
-    test('fallback uses raw text with // prefix when no formattedLines', () => {
+    test('full style uses formattedLines', () => {
       const result = formatNoteText(baseNote, 'full');
       assert.strictEqual(result, '// Test note text');
     });
 
-    test('stale note fallback uses same format as fresh (color indicates staleness)', () => {
-      // Staleness is indicated by rendering color, not text markers
+    test('stale note uses formattedLines (color indicates staleness)', () => {
+      // Staleness is indicated by rendering color, not text content
       const staleNote: Note = { ...baseNote, stale: true };
       const result = formatNoteText(staleNote, 'full');
       assert.strictEqual(result, '// Test note text');
     });
 
-    test('fresh note fallback uses raw text', () => {
+    test('fresh note uses formattedLines', () => {
       const freshNote: Note = { ...baseNote, stale: false };
       const result = formatNoteText(freshNote, 'full');
       assert.strictEqual(result, '// Test note text');

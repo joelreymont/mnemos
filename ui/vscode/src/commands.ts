@@ -44,11 +44,11 @@ function updateStatusBar(): void {
     statusBarItem.command = 'hemis.clearSelection';
   }
   if (selectedNote) {
-    const shortId = selectedNote.shortId || selectedNote.id.substring(0, 8);
+    // Backend guarantees shortId is always present
     const summary = selectedNote.summary.length > 30
       ? selectedNote.summary.substring(0, 30) + '...'
       : selectedNote.summary;
-    statusBarItem.text = `$(bookmark) ${shortId}: ${summary}`;
+    statusBarItem.text = `$(bookmark) ${selectedNote.shortId}: ${summary}`;
     statusBarItem.tooltip = `Selected note: ${selectedNote.summary}\nClick to clear selection`;
     statusBarItem.show();
   } else {
@@ -306,7 +306,7 @@ export async function listNotesCommand(): Promise<void> {
 
     const items = notes.map((note) => ({
       label: `L${note.line}: ${note.summary}`,
-      description: note.displayMarker || (note.stale ? '[STALE]' : ''),
+      description: note.displayMarker,
       detail: `ID: ${note.shortId}`,
       note,
     }));
@@ -374,11 +374,10 @@ export async function searchCommand(): Promise<void> {
     }
 
     const items = hits.map((hit: SearchHit) => ({
-      // Use backend displayLabel if available, otherwise build locally
-      label: hit.displayLabel || (hit.kind === 'note' ? `[Note] ${hit.noteSummary || ''}` : `[File] ${path.basename(hit.file)}`),
+      // Backend guarantees displayLabel and displayDetail
+      label: hit.displayLabel,
       description: `Score: ${hit.score.toFixed(2)}`,
-      // Use backend displayDetail if available, otherwise build locally
-      detail: hit.displayDetail || (hit.line ? `${hit.file}:${hit.line}` : hit.file),
+      detail: hit.displayDetail,
       hit,
     }));
 
@@ -813,9 +812,9 @@ export async function selectNoteCommand(): Promise<void> {
       return;
     }
 
-    // Show quick pick
+    // Show quick pick - backend guarantees displayMarker
     const items = notes.map(n => ({
-      label: n.displayMarker || `[${n.shortId}]`,
+      label: n.displayMarker,
       description: n.summary,
       detail: `Line ${n.displayLine ?? n.line}${n.stale ? ' [STALE]' : ''}`,
       note: n

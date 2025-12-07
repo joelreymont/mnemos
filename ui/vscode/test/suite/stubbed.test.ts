@@ -18,6 +18,10 @@ function createMockNote(overrides: Partial<Note> = {}): Note {
     nodePath: ['source_file', 'function_item', 'block'],
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
+    formattedLines: ['// Test note content'],
+    hoverText: '**Note** (test1234)\n\nTest note content',
+    displayMarker: '[n:test1234]',
+    iconHint: 'fresh',
     ...overrides,
   };
 }
@@ -32,15 +36,15 @@ suite('Stubbed Tests - No Backend Required', () => {
       assert.strictEqual(result, '[n:test1234]');
     });
 
-    test('fallback to shortId when displayMarker missing', () => {
+    test('displayMarker with custom text shown in minimal style', () => {
       const note = createMockNote({
-        displayMarker: undefined,
+        displayMarker: '[n:custom]',
       });
       const result = formatNoteText(note, 'minimal');
-      assert.strictEqual(result, '[n:test1234]');
+      assert.strictEqual(result, '[n:custom]');
     });
 
-    test('formattedLines used when available', () => {
+    test('formattedLines used in full style', () => {
       const note = createMockNote({
         formattedLines: ['// Line 1', '// Line 2', '// Line 3'],
       });

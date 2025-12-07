@@ -49,21 +49,16 @@ pub struct Note {
     /// Human-readable formatted updated_at timestamp (YYYY-MM-DD HH:MM:SS)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub formatted_updated_at: Option<String>,
-    /// Minimal display marker like "[n:abc123]"
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub display_marker: Option<String>,
-    /// Ready-to-display hover text (markdown)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hover_text: Option<String>,
-    /// Icon hint for UI: "fresh", "stale"
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon_hint: Option<String>,
-    /// Ready-to-show label for QuickPick/lists (e.g., "[Note] Summary text")
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub display_label: Option<String>,
-    /// Path/line info for display (e.g., "path/file.rs:42")
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub display_detail: Option<String>,
+    /// Minimal display marker like "[n:abc123]" - always present
+    pub display_marker: String,
+    /// Ready-to-display hover text (markdown) - always present
+    pub hover_text: String,
+    /// Icon hint for UI: "fresh", "stale" - always present
+    pub icon_hint: String,
+    /// Ready-to-show label for QuickPick/lists (e.g., "[Note] Summary text") - always present
+    pub display_label: String,
+    /// Path/line info for display (e.g., "path/file.rs:42") - always present
+    pub display_detail: String,
 }
 
 pub struct NoteFilters<'a> {
@@ -217,11 +212,11 @@ pub fn create(
         updated_at: ts,
         formatted_created_at: Some(formatted_ts.clone()),
         formatted_updated_at: Some(formatted_ts),
-        display_marker: Some(df.display_marker),
-        hover_text: Some(df.hover_text),
-        icon_hint: Some(df.icon_hint),
-        display_label: Some(df.display_label),
-        display_detail: Some(df.display_detail),
+        display_marker: df.display_marker,
+        hover_text: df.hover_text,
+        icon_hint: df.icon_hint,
+        display_label: df.display_label,
+        display_detail: df.display_detail,
     })
 }
 
@@ -261,11 +256,11 @@ fn map_note(row: &rusqlite::Row<'_>, stale: bool) -> Result<Note> {
         updated_at,
         formatted_created_at: Some(format_timestamp(created_at)),
         formatted_updated_at: Some(format_timestamp(updated_at)),
-        display_marker: Some(df.display_marker),
-        hover_text: Some(df.hover_text),
-        icon_hint: Some(df.icon_hint),
-        display_label: Some(df.display_label),
-        display_detail: Some(df.display_detail),
+        display_marker: df.display_marker,
+        hover_text: df.hover_text,
+        icon_hint: df.icon_hint,
+        display_label: df.display_label,
+        display_detail: df.display_detail,
     })
 }
 
@@ -422,8 +417,8 @@ pub fn update(
     note.formatted_updated_at = Some(format_timestamp(now));
     // Recompute display fields after text/summary change
     let df = compute_display_fields(&note.short_id, &summary, &new_text, &note.file, note.line, note.stale);
-    note.hover_text = Some(df.hover_text);
-    note.display_label = Some(df.display_label);
+    note.hover_text = df.hover_text;
+    note.display_label = df.display_label;
     Ok(note)
 }
 
@@ -558,9 +553,9 @@ pub fn reattach(
     note.formatted_updated_at = Some(format_timestamp(now));
     // Recompute display fields (no longer stale after reattach)
     let df = compute_display_fields(&note.short_id, &note.summary, &note.text, &note.file, note.line, false);
-    note.hover_text = Some(df.hover_text);
-    note.icon_hint = Some(df.icon_hint);
-    note.display_detail = Some(df.display_detail);
+    note.hover_text = df.hover_text;
+    note.icon_hint = df.icon_hint;
+    note.display_detail = df.display_detail;
     Ok(note)
 }
 
