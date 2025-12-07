@@ -26,7 +26,8 @@ expression: responses
         "notes": 0
       },
       "ok": true,
-      "projectRoot": "/tmp"
+      "projectRoot": "/tmp",
+      "statusDisplay": "0 notes, 1 files, 0 edges"
     }
   }
 ]

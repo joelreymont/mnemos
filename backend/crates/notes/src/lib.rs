@@ -49,6 +49,15 @@ pub struct Note {
     /// Human-readable formatted updated_at timestamp (YYYY-MM-DD HH:MM:SS)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub formatted_updated_at: Option<String>,
+    /// Minimal display marker like "[n:abc123]"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_marker: Option<String>,
+    /// Ready-to-display hover text (markdown)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hover_text: Option<String>,
+    /// Icon hint for UI: "fresh", "stale"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_hint: Option<String>,
 }
 
 pub struct NoteFilters<'a> {
@@ -158,8 +167,11 @@ pub fn create(
          &[&id, &file, &project_root, &line, &column, &node_path_str, &tags_str, &text, &summary, &commit, &blob, &node_text_hash, &ts, &ts])?;
     // Parse and store links to other notes
     update_edges(conn, &id, project_root, text)?;
-    let short_id = id.chars().take(8).collect();
+    let short_id: String = id.chars().take(8).collect();
     let formatted_ts = format_timestamp(ts);
+    // Compute display fields (not stale on creation)
+    let display_marker = format!("[n:{}]", &short_id);
+    let hover_text = format!("**Note** ({})\n\n{}", &short_id, text);
     Ok(Note {
         id,
         short_id,
@@ -180,6 +192,9 @@ pub fn create(
         updated_at: ts,
         formatted_created_at: Some(formatted_ts.clone()),
         formatted_updated_at: Some(formatted_ts),
+        display_marker: Some(display_marker),
+        hover_text: Some(hover_text),
+        icon_hint: Some("fresh".to_string()),
     })
 }
 
@@ -187,9 +202,18 @@ fn map_note(row: &rusqlite::Row<'_>, stale: bool) -> Result<Note> {
     let node_path: Option<String> = row.get("node_path").ok();
     let tags: Option<String> = row.get("tags").ok();
     let id: String = row.get("id")?;
-    let short_id = id.chars().take(8).collect();
+    let short_id: String = id.chars().take(8).collect();
     let created_at: i64 = row.get("created_at")?;
     let updated_at: i64 = row.get("updated_at")?;
+    let text: String = row.get("text")?;
+    let summary: String = row.get("summary")?;
+
+    // Compute display fields
+    let display_marker = format!("[n:{}]", &short_id);
+    let stale_marker = if stale { " [STALE]" } else { "" };
+    let hover_text = format!("**Note** ({}){}\n\n{}", &short_id, stale_marker, &text);
+    let icon_hint = if stale { "stale" } else { "fresh" };
+
     Ok(Note {
         id,
         short_id,
@@ -201,8 +225,8 @@ fn map_note(row: &rusqlite::Row<'_>, stale: bool) -> Result<Note> {
         tags: tags
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_else(|| serde_json::Value::Array(vec![])),
-        text: row.get("text")?,
-        summary: row.get("summary")?,
+        text,
+        summary,
         commit_sha: row.get("commit_sha").ok(),
         blob_sha: row.get("blob_sha").ok(),
         node_text_hash: row.get("node_text_hash").ok(),
@@ -212,6 +236,9 @@ fn map_note(row: &rusqlite::Row<'_>, stale: bool) -> Result<Note> {
         updated_at,
         formatted_created_at: Some(format_timestamp(created_at)),
         formatted_updated_at: Some(format_timestamp(updated_at)),
+        display_marker: Some(display_marker),
+        hover_text: Some(hover_text),
+        icon_hint: Some(icon_hint.to_string()),
     })
 }
 
@@ -361,11 +388,14 @@ pub fn update(
     )?;
     // Parse and store links to other notes
     update_edges(conn, id, &note.project_root, &new_text)?;
-    note.text = new_text;
+    note.text = new_text.clone();
     note.tags = new_tags;
     note.summary = summary;
     note.updated_at = now;
     note.formatted_updated_at = Some(format_timestamp(now));
+    // Update display fields
+    let stale_marker = if note.stale { " [STALE]" } else { "" };
+    note.hover_text = Some(format!("**Note** ({}){}\n\n{}", &note.short_id, stale_marker, &new_text));
     Ok(note)
 }
 
@@ -498,6 +528,9 @@ pub fn reattach(
     note.stale = false;
     note.updated_at = now;
     note.formatted_updated_at = Some(format_timestamp(now));
+    // Update display fields (no longer stale after reattach)
+    note.hover_text = Some(format!("**Note** ({})\n\n{}", &note.short_id, &note.text));
+    note.icon_hint = Some("fresh".to_string());
     Ok(note)
 }
 

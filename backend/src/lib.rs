@@ -603,19 +603,27 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
         "hemis/status" => {
             let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
             match storage::counts(db, proj) {
-                Ok(c) => Response::result(
-                    id,
-                    json!({
-                        "ok": true,
-                        "projectRoot": proj,
-                        "counts": {
-                            "notes": c.notes,
-                            "files": c.files,
-                            "embeddings": c.embeddings,
-                            "edges": c.edges
-                        }
-                    }),
-                ),
+                Ok(c) => {
+                    // Build a human-readable status display
+                    let status_display = format!(
+                        "{} notes, {} files, {} edges",
+                        c.notes, c.files, c.edges
+                    );
+                    Response::result(
+                        id,
+                        json!({
+                            "ok": true,
+                            "projectRoot": proj,
+                            "counts": {
+                                "notes": c.notes,
+                                "files": c.files,
+                                "embeddings": c.embeddings,
+                                "edges": c.edges
+                            },
+                            "statusDisplay": status_display
+                        }),
+                    )
+                }
                 Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
             }
         }

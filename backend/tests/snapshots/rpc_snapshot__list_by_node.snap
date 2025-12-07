@@ -9,9 +9,12 @@ expression: responses
     "result": {
       "column": 1,
       "createdAt": "<ts>",
+      "displayMarker": "<displayMarker>",
       "file": "/tmp/test.rs",
       "formattedCreatedAt": "<formatted_ts>",
       "formattedUpdatedAt": "<formatted_ts>",
+      "hoverText": "<hoverText>",
+      "iconHint": "fresh",
       "id": "<id>",
       "line": 5,
       "nodePath": [
@@ -34,9 +37,12 @@ expression: responses
       {
         "column": 1,
         "createdAt": "<ts>",
+        "displayMarker": "<displayMarker>",
         "file": "/tmp/test.rs",
         "formattedCreatedAt": "<formatted_ts>",
         "formattedUpdatedAt": "<formatted_ts>",
+        "hoverText": "<hoverText>",
+        "iconHint": "fresh",
         "id": "<id>",
         "line": 5,
         "nodePath": [

@@ -32,6 +32,13 @@ fn scrub_obj(obj: &mut serde_json::Map<String, Value>) {
     if obj.contains_key("formattedUpdatedAt") {
         obj.insert("formattedUpdatedAt".into(), json!("<formatted_ts>"));
     }
+    // Scrub display fields that contain shortId
+    if obj.contains_key("displayMarker") {
+        obj.insert("displayMarker".into(), json!("<displayMarker>"));
+    }
+    if obj.contains_key("hoverText") {
+        obj.insert("hoverText".into(), json!("<hoverText>"));
+    }
     // Scrub UUIDs from text and summary fields
     for key in ["text", "summary"] {
         if let Some(Value::String(s)) = obj.get(key) {
