@@ -203,6 +203,31 @@ fn handle_request(
                 };
                 return Response::result_from(req.id, info);
             }
+            "hemis/ready" => {
+                // Health check endpoint - verify all subsystems are ready
+                let mut ready = true;
+                let mut reason: Option<String> = None;
+
+                // Check database is accessible
+                if let Err(e) = preload::sanity_check(conn) {
+                    ready = false;
+                    reason = Some(format!("database not ready: {}", e));
+                }
+
+                // Check parser service is available
+                if ready {
+                    if parser_service.try_lock().is_err() {
+                        ready = false;
+                        reason = Some("parser service busy".to_string());
+                    }
+                }
+
+                return Response::result(req.id, json!({
+                    "ready": ready,
+                    "reason": reason,
+                    "uptime_secs": start_time.elapsed().as_secs(),
+                }));
+            }
             "shutdown" => {
                 // Schedule shutdown after response is sent
                 std::thread::spawn(|| {

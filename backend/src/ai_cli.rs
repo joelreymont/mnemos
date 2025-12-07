@@ -11,7 +11,7 @@
 //! simpler behaviour (e.g. returning the raw snippet).
 
 use anyhow::{anyhow, Context, Result};
-use log::{debug, warn};
+use log::debug;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
