@@ -133,4 +133,51 @@ function M.get_note_at_cursor(notes, bufnr)
   return nil
 end
 
+-- Note cache for incremental updates: bufnr -> (id -> note)
+M.note_cache = {}
+
+-- Cache notes for a buffer (called during refresh)
+function M.cache_notes(bufnr, notes)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local cache = {}
+  for _, note in ipairs(notes or {}) do
+    cache[note.id] = note
+  end
+  M.note_cache[bufnr] = cache
+end
+
+-- Clear cache for a buffer
+function M.clear_cache(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  M.note_cache[bufnr] = nil
+end
+
+-- Update a single note's position (called from event handler)
+function M.update_note_position(bufnr, note_id, new_line, stale)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+
+  local cache = M.note_cache[bufnr]
+  if not cache then
+    -- No cache, skip (will be populated on next refresh)
+    return
+  end
+
+  local note = cache[note_id]
+  if not note then
+    -- Note not in cache, skip
+    return
+  end
+
+  -- Update note in cache
+  note.line = new_line
+  note.stale = stale
+
+  -- Re-render all notes for this buffer
+  local notes = {}
+  for _, n in pairs(cache) do
+    table.insert(notes, n)
+  end
+  M.render_notes(bufnr, notes)
+end
+
 return M

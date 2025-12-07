@@ -10,6 +10,7 @@ M.display = require("hemis.display")
 -- NOTE: treesitter module removed - server now handles anchor position, nodePath, and nodeTextHash
 M.commands = require("hemis.commands")
 M.config = require("hemis.config")
+M.events = require("hemis.events")
 
 -- Setup function (called by lazy.nvim)
 function M.setup(opts)
@@ -24,6 +25,36 @@ function M.setup(opts)
 
   -- Setup autocommands
   M.commands.setup_autocommands()
+
+  -- Start event client for push notifications
+  M.events.start()
+
+  -- Register event handlers
+  M.events.on("note-position-changed", function(event)
+    -- Update display for the affected file
+    local bufnr = vim.fn.bufnr(event.file)
+    if bufnr ~= -1 and vim.api.nvim_buf_is_loaded(bufnr) then
+      M.display.update_note_position(bufnr, event.id, event.new_line, event.stale)
+    end
+  end)
+
+  M.events.on("note-created", function(event)
+    -- Refresh display for the file where note was created
+    local bufnr = vim.fn.bufnr(event.file)
+    if bufnr ~= -1 and vim.api.nvim_buf_is_loaded(bufnr) then
+      M.commands.refresh()
+    end
+  end)
+
+  M.events.on("note-deleted", function(_event)
+    -- Full refresh since we don't know which buffer
+    M.commands.refresh()
+  end)
+
+  M.events.on("note-updated", function(_event)
+    -- Full refresh since we don't know which buffer
+    M.commands.refresh()
+  end)
 end
 
 -- Convenience exports
@@ -42,6 +73,11 @@ M.shutdown = M.commands.shutdown
 
 -- Start backend (usually auto-started on first request)
 M.start = M.rpc.start
-M.stop = M.rpc.stop
+
+-- Stop everything
+function M.stop()
+  M.events.stop()
+  M.rpc.stop()
+end
 
 return M

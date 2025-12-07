@@ -19,6 +19,7 @@ function M.refresh()
 
     M.buffer_notes = result or {}
     display.render_notes(nil, M.buffer_notes)
+    display.cache_notes(nil, M.buffer_notes)
   end)
 end
 
@@ -903,6 +904,7 @@ local function send_buffer_update()
       M.buffer_notes = result
       -- Re-render with server-computed positions
       display.render_notes(nil, M.buffer_notes)
+      display.cache_notes(nil, M.buffer_notes)
     end
   end)
 end
