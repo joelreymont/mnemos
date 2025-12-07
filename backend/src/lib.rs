@@ -50,6 +50,7 @@ pub mod ai_cli;
 pub mod config;
 pub mod display;
 pub mod events;
+pub mod jobs;
 pub mod preload;
 pub mod server;
 pub mod snapshot;

@@ -106,6 +106,9 @@ fn run_stdio_mode(config: &ResolvedConfig) -> Result<()> {
     let conn = connect(&config.db_path)?;
     backend::preload::sanity_check(&conn)?;
 
+    // Initialize job queue for async index-project (sync=false)
+    backend::jobs::init_job_queue(config.db_path.clone());
+
     let mut parser = create_parser_service();
     let mut stdin = io::stdin().lock();
     let mut stdout = io::stdout().lock();

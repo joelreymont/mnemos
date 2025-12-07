@@ -1726,8 +1726,9 @@ fn buffer_update_recomputes_positions() -> anyhow::Result<()> {
 }
 
 /// Test dynamic grammar loading: fetch, build, and use a grammar.
-/// Skips gracefully if tree-sitter CLI is not installed.
+/// Requires tree-sitter CLI and headers - run manually with --ignored.
 #[test]
+#[ignore = "requires tree-sitter headers installed"]
 fn dynamic_grammar_fetch_build_and_use() -> anyhow::Result<()> {
     // Skip if tree-sitter CLI is not available
     let ts_check = Command::new("tree-sitter").arg("--version").output();
@@ -1741,44 +1742,63 @@ fn dynamic_grammar_fetch_build_and_use() -> anyhow::Result<()> {
     let db = NamedTempFile::new()?;
     let project_dir = tempfile::tempdir()?;
 
-    // Create languages.toml with JSON grammar source
-    let languages_toml = r#"
+    // Create languages.toml with test_json grammar (local, no network dependency)
+    // The source.local path points to the fixtures directory, but we also copy files
+    // to the sources directory manually for the hermetic test
+    let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("test_grammar");
+    let fixture_path_str = fixture_path.to_string_lossy();
+    let languages_toml = format!(r#"
 [[grammar]]
-name = "json"
-source = { git = "https://github.com/tree-sitter/tree-sitter-json" }
+name = "test_json"
+source = {{ local = "{}" }}
 
 [[language]]
-name = "json"
+name = "test_json"
 file-types = ["json"]
 skip-nodes = ["string", "number", "true", "false", "null"]
 container-nodes = ["document", "object", "array"]
-"#;
+"#, fixture_path_str);
     fs::write(config_dir.path().join("languages.toml"), languages_toml)?;
 
     let config_path = config_dir.path().to_string_lossy().to_string();
 
-    // Fetch the JSON grammar
-    let fetch_output = cargo_bin_cmd!("hemis")
-        .env("HEMIS_CONFIG_DIR", &config_path)
-        .args(["grammar", "fetch", "json"])
-        .output()?;
+    // HERMETIC: Copy test grammar fixtures directly to sources directory
+    // This eliminates network dependency on github.com
+    let fixture_grammar_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("test_grammar");
 
-    if !fetch_output.status.success() {
-        eprintln!(
-            "grammar fetch failed: {}",
-            String::from_utf8_lossy(&fetch_output.stderr)
-        );
-        anyhow::bail!("grammar fetch failed");
-    }
+    let sources_dir = config_dir
+        .path()
+        .join("grammars")
+        .join("sources")
+        .join("test_json");
+    fs::create_dir_all(&sources_dir)?;
+
+    // Copy grammar files
+    fs::copy(
+        fixture_grammar_path.join("grammar.js"),
+        sources_dir.join("grammar.js"),
+    )?;
+
+    let src_dir = sources_dir.join("src");
+    fs::create_dir_all(&src_dir)?;
+    fs::copy(
+        fixture_grammar_path.join("src").join("parser.c"),
+        src_dir.join("parser.c"),
+    )?;
 
     // Verify sources directory was created
-    let sources_dir = config_dir.path().join("grammars").join("sources").join("json");
-    assert!(sources_dir.exists(), "Grammar source should be fetched");
+    assert!(sources_dir.exists(), "Grammar source should exist");
 
-    // Build the JSON grammar
+    // Build the test_json grammar
     let build_output = cargo_bin_cmd!("hemis")
         .env("HEMIS_CONFIG_DIR", &config_path)
-        .args(["grammar", "build", "json"])
+        .args(["grammar", "build", "test_json"])
         .output()?;
 
     eprintln!(
@@ -1797,11 +1817,11 @@ container-nodes = ["document", "object", "array"]
     // Verify grammar was built (either .so or .dylib depending on platform)
     // tree-sitter CLI outputs as libtree-sitter-<name>.<ext>
     let grammars_dir = config_dir.path().join("grammars");
-    let so_path = grammars_dir.join("libtree-sitter-json.so");
-    let dylib_path = grammars_dir.join("libtree-sitter-json.dylib");
+    let so_path = grammars_dir.join("libtree-sitter-test_json.so");
+    let dylib_path = grammars_dir.join("libtree-sitter-test_json.dylib");
     assert!(
         so_path.exists() || dylib_path.exists(),
-        "Grammar should be built as libtree-sitter-json.so or .dylib"
+        "Grammar should be built as libtree-sitter-test_json.so or .dylib"
     );
 
     // Create a JSON file for testing
