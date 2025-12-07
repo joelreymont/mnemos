@@ -24,6 +24,37 @@ import { refreshNotes } from './decorations';
 // Node path is now computed server-side when content is provided
 // No local tree-sitter needed
 
+// Selected note state
+let selectedNote: Note | null = null;
+let statusBarItem: vscode.StatusBarItem | null = null;
+
+export function getSelectedNote(): Note | null {
+  return selectedNote;
+}
+
+export function setSelectedNote(note: Note | null): void {
+  selectedNote = note;
+  updateStatusBar();
+}
+
+function updateStatusBar(): void {
+  if (!statusBarItem) {
+    statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+    statusBarItem.command = 'hemis.clearSelection';
+  }
+  if (selectedNote) {
+    const shortId = selectedNote.shortId || selectedNote.id.substring(0, 8);
+    const summary = selectedNote.summary.length > 30
+      ? selectedNote.summary.substring(0, 30) + '...'
+      : selectedNote.summary;
+    statusBarItem.text = `$(bookmark) ${shortId}: ${summary}`;
+    statusBarItem.tooltip = `Selected note: ${selectedNote.summary}\nClick to clear selection`;
+    statusBarItem.show();
+  } else {
+    statusBarItem.hide();
+  }
+}
+
 // Jump to a note's location (used by tree view click)
 export async function jumpToNoteCommand(note: Note): Promise<void> {
   if (!note || !note.file) {
@@ -763,6 +794,62 @@ export async function projectMetaCommand(): Promise<void> {
   }
 }
 
+// Select a note at cursor or from list
+export async function selectNoteCommand(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    vscode.window.showWarningMessage('No active editor');
+    return;
+  }
+
+  try {
+    // First try to get note at cursor position
+    const note = await getNoteAtCursor(editor);
+    if (note) {
+      setSelectedNote(note);
+      vscode.window.showInformationMessage(`Selected note: ${note.summary}`);
+      return;
+    }
+
+    // If no note at cursor, show picker for notes in file
+    const file = editor.document.uri.fsPath;
+    const content = editor.document.getText();
+    const notes = await listNotes(file, content);
+
+    if (!notes || notes.length === 0) {
+      vscode.window.showInformationMessage('No notes in this file');
+      return;
+    }
+
+    // Show quick pick
+    const items = notes.map(n => ({
+      label: n.displayLabel || `[Note] ${n.summary}`,
+      detail: n.displayDetail || `Line ${n.line}`,
+      note: n
+    }));
+
+    const picked = await vscode.window.showQuickPick(items, {
+      placeHolder: 'Select a note',
+    });
+
+    if (picked) {
+      setSelectedNote(picked.note);
+      vscode.window.showInformationMessage(`Selected note: ${picked.note.summary}`);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`Failed to select note: ${message}`);
+  }
+}
+
+// Clear the selected note
+export function clearSelectionCommand(): void {
+  if (selectedNote) {
+    vscode.window.showInformationMessage('Note selection cleared');
+  }
+  setSelectedNote(null);
+}
+
 export function registerCommands(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('hemis.addNote', addNoteCommand),
@@ -784,6 +871,8 @@ export function registerCommands(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('hemis.shutdown', shutdownCommand),
     vscode.commands.registerCommand('hemis.explainRegion', explainRegionCommand),
     vscode.commands.registerCommand('hemis.explainRegionAI', explainRegionAICommand),
-    vscode.commands.registerCommand('hemis.jumpToNote', jumpToNoteCommand)
+    vscode.commands.registerCommand('hemis.jumpToNote', jumpToNoteCommand),
+    vscode.commands.registerCommand('hemis.selectNote', selectNoteCommand),
+    vscode.commands.registerCommand('hemis.clearSelection', clearSelectionCommand)
   );
 }

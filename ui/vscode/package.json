@@ -85,6 +85,14 @@
       {
         "command": "hemis.explainRegion",
         "title": "Hemis: Explain Region (Copy for LLM)"
+      },
+      {
+        "command": "hemis.selectNote",
+        "title": "Hemis: Select Note"
+      },
+      {
+        "command": "hemis.clearSelection",
+        "title": "Hemis: Clear Note Selection"
       }
     ],
     "configuration": {
@@ -177,8 +185,8 @@
       },
       {
         "command": "hemis.search",
-        "key": "ctrl+shift+h s",
-        "mac": "cmd+shift+h s"
+        "key": "ctrl+shift+h f",
+        "mac": "cmd+shift+h f"
       },
       {
         "command": "hemis.indexProject",
@@ -214,6 +222,17 @@
         "key": "ctrl+shift+h x",
         "mac": "cmd+shift+h x",
         "when": "editorTextFocus && editorHasSelection"
+      },
+      {
+        "command": "hemis.selectNote",
+        "key": "ctrl+shift+h s",
+        "mac": "cmd+shift+h s",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "hemis.clearSelection",
+        "key": "ctrl+shift+h escape",
+        "mac": "cmd+shift+h escape"
       }
     ]
   },

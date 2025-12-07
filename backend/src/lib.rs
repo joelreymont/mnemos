@@ -167,16 +167,6 @@ fn list_files(root: &Path) -> anyhow::Result<ListFilesResult> {
     Ok(ListFilesResult { files, truncated })
 }
 
-/// Format a Unix timestamp as YYYY-MM-DD HH:MM:SS in local timezone
-fn format_timestamp(ts: i64) -> String {
-    use chrono::{Local, TimeZone};
-    Local
-        .timestamp_opt(ts, 0)
-        .single()
-        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-        .unwrap_or_else(|| ts.to_string())
-}
-
 /// Compute human-readable analysis status display string
 fn compute_analysis_status(analyzed: bool, analysis_stale: bool, has_file: bool) -> &'static str {
     if analyzed {
@@ -190,6 +180,18 @@ fn compute_analysis_status(analyzed: bool, analysis_stale: bool, has_file: bool)
     } else {
         "Not analyzed"
     }
+}
+
+/// Convert 1-indexed user line to 0-indexed tree-sitter line
+#[inline]
+fn user_to_ts_line(line: i64) -> u32 {
+    (line - 1).max(0) as u32
+}
+
+/// Convert 0-indexed tree-sitter line to 1-indexed user line
+#[inline]
+fn ts_to_user_line(line: u32) -> i64 {
+    i64::from(line) + 1
 }
 
 /// Read only the specified line range from a file.
@@ -665,8 +667,8 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         let ai_available = ai_cli::CliProvider::from_env().is_some();
                         let analyzed = meta.analyzed_at.is_some();
                         let analysis_status = compute_analysis_status(analyzed, analysis_stale, has_analysis);
-                        let formatted_indexed_at = meta.indexed_at.map(format_timestamp);
-                        let formatted_analyzed_at = meta.analyzed_at.map(format_timestamp);
+                        let formatted_indexed_at = meta.indexed_at.map(notes::format_timestamp);
+                        let formatted_analyzed_at = meta.analyzed_at.map(notes::format_timestamp);
                         Response::result(id, json!({
                             "projectRoot": proj,
                             "indexed": meta.indexed_at.is_some(),
@@ -807,7 +809,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                             let file_path = Path::new(file);
                             for note in &mut notes_list {
                                 // Convert from 1-based (database) to 0-based (tree-sitter)
-                                let ts_line = (note.line - 1).max(0) as u32;
+                                let ts_line = user_to_ts_line(note.line);
                                 let ts_column = note.column.clamp(0, i64::from(u32::MAX)) as u32;
                                 let pos = compute_display_position(
                                     parser,
@@ -881,7 +883,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         let file_path = Path::new(file);
                         // Compute display positions and find the matching note
                         for note in &mut notes_list {
-                            let ts_line = (note.line - 1).max(0) as u32;
+                            let ts_line = user_to_ts_line(note.line);
                             let ts_column = note.column.clamp(0, i64::from(u32::MAX)) as u32;
                             let pos = compute_display_position(
                                 parser,
@@ -1069,7 +1071,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 let (final_line, final_column, node_path, node_text_hash) = if let Some(content) = content {
                     let file_path = Path::new(file);
                     // Convert from 1-based (client) to 0-based (tree-sitter)
-                    let ts_line = (line - 1).max(0) as u32;
+                    let ts_line = user_to_ts_line(line);
                     let ts_column = column as u32;
                     let anchor = compute_anchor_position(parser, file_path, content, ts_line, ts_column);
                     let node_path_value = if anchor.node_path.is_empty() {
@@ -1078,7 +1080,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         serde_json::to_value(&anchor.node_path).ok()
                     };
                     // Convert back to 1-based for storage
-                    let anchored_line = i64::from(anchor.line) + 1;
+                    let anchored_line = ts_to_user_line(anchor.line);
                     let anchored_column = i64::from(anchor.column);
                     (anchored_line, anchored_column, node_path_value, anchor.node_text_hash)
                 } else {
@@ -1175,14 +1177,14 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     };
 
                     // Compute anchor position for start of region
-                    let ts_line = (start_line - 1) as u32;
+                    let ts_line = user_to_ts_line(start_line as i64);
                     let anchor = compute_anchor_position(parser, Path::new(file), content, ts_line, 0);
                     let node_path_value = if anchor.node_path.is_empty() {
                         None
                     } else {
                         serde_json::to_value(&anchor.node_path).ok()
                     };
-                    let anchored_line = i64::from(anchor.line) + 1;
+                    let anchored_line = ts_to_user_line(anchor.line);
                     let anchored_column = i64::from(anchor.column);
 
                     // Create the note with the AI explanation
@@ -1296,7 +1298,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 let (final_line, final_column, node_path, node_text_hash) = if let (Some(content), Some(file)) = (content, file) {
                     let file_path = Path::new(file);
                     // Convert from 1-based (client) to 0-based (tree-sitter)
-                    let ts_line = (line - 1).max(0) as u32;
+                    let ts_line = user_to_ts_line(line);
                     let ts_column = column as u32;
                     let anchor = compute_anchor_position(parser, file_path, content, ts_line, ts_column);
                     let node_path_value = if anchor.node_path.is_empty() {
@@ -1305,7 +1307,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         serde_json::to_value(&anchor.node_path).ok()
                     };
                     // Convert back to 1-based for storage
-                    let anchored_line = i64::from(anchor.line) + 1;
+                    let anchored_line = ts_to_user_line(anchor.line);
                     let anchored_column = i64::from(anchor.column);
                     (anchored_line, anchored_column, node_path_value, anchor.node_text_hash)
                 } else {
@@ -1352,7 +1354,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                             let old_line = note.line;
                             let old_stale = note.stale;
                             // Convert from 1-based (database) to 0-based (tree-sitter)
-                            let ts_line = (note.line - 1).max(0) as u32;
+                            let ts_line = user_to_ts_line(note.line);
                             let ts_column = note.column.clamp(0, i64::from(u32::MAX)) as u32;
                             let pos = compute_display_position(
                                 parser,

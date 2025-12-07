@@ -70,6 +70,9 @@ M.insert_link = M.commands.insert_link
 M.status = M.commands.status
 M.help = M.commands.help
 M.shutdown = M.commands.shutdown
+M.select_note = M.commands.select_note
+M.clear_selection = M.commands.clear_selection
+M.get_selected_note = M.commands.get_selected_note
 
 -- Start backend (usually auto-started on first request)
 M.start = M.rpc.start

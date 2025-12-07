@@ -35,7 +35,7 @@ expression: responses
       "column": 0,
       "createdAt": "<ts>",
       "displayDetail": "/tmp/test.rs:1",
-      "displayLabel": "[Note] initial",
+      "displayLabel": "[Note] updated",
       "displayMarker": "<displayMarker>",
       "file": "/tmp/test.rs",
       "formattedCreatedAt": "<formatted_ts>",

@@ -88,13 +88,34 @@ impl<'a> Clone for NoteFilters<'a> {
 }
 
 /// Format a Unix timestamp as YYYY-MM-DD HH:MM:SS in local timezone
-fn format_timestamp(ts: i64) -> String {
+pub fn format_timestamp(ts: i64) -> String {
     use chrono::{Local, TimeZone};
     Local
         .timestamp_opt(ts, 0)
         .single()
         .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
         .unwrap_or_else(|| ts.to_string())
+}
+
+/// Computed display fields for a note
+struct DisplayFields {
+    display_marker: String,
+    hover_text: String,
+    icon_hint: String,
+    display_label: String,
+    display_detail: String,
+}
+
+/// Compute all display fields for a note
+fn compute_display_fields(short_id: &str, summary: &str, text: &str, file: &str, line: i64, stale: bool) -> DisplayFields {
+    let stale_marker = if stale { " [STALE]" } else { "" };
+    DisplayFields {
+        display_marker: format!("[n:{}]", short_id),
+        hover_text: format!("**Note** ({}){}\n\n{}", short_id, stale_marker, text),
+        icon_hint: if stale { "stale".to_string() } else { "fresh".to_string() },
+        display_label: format!("[Note] {}", summary),
+        display_detail: format!("{}:{}", file, line),
+    }
 }
 
 fn summarize(text: &str) -> String {
@@ -175,11 +196,7 @@ pub fn create(
     update_edges(conn, &id, project_root, text)?;
     let short_id: String = id.chars().take(8).collect();
     let formatted_ts = format_timestamp(ts);
-    // Compute display fields (not stale on creation)
-    let display_marker = format!("[n:{}]", &short_id);
-    let hover_text = format!("**Note** ({})\n\n{}", &short_id, text);
-    let display_label = format!("[Note] {}", &summary);
-    let display_detail = format!("{}:{}", file, line);
+    let df = compute_display_fields(&short_id, &summary, text, file, line, false);
     Ok(Note {
         id,
         short_id,
@@ -200,11 +217,11 @@ pub fn create(
         updated_at: ts,
         formatted_created_at: Some(formatted_ts.clone()),
         formatted_updated_at: Some(formatted_ts),
-        display_marker: Some(display_marker),
-        hover_text: Some(hover_text),
-        icon_hint: Some("fresh".to_string()),
-        display_label: Some(display_label),
-        display_detail: Some(display_detail),
+        display_marker: Some(df.display_marker),
+        hover_text: Some(df.hover_text),
+        icon_hint: Some(df.icon_hint),
+        display_label: Some(df.display_label),
+        display_detail: Some(df.display_detail),
     })
 }
 
@@ -220,13 +237,7 @@ fn map_note(row: &rusqlite::Row<'_>, stale: bool) -> Result<Note> {
     let file: String = row.get("file")?;
     let line: i64 = row.get("line")?;
 
-    // Compute display fields
-    let display_marker = format!("[n:{}]", &short_id);
-    let stale_marker = if stale { " [STALE]" } else { "" };
-    let hover_text = format!("**Note** ({}){}\n\n{}", &short_id, stale_marker, &text);
-    let icon_hint = if stale { "stale" } else { "fresh" };
-    let display_label = format!("[Note] {}", &summary);
-    let display_detail = format!("{}:{}", &file, line);
+    let df = compute_display_fields(&short_id, &summary, &text, &file, line, stale);
 
     Ok(Note {
         id,
@@ -250,11 +261,11 @@ fn map_note(row: &rusqlite::Row<'_>, stale: bool) -> Result<Note> {
         updated_at,
         formatted_created_at: Some(format_timestamp(created_at)),
         formatted_updated_at: Some(format_timestamp(updated_at)),
-        display_marker: Some(display_marker),
-        hover_text: Some(hover_text),
-        icon_hint: Some(icon_hint.to_string()),
-        display_label: Some(display_label),
-        display_detail: Some(display_detail),
+        display_marker: Some(df.display_marker),
+        hover_text: Some(df.hover_text),
+        icon_hint: Some(df.icon_hint),
+        display_label: Some(df.display_label),
+        display_detail: Some(df.display_detail),
     })
 }
 
@@ -406,12 +417,13 @@ pub fn update(
     update_edges(conn, id, &note.project_root, &new_text)?;
     note.text = new_text.clone();
     note.tags = new_tags;
-    note.summary = summary;
+    note.summary = summary.clone();
     note.updated_at = now;
     note.formatted_updated_at = Some(format_timestamp(now));
-    // Update display fields
-    let stale_marker = if note.stale { " [STALE]" } else { "" };
-    note.hover_text = Some(format!("**Note** ({}){}\n\n{}", &note.short_id, stale_marker, &new_text));
+    // Recompute display fields after text/summary change
+    let df = compute_display_fields(&note.short_id, &summary, &new_text, &note.file, note.line, note.stale);
+    note.hover_text = Some(df.hover_text);
+    note.display_label = Some(df.display_label);
     Ok(note)
 }
 
@@ -544,9 +556,11 @@ pub fn reattach(
     note.stale = false;
     note.updated_at = now;
     note.formatted_updated_at = Some(format_timestamp(now));
-    // Update display fields (no longer stale after reattach)
-    note.hover_text = Some(format!("**Note** ({})\n\n{}", &note.short_id, &note.text));
-    note.icon_hint = Some("fresh".to_string());
+    // Recompute display fields (no longer stale after reattach)
+    let df = compute_display_fields(&note.short_id, &note.summary, &note.text, &note.file, note.line, false);
+    note.hover_text = Some(df.hover_text);
+    note.icon_hint = Some(df.icon_hint);
+    note.display_detail = Some(df.display_detail);
     Ok(note)
 }
 

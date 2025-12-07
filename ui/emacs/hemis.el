@@ -149,6 +149,9 @@ Messages are timestamped and written to `hemis--debug-buffer' and log file."
 (defvar-local hemis--overlays nil
   "List of Hemis note overlays in the current buffer.")
 
+(defvar hemis--selected-note nil
+  "The currently selected note (global, persists across buffers).")
+
 ;;; Event client for push notifications
 
 (defvar hemis--events-process nil
@@ -1255,6 +1258,62 @@ Use C-c C-c to save, C-c C-k to cancel."
       (message "Note deleted")
       (hemis-refresh-notes))))
 
+(defun hemis-get-selected-note ()
+  "Return the currently selected note, or nil."
+  hemis--selected-note)
+
+(defun hemis-set-selected-note (note)
+  "Set the selected NOTE (or nil to clear)."
+  (setq hemis--selected-note note)
+  (force-mode-line-update t))
+
+(defun hemis-select-note ()
+  "Select the note at point, or choose from notes in current file.
+If cursor is on a note, select it. Otherwise show a completion list."
+  (interactive)
+  (let* ((note-at-point (or (get-text-property (point) 'hemis-note)
+                            (hemis--note-at-overlay (point)))))
+    (if note-at-point
+        ;; Select note at cursor
+        (let* ((id (hemis--note-get note-at-point 'id))
+               (short-id (or (hemis--note-get note-at-point 'shortId)
+                             (if (> (length id) 8) (substring id 0 8) id)))
+               (summary (or (hemis--note-text note-at-point) "")))
+          (hemis-set-selected-note note-at-point)
+          (message "Selected note: %s - %s" short-id (truncate-string-to-width summary 40)))
+      ;; No note at cursor, show picker
+      (let* ((params (hemis--buffer-params))
+             (notes (let ((result (hemis--request "notes/list-for-file"
+                                                   (append params '((includeStale . t))))))
+                      (if (vectorp result) (append result nil) result))))
+        (if (null notes)
+            (message "No notes in this file")
+          (let* ((choices (mapcar (lambda (note)
+                                    (let* ((id (hemis--note-get note 'id))
+                                           (short-id (or (hemis--note-get note 'shortId)
+                                                         (if (> (length id) 8) (substring id 0 8) id)))
+                                           (line (or (hemis--note-get note 'line) 0))
+                                           (summary (or (hemis--note-text note) "")))
+                                      (cons (format "[%s] L%d: %s" short-id line
+                                                    (truncate-string-to-width summary 40))
+                                            note)))
+                                  notes))
+                 (chosen (cdr (assoc (completing-read "Select note: " choices nil t)
+                                     choices))))
+            (when chosen
+              (let* ((id (hemis--note-get chosen 'id))
+                     (short-id (or (hemis--note-get chosen 'shortId)
+                                   (if (> (length id) 8) (substring id 0 8) id))))
+                (hemis-set-selected-note chosen)
+                (message "Selected note: %s" short-id)))))))))
+
+(defun hemis-clear-selection ()
+  "Clear the current note selection."
+  (interactive)
+  (when hemis--selected-note
+    (message "Note selection cleared"))
+  (hemis-set-selected-note nil))
+
 (defun hemis--note-at-overlay (pos)
   "Return the hemis note at POS from overlays, if any."
   (let ((result nil))
@@ -1443,7 +1502,7 @@ Otherwise, prompt for a note ID."
     (define-key map (kbd "C-c h r") #'hemis-refresh-notes)
     (define-key map (kbd "C-c h l") #'hemis-list-notes)
     (define-key map (kbd "C-c h p") #'hemis-index-project)
-    (define-key map (kbd "C-c h s") #'hemis-search-project)
+    (define-key map (kbd "C-c h f") #'hemis-search-project)
     (define-key map (kbd "C-c h k") #'hemis-insert-note-link)
     (define-key map (kbd "C-c h e") #'hemis-edit-note-at-point)
     (define-key map (kbd "C-c h E") #'hemis-edit-note-buffer)
@@ -1453,6 +1512,8 @@ Otherwise, prompt for a note ID."
     (define-key map (kbd "C-c h X") #'hemis-explain-region-ai)
     (define-key map (kbd "C-c h R") #'hemis-reattach-note)
     (define-key map (kbd "C-c h S") #'hemis-status)
+    (define-key map (kbd "C-c h s") #'hemis-select-note)
+    (define-key map (kbd "C-c h <escape>") #'hemis-clear-selection)
     (define-key map (kbd "C-c h ?") #'hemis-help)
     map)
   "Keymap for `hemis-notes-mode'.")
@@ -1465,7 +1526,7 @@ Otherwise, prompt for a note ID."
     (define-key hemis-notes-mode-map (kbd "C-c h r") #'hemis-refresh-notes)
     (define-key hemis-notes-mode-map (kbd "C-c h l") #'hemis-list-notes)
     (define-key hemis-notes-mode-map (kbd "C-c h p") #'hemis-index-project)
-    (define-key hemis-notes-mode-map (kbd "C-c h s") #'hemis-search-project)
+    (define-key hemis-notes-mode-map (kbd "C-c h f") #'hemis-search-project)
     (define-key hemis-notes-mode-map (kbd "C-c h k") #'hemis-insert-note-link)
     (define-key hemis-notes-mode-map (kbd "C-c h e") #'hemis-edit-note-at-point)
     (define-key hemis-notes-mode-map (kbd "C-c h E") #'hemis-edit-note-buffer)
@@ -1475,6 +1536,8 @@ Otherwise, prompt for a note ID."
     (define-key hemis-notes-mode-map (kbd "C-c h X") #'hemis-explain-region-ai)
     (define-key hemis-notes-mode-map (kbd "C-c h R") #'hemis-reattach-note)
     (define-key hemis-notes-mode-map (kbd "C-c h S") #'hemis-status)
+    (define-key hemis-notes-mode-map (kbd "C-c h s") #'hemis-select-note)
+    (define-key hemis-notes-mode-map (kbd "C-c h <escape>") #'hemis-clear-selection)
     (define-key hemis-notes-mode-map (kbd "C-c h ?") #'hemis-help)))
 
 ;; Ensure keymap is valid before defining the minor mode.
@@ -1581,11 +1644,13 @@ Otherwise, prompt for a note ID."
   C-c h R    Reattach stale note to current position
   C-c h b    Show backlinks to note
   C-c h p    Index entire project
-  C-c h s    Search project (files and notes)
+  C-c h f    Search project (files and notes)
   C-c h k    Insert a link to another note
   C-c h x    Explain selected region
   C-c h X    Explain region with AI
   C-c h S    Show status (note/file counts)
+  C-c h s    Select note at cursor or from list
+  C-c h ESC  Clear note selection
   C-c h ?    Show this help
 
 ")

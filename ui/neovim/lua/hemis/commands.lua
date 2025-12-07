@@ -9,6 +9,9 @@ local M = {}
 -- Cached notes for current buffer
 M.buffer_notes = {}
 
+-- Selected note state (global, persists across buffers)
+M.selected_note = nil
+
 -- Refresh notes display
 function M.refresh()
   notes.list_for_buffer(function(err, result)
@@ -622,11 +625,11 @@ function M.help()
     prefix .. "R  - Reattach stale note",
     prefix .. "d  - Delete note at cursor",
     prefix .. "e  - Edit note at cursor",
-    prefix .. "s  - Search notes/files",
+    prefix .. "f  - Search notes/files",
     prefix .. "p  - Index project",
     prefix .. "k  - Insert note link",
     prefix .. "b  - Show backlinks",
-    prefix .. "f  - List project files",
+    prefix .. "s  - Select note",
     prefix .. "x  - Explain region (visual)",
     prefix .. "?  - Show this help",
     "",
@@ -642,6 +645,60 @@ end
 function M.shutdown()
   rpc.stop()
   vim.notify("Hemis backend stopped", vim.log.levels.INFO)
+end
+
+-- Get selected note
+function M.get_selected_note()
+  return M.selected_note
+end
+
+-- Set selected note and update status line
+function M.set_selected_note(note)
+  M.selected_note = note
+  -- Trigger status line refresh
+  vim.cmd("redrawstatus")
+end
+
+-- Select note at cursor or from picker
+function M.select_note()
+  -- First try to get note at cursor
+  local note = display.get_note_at_cursor(M.buffer_notes)
+  if note then
+    M.set_selected_note(note)
+    local short_id = note.shortId or (note.id or ""):sub(1, 8)
+    vim.notify("Selected note: " .. short_id .. " - " .. (note.summary or ""):sub(1, 40), vim.log.levels.INFO)
+    return
+  end
+
+  -- No note at cursor, show picker if we have notes
+  if not M.buffer_notes or #M.buffer_notes == 0 then
+    vim.notify("No notes in this file", vim.log.levels.INFO)
+    return
+  end
+
+  local items = {}
+  for _, n in ipairs(M.buffer_notes) do
+    local short_id = n.shortId or (n.id or ""):sub(1, 8)
+    local summary = n.summary or (n.text or ""):sub(1, 40)
+    table.insert(items, string.format("[%s] L%d: %s", short_id, n.line or 0, summary))
+  end
+
+  vim.ui.select(items, { prompt = "Select note:" }, function(_, idx)
+    if idx then
+      local selected = M.buffer_notes[idx]
+      M.set_selected_note(selected)
+      local short_id = selected.shortId or (selected.id or ""):sub(1, 8)
+      vim.notify("Selected note: " .. short_id, vim.log.levels.INFO)
+    end
+  end)
+end
+
+-- Clear note selection
+function M.clear_selection()
+  if M.selected_note then
+    vim.notify("Note selection cleared", vim.log.levels.INFO)
+  end
+  M.set_selected_note(nil)
 end
 
 -- Explain region using AI and create a note
@@ -871,6 +928,8 @@ function M.setup_commands()
   vim.api.nvim_create_user_command("HemisExplainRegionFull", M.explain_region_full, { range = true })
   vim.api.nvim_create_user_command("HemisIndexProjectAI", M.index_project_ai, {})
   vim.api.nvim_create_user_command("HemisProjectMeta", M.project_meta, {})
+  vim.api.nvim_create_user_command("HemisSelectNote", M.select_note, {})
+  vim.api.nvim_create_user_command("HemisClearSelection", M.clear_selection, {})
 end
 
 -- Setup keymaps
@@ -890,10 +949,11 @@ function M.setup_keymaps()
     { "d", M.delete_note, "Delete note" },
     { "e", M.edit_note, "Edit note" },
     { "E", M.edit_note_buffer, "Edit note (buffer)" },
-    { "s", M.search, "Search" },
+    { "f", M.search, "Search" },
     { "p", M.index_project, "Index project" },
     { "k", M.insert_link, "Insert link" },
     { "b", M.show_backlinks, "Show backlinks" },
+    { "s", M.select_note, "Select note" },
     { "t", M.status, "Status" },
     { "q", M.shutdown, "Shutdown backend" },
     { "?", M.help, "Help" },
@@ -906,6 +966,9 @@ function M.setup_keymaps()
   -- Visual mode mappings for explain region
   vim.keymap.set("v", prefix .. "x", M.explain_region, { desc = "Hemis: Explain region (AI)" })
   vim.keymap.set("v", prefix .. "X", M.explain_region_full, { desc = "Hemis: Explain region (AI detailed)" })
+
+  -- Clear selection with prefix + Escape
+  vim.keymap.set("n", prefix .. "<Esc>", M.clear_selection, { desc = "Hemis: Clear selection" })
 end
 
 -- Debounce timer for buffer updates
