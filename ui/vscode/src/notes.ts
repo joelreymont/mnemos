@@ -19,6 +19,9 @@ export interface Note {
   updatedAt: string;
   formattedCreatedAt?: string; // Server-computed human-readable timestamp
   formattedUpdatedAt?: string; // Server-computed human-readable timestamp
+  hoverText?: string; // Server-computed ready-to-display hover content (markdown)
+  displayMarker?: string; // Server-computed minimal marker like "[n:abc123]"
+  iconHint?: 'fresh' | 'stale'; // Server-computed icon hint for color selection
 }
 
 export interface CreateNoteParams {
@@ -114,6 +117,7 @@ export interface Status {
     edges: number;
     embeddings: number;
   };
+  statusDisplay?: string; // Server-computed formatted status string
 }
 
 export async function getStatus(): Promise<Status> {

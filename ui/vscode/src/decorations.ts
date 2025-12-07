@@ -25,7 +25,8 @@ export const editorDecorations: Map<string, vscode.DecorationOptions[]> = new Ma
 // Server provides formattedLines when content is sent
 export function formatNoteText(note: Note, style: 'full' | 'minimal'): string {
   if (style === 'minimal') {
-    return `[n:${note.shortId}]`;
+    // Use backend displayMarker if available
+    return note.displayMarker || `[n:${note.shortId}]`;
   }
 
   // Server provides formattedLines; fallback to raw text if missing
@@ -50,7 +51,8 @@ export function renderNotes(editor: vscode.TextEditor, notes: Note[]): void {
     const isStale = note.stale ?? false;
 
     const text = formatNoteText(note, config.displayStyle);
-    const color = isStale ? '#808080' : '#4682B4';
+    // Use iconHint for color selection if available
+    const color = (note.iconHint === 'stale' || isStale) ? '#808080' : '#4682B4';
 
     const decoration: vscode.DecorationOptions = {
       range,
@@ -62,8 +64,9 @@ export function renderNotes(editor: vscode.TextEditor, notes: Note[]): void {
           textDecoration: 'none; display: block; margin-bottom: 2px;',
         },
       },
+      // Use backend hoverText if available, otherwise build locally
       hoverMessage: new vscode.MarkdownString(
-        `**Note** (${note.shortId})${isStale ? ' [STALE]' : ''}\n\n${note.text}`
+        note.hoverText || `**Note** (${note.shortId})${isStale ? ' [STALE]' : ''}\n\n${note.text}`
       ),
     };
 

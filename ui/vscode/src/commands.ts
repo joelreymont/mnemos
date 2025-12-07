@@ -283,7 +283,7 @@ export async function listNotesCommand(): Promise<void> {
 
     const items = notes.map((note) => ({
       label: `L${note.line}: ${note.summary}`,
-      description: note.stale ? '[STALE]' : '',
+      description: note.displayMarker || (note.stale ? '[STALE]' : ''),
       detail: `ID: ${note.shortId}`,
       note,
     }));
@@ -351,8 +351,10 @@ export async function searchCommand(): Promise<void> {
     }
 
     const items = hits.map((hit: SearchHit) => ({
+      // Use backend displayLabel if available, otherwise build locally
       label: hit.displayLabel || (hit.kind === 'note' ? `[Note] ${hit.noteSummary || ''}` : `[File] ${path.basename(hit.file)}`),
       description: `Score: ${hit.score.toFixed(2)}`,
+      // Use backend displayDetail if available, otherwise build locally
       detail: hit.displayDetail || (hit.line ? `${hit.file}:${hit.line}` : hit.file),
       hit,
     }));
@@ -432,7 +434,8 @@ export async function insertLinkCommand(): Promise<void> {
 export async function statusCommand(): Promise<void> {
   try {
     const status = await getStatus();
-    const message = [
+    // Use backend statusDisplay if available, otherwise build locally
+    const message = status.statusDisplay || [
       `Hemis Status: ${status.ok ? 'OK' : 'Error'}`,
       `Project: ${status.projectRoot || 'None'}`,
       `Notes: ${status.counts.notes}`,
@@ -470,7 +473,7 @@ export async function backlinksCommand(): Promise<void> {
 
     const items = backlinks.map((n) => ({
       label: n.summary,
-      description: path.basename(n.file),
+      description: n.displayMarker || path.basename(n.file),
       detail: `Line ${n.line}`,
       note: n,
     }));
@@ -513,6 +516,7 @@ export async function viewNoteCommand(): Promise<void> {
     `# Note`,
     ``,
     `**File:** ${note.file}:${note.line}`,
+    // Use backend formattedCreatedAt/formattedUpdatedAt if available
     `**Created:** ${note.formattedCreatedAt || new Date(Number(note.createdAt) * 1000).toLocaleString()}`,
     `**Updated:** ${note.formattedUpdatedAt || new Date(Number(note.updatedAt) * 1000).toLocaleString()}`,
     note.stale ? `**Status:** STALE` : '',

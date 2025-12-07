@@ -48,9 +48,12 @@ export class NoteItem extends vscode.TreeItem {
   constructor(public readonly note: Note) {
     super(note.summary, vscode.TreeItemCollapsibleState.None);
 
-    this.description = `L${note.line}`;
+    // Use displayMarker for description if available, otherwise line number
+    this.description = note.displayMarker || `L${note.line}`;
+
+    // Use backend hoverText if available, otherwise build locally
     this.tooltip = new vscode.MarkdownString(
-      `**${note.shortId}**${note.stale ? ' [STALE]' : ''}\n\n${note.text}`
+      note.hoverText || `**${note.shortId}**${note.stale ? ' [STALE]' : ''}\n\n${note.text}`
     );
 
     // Click to jump to note
@@ -63,8 +66,9 @@ export class NoteItem extends vscode.TreeItem {
     // Context menu
     this.contextValue = 'note';
 
-    // Icon
-    if (note.stale) {
+    // Icon - use iconHint if available
+    const isStale = note.iconHint === 'stale' || note.stale;
+    if (isStale) {
       this.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'));
     } else {
       this.iconPath = new vscode.ThemeIcon('note');
