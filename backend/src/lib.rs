@@ -785,6 +785,11 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .get("includeStale")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
+                let only_stale = req
+                    .params
+                    .get("onlyStale")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 let filters = NoteFilters {
                     file,
                     project_root: &proj,
@@ -845,6 +850,12 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                 ));
                             }
                         }
+                        // Apply onlyStale filter after all staleness computation
+                        let notes_list = if only_stale {
+                            notes_list.into_iter().filter(|n| n.stale).collect()
+                        } else {
+                            notes_list
+                        };
                         // Return wrapper with content hash if content was provided
                         let response = NotesListResponse {
                             notes: notes_list,

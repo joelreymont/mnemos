@@ -400,6 +400,128 @@ fn filters_stale_notes_by_blob() -> anyhow::Result<()> {
 }
 
 #[test]
+fn only_stale_filter() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let repo = tempfile::tempdir()?;
+    let file = repo.path().join("main.rs");
+    fs::write(&file, "fn main() {}\n")?;
+    git(repo.path(), &["init"])?;
+    git(repo.path(), &["config", "user.email", "test@example.com"])?;
+    git(repo.path(), &["config", "user.name", "test"])?;
+    git(repo.path(), &["add", "main.rs"])?;
+    git(repo.path(), &["commit", "-m", "init"])?;
+    let file_str = file.to_string_lossy().to_string();
+    let root_str = repo.path().to_string_lossy().to_string();
+
+    // Create a fresh note (will match current commit)
+    let req_create_fresh = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str,
+            "line": 1,
+            "column": 0,
+            "text": "fresh note",
+            "tags": []
+        }
+    })
+    .to_string();
+
+    // List with onlyStale=true (fresh note should not appear)
+    let req_only_stale = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/list-for-file",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str,
+            "commit": "deadbeef",
+            "includeStale": true,
+            "onlyStale": true
+        }
+    })
+    .to_string();
+
+    // List normally (fresh note should appear)
+    let req_all = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "notes/list-for-file",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str,
+            "commit": "deadbeef",
+            "includeStale": true,
+            "onlyStale": false
+        }
+    })
+    .to_string();
+
+    let input = format!(
+        "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+        req_create_fresh.len(),
+        req_create_fresh,
+        req_only_stale.len(),
+        req_only_stale,
+        req_all.len(),
+        req_all
+    );
+
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let mut stdout = assert.get_output().stdout.clone();
+    let mut bodies = Vec::new();
+    while let Some((body, used)) = decode_framed(&stdout) {
+        bodies.push(body);
+        stdout.drain(..used);
+    }
+    assert_eq!(bodies.len(), 3);
+
+    // Create should succeed
+    let created: Response = serde_json::from_slice(&bodies[0])?;
+    assert!(created.result.is_some());
+
+    // onlyStale=true: note is stale (commit mismatch), so it SHOULD appear
+    let only_stale: Response = serde_json::from_slice(&bodies[1])?;
+    let only_stale_list = only_stale
+        .result
+        .as_ref()
+        .and_then(extract_notes)
+        .unwrap_or_default();
+    assert_eq!(
+        only_stale_list.len(),
+        1,
+        "stale note should appear when onlyStale=true"
+    );
+    let stale_flag = only_stale_list[0]
+        .get("stale")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    assert!(stale_flag, "note should be marked stale");
+
+    // onlyStale=false: stale note should appear (includeStale=true)
+    let all: Response = serde_json::from_slice(&bodies[2])?;
+    let all_list = all
+        .result
+        .as_ref()
+        .and_then(extract_notes)
+        .unwrap_or_default();
+    assert_eq!(
+        all_list.len(),
+        1,
+        "stale note should appear when includeStale=true, onlyStale=false"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn indexes_project_and_searches() -> anyhow::Result<()> {
     let db = NamedTempFile::new()?;
     let root = tempfile::tempdir()?;
