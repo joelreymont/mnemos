@@ -502,7 +502,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         if let Some(pos) = upper.find(keyword) {
                             // Extract text after the keyword
                             let after_keyword = &line[pos + keyword.len()..];
-                            let text = after_keyword.trim_start_matches(|c| c == ':' || c == ' ').trim();
+                            let text = after_keyword.trim_start_matches([':', ' ']).trim();
                             tasks.push(json!({
                                 "file": file,
                                 "line": line_idx + 1,  // 1-indexed
@@ -691,7 +691,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             if start_line > MAX_LINE_NUMBER || end_line > MAX_LINE_NUMBER {
                 return Response::error(id, INVALID_PARAMS, format!("line number too large (max {})", MAX_LINE_NUMBER));
             }
-            let line_range = end_line.checked_sub(start_line).unwrap_or(0);
+            let line_range = end_line.saturating_sub(start_line);
             if line_range > MAX_LINE_RANGE {
                 return Response::error(id, INVALID_PARAMS, format!("line range too large (max {} lines)", MAX_LINE_RANGE));
             }
@@ -814,7 +814,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             let file_param = req.params.get("file").and_then(|v| v.as_str());
             let proj = proj_param
                 .map(|s| s.to_string())
-                .or_else(|| file_param.map(|f| resolve_project_root(None, &f)));
+                .or_else(|| file_param.map(|f| resolve_project_root(None, f)));
             let include_notes = req
                 .params
                 .get("includeNotes")
@@ -1556,15 +1556,17 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 let git = info_for_file(file);
                 match notes::create(
                     db,
-                    file,
-                    &proj,
-                    final_line,
-                    final_column,
-                    node_path,
-                    tags,
-                    text,
-                    git,
-                    node_text_hash,
+                    notes::CreateNoteParams {
+                        file,
+                        project_root: &proj,
+                        line: final_line,
+                        column: final_column,
+                        node_path,
+                        tags,
+                        text,
+                        git,
+                        node_text_hash,
+                    },
                 ) {
                     Ok(mut note) => {
                         // Emit note-created event
@@ -1652,15 +1654,17 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     let git = info_for_file(file);
                     match notes::create(
                         db,
-                        file,
-                        &proj,
-                        anchored_line,
-                        anchored_column,
-                        node_path_value,
-                        json!([]),
-                        &explanation,
-                        git,
-                        anchor.node_text_hash,
+                        notes::CreateNoteParams {
+                            file,
+                            project_root: &proj,
+                            line: anchored_line,
+                            column: anchored_column,
+                            node_path: node_path_value,
+                            tags: json!([]),
+                            text: &explanation,
+                            git,
+                            node_text_hash: anchor.node_text_hash,
+                        },
                     ) {
                         Ok(mut note) => {
                             events::emit(Event::NoteCreated {
@@ -1711,14 +1715,16 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         .and_then(|np| serde_json::to_string(np).ok());
                     let _ = storage::save_note_version(
                         db,
-                        note_id,
-                        Some(&current.text),
-                        current.line,
-                        current.column,
-                        node_path_str.as_deref(),
-                        current.commit_sha.as_deref(),
-                        current.blob_sha.as_deref(),
-                        Some("update"),
+                        storage::SaveNoteVersionParams {
+                            note_id,
+                            text: Some(&current.text),
+                            line: current.line,
+                            column: current.column,
+                            node_path: node_path_str.as_deref(),
+                            commit_sha: current.commit_sha.as_deref(),
+                            blob_sha: current.blob_sha.as_deref(),
+                            reason: Some("update"),
+                        },
                     );
                 }
 
@@ -1813,14 +1819,16 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                 .and_then(|np| serde_json::to_string(np).ok());
                             let _ = storage::save_note_version(
                                 db,
-                                note_id,
-                                Some(&current.text),
-                                current.line,
-                                current.column,
-                                node_path_str.as_deref(),
-                                current.commit_sha.as_deref(),
-                                current.blob_sha.as_deref(),
-                                Some("before_restore"),
+                                storage::SaveNoteVersionParams {
+                                    note_id,
+                                    text: Some(&current.text),
+                                    line: current.line,
+                                    column: current.column,
+                                    node_path: node_path_str.as_deref(),
+                                    commit_sha: current.commit_sha.as_deref(),
+                                    blob_sha: current.blob_sha.as_deref(),
+                                    reason: Some("before_restore"),
+                                },
                             );
                         }
                         // Update note with version data

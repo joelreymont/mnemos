@@ -76,7 +76,7 @@ impl ParserService {
         let parser = self
             .parsers
             .entry(lang_name.to_string())
-            .or_insert_with(tree_sitter::Parser::new);
+            .or_default();
 
         parser
             .set_language(language.inner())
@@ -395,11 +395,7 @@ impl ParserService {
                 .unwrap_or(false);
 
             if !is_skip && !is_container {
-                let mut distance = if start_line > target_line {
-                    start_line - target_line
-                } else {
-                    target_line - start_line
-                };
+                let mut distance = start_line.abs_diff(target_line);
 
                 // Bias towards nodes after target (code usually moves down)
                 if start_line > target_line {

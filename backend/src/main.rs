@@ -37,7 +37,7 @@ fn validate_git_url(url: &str) -> Result<()> {
         return Err(anyhow!("Only https:// and git:// URLs are allowed"));
     }
     // Basic validation: no shell metacharacters
-    if url.contains(|c: char| c == ';' || c == '|' || c == '&' || c == '$' || c == '`' || c == '\n' || c == '\r') {
+    if url.contains([';', '|', '&', '$', '`', '\n', '\r']) {
         return Err(anyhow!("Git URL contains invalid characters"));
     }
     Ok(())
@@ -817,8 +817,8 @@ fn run_ensure_daemon() -> Result<()> {
     // Wait for socket to appear (up to 5 seconds)
     for _ in 0..50 {
         std::thread::sleep(Duration::from_millis(100));
-        if socket_path.exists() {
-            if UnixStream::connect(&socket_path).is_ok() {
+        if socket_path.exists()
+            && UnixStream::connect(&socket_path).is_ok() {
                 println!(
                     "{}",
                     serde_json::json!({
@@ -831,7 +831,6 @@ fn run_ensure_daemon() -> Result<()> {
                 );
                 return Ok(());
             }
-        }
     }
 
     anyhow::bail!("Daemon failed to start within 5 seconds");

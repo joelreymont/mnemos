@@ -41,7 +41,7 @@ fn vector_to_blob(v: &[f32]) -> Vec<u8> {
 
 /// Convert binary blob back to vector
 fn blob_to_vector(blob: &[u8]) -> Option<Vec<f32>> {
-    if blob.len() % 4 != 0 {
+    if !blob.len().is_multiple_of(4) {
         return None;
     }
     let mut vec = Vec::with_capacity(blob.len() / 4);
@@ -280,7 +280,7 @@ fn norm(v: &[f32]) -> f32 {
 
 /// Compute binary hash of vector (sign bits packed into bytes)
 fn binary_hash(v: &[f32]) -> Vec<u8> {
-    let num_bytes = (v.len() + 7) / 8;
+    let num_bytes = v.len().div_ceil(8);
     let mut hash = vec![0u8; num_bytes];
     for (i, &val) in v.iter().enumerate() {
         if val >= 0.0 {
@@ -430,7 +430,7 @@ pub fn search(
     };
 
     // Limits to prevent DoS via expensive searches
-    const MAX_FILE_SIZE: usize = 1 * 1024 * 1024; // 1MB (reduced from 10MB)
+    const MAX_FILE_SIZE: usize = 1024 * 1024; // 1MB (reduced from 10MB)
     const MAX_LINES_PER_FILE: usize = 10_000; // Reduced from 100K
     const MAX_TOTAL_HITS: usize = 500; // Reduced from 1K
     const MAX_FILES_TO_SCAN: usize = 500; // Reduced from 1K

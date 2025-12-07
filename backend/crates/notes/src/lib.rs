@@ -4,7 +4,6 @@ use anyhow::Result;
 use git::GitInfo;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use rusqlite;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use storage::{exec, now_unix, query_all};
@@ -80,6 +79,19 @@ impl<'a> Clone for NoteFilters<'a> {
             include_stale: self.include_stale,
         }
     }
+}
+
+/// Parameters for creating a new note
+pub struct CreateNoteParams<'a> {
+    pub file: &'a str,
+    pub project_root: &'a str,
+    pub line: i64,
+    pub column: i64,
+    pub node_path: Option<serde_json::Value>,
+    pub tags: serde_json::Value,
+    pub text: &'a str,
+    pub git: Option<GitInfo>,
+    pub node_text_hash: Option<String>,
 }
 
 /// Format a Unix timestamp as YYYY-MM-DD HH:MM:SS in local timezone
@@ -158,21 +170,26 @@ fn update_edges(conn: &Connection, src: &str, project_root: &str, text: &str) ->
 /// Maximum note text length (1MB - prevents DoS via huge notes)
 const MAX_NOTE_TEXT_LEN: usize = 1_000_000;
 
-pub fn create(
-    conn: &Connection,
-    file: &str,
-    project_root: &str,
-    line: i64,
-    column: i64,
-    node_path: Option<serde_json::Value>,
-    tags: serde_json::Value,
-    text: &str,
-    git: Option<GitInfo>,
-    node_text_hash: Option<String>,
-) -> Result<Note> {
+pub fn create(conn: &Connection, params: CreateNoteParams<'_>) -> Result<Note> {
+    let CreateNoteParams {
+        file,
+        project_root,
+        line,
+        column,
+        node_path,
+        tags,
+        text,
+        git,
+        node_text_hash,
+    } = params;
+
     // Validate text length
     if text.len() > MAX_NOTE_TEXT_LEN {
-        return Err(anyhow::anyhow!("note text too long ({} bytes, max {})", text.len(), MAX_NOTE_TEXT_LEN));
+        return Err(anyhow::anyhow!(
+            "note text too long ({} bytes, max {})",
+            text.len(),
+            MAX_NOTE_TEXT_LEN
+        ));
     }
 
     let id = Uuid::new_v4().to_string();
@@ -185,8 +202,11 @@ pub fn create(
     let node_path_str = node_path
         .as_ref()
         .and_then(|v| serde_json::to_string(v).ok());
-    exec(conn, "INSERT INTO notes (id,file,project_root,line,column,node_path,tags,text,summary,commit_sha,blob_sha,node_text_hash,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-         &[&id, &file, &project_root, &line, &column, &node_path_str, &tags_str, &text, &summary, &commit, &blob, &node_text_hash, &ts, &ts])?;
+    exec(
+        conn,
+        "INSERT INTO notes (id,file,project_root,line,column,node_path,tags,text,summary,commit_sha,blob_sha,node_text_hash,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        &[&id, &file, &project_root, &line, &column, &node_path_str, &tags_str, &text, &summary, &commit, &blob, &node_text_hash, &ts, &ts],
+    )?;
     // Parse and store links to other notes
     update_edges(conn, &id, project_root, text)?;
     let short_id: String = id.chars().take(8).collect();

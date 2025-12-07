@@ -32,6 +32,15 @@ Demo driver (`hemis-demo`) controls keyboard/mouse. **Ask for explicit confirmat
 - Run `cargo test` before committing - if ANY test fails, the commit is blocked
 - Flaky tests must be either fixed or marked `#[ignore]` with explanation
 
+### Warnings = Errors (MANDATORY - ZERO TOLERANCE)
+**ALL warnings MUST be fixed. Warnings are errors.** Run `cargo clippy` and fix ALL warnings before committing.
+
+- **NEVER use `#[allow(...)]` to suppress warnings** - fix the root cause
+- `too_many_arguments` → refactor into a params struct
+- `dead_code` → remove unused code
+- Any other warning → fix it properly, don't suppress it
+- If clippy suggests a fix, apply it. If it's wrong, understand why before ignoring.
+
 ### Workflow
 - Run tests yourself, don't ask user
 - Work continuously without pausing unless blocked

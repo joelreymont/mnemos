@@ -239,11 +239,7 @@ pub fn compute_anchor_position(
     let node_path = ParserService::node_path(tree, content, final_line, final_column, settings.as_ref());
 
     // Compute hash
-    let node_text_hash = if let Some(node) = ParserService::node_at_position(tree, content, final_line, final_column, settings.as_ref()) {
-        Some(ParserService::node_hash(&node, content))
-    } else {
-        None
-    };
+    let node_text_hash = ParserService::node_at_position(tree, content, final_line, final_column, settings.as_ref()).map(|node| ParserService::node_hash(&node, content));
 
     AnchorPosition {
         line: final_line,

@@ -215,12 +215,11 @@ fn handle_request(
                 }
 
                 // Check parser service is available
-                if ready {
-                    if parser_service.try_lock().is_err() {
+                if ready
+                    && parser_service.try_lock().is_err() {
                         ready = false;
                         reason = Some("parser service busy".to_string());
                     }
-                }
 
                 return Response::result(req.id, json!({
                     "ready": ready,

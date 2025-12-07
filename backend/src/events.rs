@@ -83,6 +83,12 @@ pub struct EventBroadcaster {
     tx: SyncSender<Event>,
 }
 
+impl Default for EventBroadcaster {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EventBroadcaster {
     /// Create a new event broadcaster
     pub fn new() -> Self {

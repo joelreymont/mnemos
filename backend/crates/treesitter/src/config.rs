@@ -27,6 +27,7 @@ pub struct LanguageConfig {
 
 /// Settings for a specific language
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct LanguageSettings {
     /// Language name (e.g., "rust", "python")
     pub name: String,
@@ -107,16 +108,6 @@ impl LanguageConfig {
     }
 }
 
-impl Default for LanguageSettings {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            file_types: Vec::new(),
-            skip_nodes: Vec::new(),
-            container_nodes: Vec::new(),
-        }
-    }
-}
 
 /// Get the hemis config directory.
 /// Uses HEMIS_CONFIG_DIR env var if set, otherwise ~/.config/hemis

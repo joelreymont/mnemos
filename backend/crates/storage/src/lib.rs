@@ -480,18 +480,30 @@ pub struct NoteVersion {
     pub created_at: i64,
 }
 
+/// Parameters for saving a note version
+pub struct SaveNoteVersionParams<'a> {
+    pub note_id: &'a str,
+    pub text: Option<&'a str>,
+    pub line: i64,
+    pub column: i64,
+    pub node_path: Option<&'a str>,
+    pub commit_sha: Option<&'a str>,
+    pub blob_sha: Option<&'a str>,
+    pub reason: Option<&'a str>,
+}
+
 /// Save a version of a note before update
-pub fn save_note_version(
-    conn: &Connection,
-    note_id: &str,
-    text: Option<&str>,
-    line: i64,
-    column: i64,
-    node_path: Option<&str>,
-    commit_sha: Option<&str>,
-    blob_sha: Option<&str>,
-    reason: Option<&str>,
-) -> Result<i64> {
+pub fn save_note_version(conn: &Connection, params: SaveNoteVersionParams<'_>) -> Result<i64> {
+    let SaveNoteVersionParams {
+        note_id,
+        text,
+        line,
+        column,
+        node_path,
+        commit_sha,
+        blob_sha,
+        reason,
+    } = params;
     let now = now_unix();
 
     // Get next version number
