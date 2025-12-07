@@ -275,7 +275,7 @@ mod tests {
 
     // Property: to_json_line always ends with exactly one newline
     #[quickcheck]
-    fn prop_note_created_ends_with_single_newline(id: String, file: String, line: i64) -> bool {
+    fn prop_note_created_ends_newline(id: String, file: String, line: i64) -> bool {
         let event = Event::NoteCreated {
             id,
             file,
@@ -335,7 +335,7 @@ mod tests {
 
     // Property: to_json_line for NotePositionChanged produces valid JSON
     #[quickcheck]
-    fn prop_note_position_changed_valid_json(id: String, file: String, old_line: i64, new_line: i64, stale: bool) -> bool {
+    fn prop_position_changed_valid(id: String, file: String, old_line: i64, new_line: i64, stale: bool) -> bool {
         let event = Event::NotePositionChanged { id, file, old_line, new_line, stale };
         let json = event.to_json_line();
         serde_json::from_str::<serde_json::Value>(json.trim()).is_ok()

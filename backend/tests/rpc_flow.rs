@@ -113,6 +113,373 @@ fn handles_multiple_framed_requests() -> anyhow::Result<()> {
 }
 
 #[test]
+fn display_config_returns_colors_and_icons() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/display-config",
+        "params": {}
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("framed response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let result = resp.result.expect("should have result");
+
+    // Verify colors
+    let colors = result.get("colors").expect("colors");
+    assert_eq!(colors.get("note").and_then(|v| v.as_str()), Some("#4682B4"));
+    assert_eq!(colors.get("noteStale").and_then(|v| v.as_str()), Some("#808080"));
+
+    // Verify icons
+    let icons = result.get("icons").expect("icons");
+    assert!(icons.get("noteFresh").is_some());
+    assert!(icons.get("noteStale").is_some());
+
+    // Verify templates
+    let templates = result.get("templates").expect("templates");
+    assert!(templates.get("displayLabel").is_some());
+
+    Ok(())
+}
+
+#[test]
+fn note_templates_returns_templates() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/note-templates",
+        "params": {}
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let out = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let (body, _) = decode_framed(&out.get_output().stdout).unwrap();
+    let resp: Response = serde_json::from_slice(&body)?;
+    let result = resp.result.expect("should have result");
+    let templates = result.get("templates").and_then(|v| v.as_array()).expect("templates array");
+
+    assert!(templates.len() >= 4, "should have at least 4 templates");
+
+    // Verify template structure
+    let ids: Vec<&str> = templates.iter().filter_map(|t| t.get("id").and_then(|v| v.as_str())).collect();
+    assert!(ids.contains(&"bug"));
+    assert!(ids.contains(&"todo"));
+    assert!(ids.contains(&"decision"));
+
+    Ok(())
+}
+
+#[test]
+fn suggest_tags_from_rust_function() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let content = "fn main() {\n    let x = 1;\n}\n";
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/suggest-tags",
+        "params": {
+            "file": "/tmp/test.rs",
+            "content": content,
+            "line": 1,
+            "column": 0
+        }
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("framed response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let result = resp.result.expect("should have result");
+    let tags = result.get("tags").and_then(|v| v.as_array()).expect("tags array");
+    let tags: Vec<&str> = tags.iter().filter_map(|v| v.as_str()).collect();
+
+    // Should include "rust" (language) and "function" (node type)
+    assert!(tags.contains(&"rust"), "should suggest rust tag");
+    assert!(tags.contains(&"function"), "should suggest function tag");
+    Ok(())
+}
+
+#[test]
+fn suggest_tags_for_test_file() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/suggest-tags",
+        "params": {
+            "file": "/tmp/my_test.py"
+        }
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("framed response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let result = resp.result.expect("should have result");
+    let tags = result.get("tags").and_then(|v| v.as_array()).expect("tags array");
+    let tags: Vec<&str> = tags.iter().filter_map(|v| v.as_str()).collect();
+
+    // Should include "python" (language) and "test" (file pattern)
+    assert!(tags.contains(&"python"), "should suggest python tag");
+    assert!(tags.contains(&"test"), "should suggest test tag");
+    Ok(())
+}
+
+#[test]
+fn graph_returns_nodes_and_edges() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let dir = tempfile::tempdir()?;
+    let root = dir.path().to_string_lossy().to_string();
+
+    // Create two notes that link to each other
+    let req1 = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": format!("{}/test.rs", root),
+            "projectRoot": &root,
+            "line": 1,
+            "column": 0,
+            "tags": ["rust"],
+            "text": "First note"
+        }
+    })
+    .to_string();
+    let input1 = format!("Content-Length: {}\r\n\r\n{}", req1.len(), req1);
+    let out1 = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input1)
+        .assert()
+        .success();
+    let (body1, _) = decode_framed(&out1.get_output().stdout).unwrap();
+    let resp1: Response = serde_json::from_slice(&body1)?;
+    let note1_id = resp1.result.unwrap().get("id").unwrap().as_str().unwrap().to_string();
+
+    // Create second note that links to first
+    let req2 = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/create",
+        "params": {
+            "file": format!("{}/test.rs", root),
+            "projectRoot": &root,
+            "line": 5,
+            "column": 0,
+            "tags": ["rust"],
+            "text": format!("Second note linking to [[first note][{}]]", note1_id)
+        }
+    })
+    .to_string();
+    let input2 = format!("Content-Length: {}\r\n\r\n{}", req2.len(), req2);
+    cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input2)
+        .assert()
+        .success();
+
+    // Query graph
+    let req_graph = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "hemis/graph",
+        "params": {
+            "projectRoot": &root
+        }
+    })
+    .to_string();
+    let input_graph = format!("Content-Length: {}\r\n\r\n{}", req_graph.len(), req_graph);
+    let out_graph = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input_graph)
+        .assert()
+        .success();
+    let (body_graph, _) = decode_framed(&out_graph.get_output().stdout).unwrap();
+    let resp_graph: Response = serde_json::from_slice(&body_graph)?;
+    let result = resp_graph.result.expect("should have result");
+
+    let nodes = result.get("nodes").and_then(|v| v.as_array()).expect("nodes array");
+    let edges = result.get("edges").and_then(|v| v.as_array()).expect("edges array");
+
+    assert_eq!(nodes.len(), 2, "should have 2 notes");
+    assert_eq!(edges.len(), 1, "should have 1 edge");
+
+    // Verify edge connects the notes
+    let edge = &edges[0];
+    assert!(edge.get("src").is_some());
+    assert_eq!(edge.get("dst").and_then(|v| v.as_str()), Some(note1_id.as_str()));
+    assert_eq!(edge.get("kind").and_then(|v| v.as_str()), Some("link"));
+
+    Ok(())
+}
+
+#[test]
+fn tasks_detects_todo_fixme() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let dir = tempfile::tempdir()?;
+    let root = dir.path().to_string_lossy().to_string();
+    let content = r#"fn main() {
+    // TODO: implement this
+    let x = 1; // FIXME: use better name
+    // HACK: workaround for issue
+}
+"#;
+
+    // Index the file
+    let req_index = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "index/add-file",
+        "params": {
+            "file": format!("{}/test.rs", root),
+            "projectRoot": &root,
+            "content": content
+        }
+    })
+    .to_string();
+    let input_index = format!("Content-Length: {}\r\n\r\n{}", req_index.len(), req_index);
+    cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input_index)
+        .assert()
+        .success();
+
+    // Query tasks
+    let req_tasks = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "hemis/tasks",
+        "params": {
+            "projectRoot": &root
+        }
+    })
+    .to_string();
+    let input_tasks = format!("Content-Length: {}\r\n\r\n{}", req_tasks.len(), req_tasks);
+    let out = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input_tasks)
+        .assert()
+        .success();
+    let (body, _) = decode_framed(&out.get_output().stdout).unwrap();
+    let resp: Response = serde_json::from_slice(&body)?;
+    let result = resp.result.expect("should have result");
+    let tasks = result.get("tasks").and_then(|v| v.as_array()).expect("tasks array");
+
+    assert_eq!(tasks.len(), 3, "should find 3 tasks (TODO, FIXME, HACK)");
+
+    // Verify task details
+    let kinds: Vec<&str> = tasks.iter().filter_map(|t| t.get("kind").and_then(|v| v.as_str())).collect();
+    assert!(kinds.contains(&"TODO"));
+    assert!(kinds.contains(&"FIXME"));
+    assert!(kinds.contains(&"HACK"));
+
+    Ok(())
+}
+
+#[test]
+fn file_context_returns_suggestions() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let dir = tempfile::tempdir()?;
+    let root = dir.path().to_string_lossy().to_string();
+    let file = format!("{}/test.rs", root);
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/file-context",
+        "params": {
+            "file": &file,
+            "projectRoot": &root
+        }
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let out = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let (body, _) = decode_framed(&out.get_output().stdout).unwrap();
+    let resp: Response = serde_json::from_slice(&body)?;
+    let result = resp.result.expect("should have result");
+
+    // Should have suggestions
+    let suggestions = result.get("suggestions").expect("suggestions");
+    assert!(suggestions.get("uncoveredFile").is_some());
+    assert!(suggestions.get("hasStaleNotes").is_some());
+
+    // File with no notes should be marked uncovered
+    assert_eq!(suggestions.get("uncoveredFile").and_then(|v| v.as_bool()), Some(true));
+
+    Ok(())
+}
+
+#[test]
+fn code_references_returns_node_path() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let content = "fn main() {\n    let x = 1;\n}\n";
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/code-references",
+        "params": {
+            "file": "/tmp/test.rs",
+            "content": content,
+            "line": 1,
+            "column": 3
+        }
+    })
+    .to_string();
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let out = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let (body, _) = decode_framed(&out.get_output().stdout).unwrap();
+    let resp: Response = serde_json::from_slice(&body)?;
+    let result = resp.result.expect("should have result");
+
+    // Should have node path
+    let node_path = result.get("nodePath").and_then(|v| v.as_array()).expect("nodePath array");
+    assert!(!node_path.is_empty(), "should have node path");
+
+    // Should have anchor info
+    let anchor = result.get("anchor").expect("anchor");
+    assert!(anchor.get("line").is_some());
+
+    // Should identify function_item in references
+    let refs = result.get("references").and_then(|v| v.as_array()).expect("references");
+    let kinds: Vec<&str> = refs.iter().filter_map(|r| r.get("kind").and_then(|v| v.as_str())).collect();
+    assert!(kinds.contains(&"function_def"), "should identify function definition");
+
+    Ok(())
+}
+
+#[test]
 fn handles_large_framed_body() -> anyhow::Result<()> {
     let db = NamedTempFile::new()?;
     let big_content = "fn main() {}\n".repeat(2_000); // ~20k bytes to exceed the read buffer.
@@ -1862,7 +2229,7 @@ fn buffer_update_recomputes_positions() -> anyhow::Result<()> {
 /// Test dynamic grammar loading: fetch, build, and use a grammar.
 /// Uses bundled tree-sitter headers from test fixtures.
 #[test]
-fn dynamic_grammar_fetch_build_and_use() -> anyhow::Result<()> {
+fn dynamic_grammar_flow() -> anyhow::Result<()> {
     // Skip if tree-sitter CLI is not available
     let ts_check = Command::new("tree-sitter").arg("--version").output();
     if ts_check.is_err() || !ts_check.unwrap().status.success() {
@@ -2192,7 +2559,7 @@ fn index_project_updates_project_meta() -> anyhow::Result<()> {
 
 // Test explain-region works without AI
 #[test]
-fn explain_region_without_ai_returns_snippet() -> anyhow::Result<()> {
+fn explain_region_no_ai_snippet() -> anyhow::Result<()> {
     let db = NamedTempFile::new()?;
     let tmpdir = tempfile::tempdir()?;
     let file_path = tmpdir.path().join("test.rs");
@@ -2246,7 +2613,7 @@ fn explain_region_without_ai_returns_snippet() -> anyhow::Result<()> {
 
 // Test explain-region with AI disabled in environment returns snippet only
 #[test]
-fn explain_region_with_ai_disabled_env() -> anyhow::Result<()> {
+fn explain_region_ai_disabled() -> anyhow::Result<()> {
     let db = NamedTempFile::new()?;
     let tmpdir = tempfile::tempdir()?;
     let file_path = tmpdir.path().join("test.rs");
@@ -2402,7 +2769,7 @@ fn explain_region_uses_content_param() -> anyhow::Result<()> {
 
 // Test project-meta staleness detection after new commit
 #[test]
-fn project_meta_detects_staleness_after_commit() -> anyhow::Result<()> {
+fn meta_detects_stale_after_commit() -> anyhow::Result<()> {
     let db = NamedTempFile::new()?;
     let tmpdir = tempfile::tempdir()?;
     let project_root = tmpdir.path().to_string_lossy().to_string();
@@ -4211,7 +4578,7 @@ fn event_socket_receives_note_created() -> anyhow::Result<()> {
 
 /// Test that the events socket receives note-updated and note-deleted events.
 #[test]
-fn event_socket_receives_update_and_delete_events() -> anyhow::Result<()> {
+fn socket_receives_updates_and_deletes() -> anyhow::Result<()> {
     use std::io::{BufRead, BufReader, Read, Write};
     use std::os::unix::net::UnixStream;
     use std::process::{Command, Stdio};
@@ -4460,7 +4827,7 @@ fn notes_get_at_position_returns_note() -> anyhow::Result<()> {
 }
 
 #[test]
-fn notes_link_suggestions_returns_formatted_links() -> anyhow::Result<()> {
+fn link_suggestions_formatted() -> anyhow::Result<()> {
     let db = NamedTempFile::new()?;
     let dir = tempfile::tempdir()?;
     let file = dir.path().join("test.rs");
@@ -4652,6 +5019,588 @@ fn buffer_context_returns_git_and_language() -> anyhow::Result<()> {
         Some("rust"),
         "should detect rust language"
     );
+
+    Ok(())
+}
+
+#[test]
+fn task_status_returns_not_found() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/task-status",
+        "params": {
+            "taskId": "nonexistent-task-id"
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    // Should return error for non-existent task
+    assert!(resp.error.is_some(), "should return error for unknown task");
+
+    Ok(())
+}
+
+#[test]
+fn task_list_returns_empty() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/task-list",
+        "params": {}
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let result = resp.result.expect("task-list should return result");
+
+    // Should return empty array
+    assert!(result.is_array(), "should return array");
+    assert_eq!(result.as_array().unwrap().len(), 0, "should be empty");
+
+    Ok(())
+}
+
+#[test]
+fn index_project_async_returns_task_id() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let db = NamedTempFile::new()?;
+
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/index-project",
+        "params": {
+            "projectRoot": dir.path().to_str().unwrap(),
+            "async": true
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let result = resp.result.expect("async index should return result");
+
+    // Should have taskId and async:true
+    assert!(result.get("taskId").is_some(), "should have taskId");
+    assert_eq!(
+        result.get("async").and_then(|v| v.as_bool()),
+        Some(true),
+        "should have async:true"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn note_history_tracks_versions() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+
+    // Create a note
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 1,
+            "column": 0,
+            "text": "Original text"
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let note_id = resp.result.unwrap().get("id").unwrap().as_str().unwrap().to_string();
+
+    // Update the note
+    let req_update = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/update",
+        "params": {
+            "id": note_id,
+            "text": "Updated text"
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_update.len(), req_update);
+    cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    // Get history
+    let req_history = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "notes/history",
+        "params": {
+            "id": note_id
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_history.len(), req_history);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let versions = resp.result.expect("history should return result");
+
+    // Should have at least one version (from the update)
+    assert!(versions.is_array(), "should return array");
+    let versions_arr = versions.as_array().unwrap();
+    assert!(!versions_arr.is_empty(), "should have at least one version");
+
+    // First version should have original text
+    let v1 = &versions_arr[0];
+    assert_eq!(v1.get("text").and_then(|v| v.as_str()), Some("Original text"));
+    assert_eq!(v1.get("reason").and_then(|v| v.as_str()), Some("update"));
+
+    Ok(())
+}
+
+#[test]
+fn summarize_file_returns_sections() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+
+    // Create a note
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 2,
+            "column": 0,
+            "text": "Important function"
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
+    cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    // Request summary
+    let content = "fn main() {\n    println!(\"Hello\");\n}\n";
+    let req_summarize = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "hemis/summarize-file",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "content": content
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_summarize.len(), req_summarize);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let result = resp.result.expect("summarize-file should return result");
+
+    // Should have file info and sections
+    assert_eq!(result.get("file").and_then(|v| v.as_str()), Some("/tmp/test.rs"));
+    assert_eq!(result.get("noteCount").and_then(|v| v.as_u64()), Some(1));
+
+    let sections = result.get("sections").and_then(|v| v.as_array()).unwrap();
+    assert_eq!(sections.len(), 1);
+
+    // Section should have code snippet
+    let section = &sections[0];
+    assert!(section.get("codeSnippet").is_some(), "should have code snippet");
+    assert_eq!(section.get("summary").and_then(|v| v.as_str()), Some("Important function"));
+
+    Ok(())
+}
+
+/// Test notes/get-version retrieves a specific version
+#[test]
+fn get_version_retrieves_specific_version() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+
+    // Create a note
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 1,
+            "column": 0,
+            "text": "Version 0 text"
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let note_id = resp.result.unwrap().get("id").unwrap().as_str().unwrap().to_string();
+
+    // Update the note to create version 1
+    let req_update = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/update",
+        "params": {
+            "id": note_id,
+            "text": "Version 1 text"
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_update.len(), req_update);
+    cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    // Get version 1
+    let req_get = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "notes/get-version",
+        "params": {
+            "id": note_id,
+            "version": 1
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_get.len(), req_get);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let version = resp.result.expect("get-version should return result");
+
+    // Should have the original text
+    assert_eq!(version.get("text").and_then(|v| v.as_str()), Some("Version 0 text"));
+    assert_eq!(version.get("version").and_then(|v| v.as_i64()), Some(1));
+
+    Ok(())
+}
+
+/// Test notes/get-version returns error for non-existent version
+#[test]
+fn get_version_not_found() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+
+    // Create a note (no updates, so no versions)
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 1,
+            "column": 0,
+            "text": "Test note"
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let note_id = resp.result.unwrap().get("id").unwrap().as_str().unwrap().to_string();
+
+    // Try to get non-existent version
+    let req_get = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/get-version",
+        "params": {
+            "id": note_id,
+            "version": 999
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_get.len(), req_get);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    assert!(resp.error.is_some(), "should return error for non-existent version");
+    assert!(resp.error.unwrap().message.contains("not found"));
+
+    Ok(())
+}
+
+/// Test notes/restore-version restores a note to a previous version
+#[test]
+fn restore_version_restores_previous_state() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+
+    // Create a note
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 1,
+            "column": 0,
+            "text": "Original text"
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let note_id = resp.result.unwrap().get("id").unwrap().as_str().unwrap().to_string();
+
+    // Update the note
+    let req_update = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/update",
+        "params": {
+            "id": note_id,
+            "text": "Modified text"
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_update.len(), req_update);
+    cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    // Verify note now has modified text
+    let req_get = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "notes/get",
+        "params": { "id": note_id }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_get.len(), req_get);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    assert_eq!(
+        resp.result.as_ref().and_then(|v| v.get("text")).and_then(|v| v.as_str()),
+        Some("Modified text")
+    );
+
+    // Restore to version 1 (original text)
+    let req_restore = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "notes/restore-version",
+        "params": {
+            "id": note_id,
+            "version": 1
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_restore.len(), req_restore);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let restored = resp.result.expect("restore should return result");
+
+    // Note should now have original text
+    assert_eq!(restored.get("text").and_then(|v| v.as_str()), Some("Original text"));
+
+    // Verify by fetching the note again
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_get.len(), req_get);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    assert_eq!(
+        resp.result.as_ref().and_then(|v| v.get("text")).and_then(|v| v.as_str()),
+        Some("Original text"),
+        "note should have original text after restore"
+    );
+
+    Ok(())
+}
+
+/// Test notes/restore-version returns error for non-existent version
+#[test]
+fn restore_version_not_found() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+
+    // Create a note
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": "/tmp/test.rs",
+            "projectRoot": "/tmp",
+            "line": 1,
+            "column": 0,
+            "text": "Test note"
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let note_id = resp.result.unwrap().get("id").unwrap().as_str().unwrap().to_string();
+
+    // Try to restore non-existent version
+    let req_restore = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/restore-version",
+        "params": {
+            "id": note_id,
+            "version": 999
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_restore.len(), req_restore);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    assert!(resp.error.is_some(), "should return error for non-existent version");
 
     Ok(())
 }

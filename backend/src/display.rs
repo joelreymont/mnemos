@@ -228,14 +228,14 @@ mod tests {
     }
 
     #[quickcheck]
-    fn prop_format_note_lines_always_prefixed(text: String) -> bool {
+    fn prop_lines_always_prefixed(text: String) -> bool {
         let lines = format_note_lines(&text, "rust", Some(80), false);
         // All lines must start with "// " (unless empty input)
         lines.iter().all(|line| line.starts_with("// "))
     }
 
     #[quickcheck]
-    fn prop_stale_marker_appears_only_on_last_line(text: String) -> bool {
+    fn prop_stale_marker_on_last_line(text: String) -> bool {
         if text.trim().is_empty() {
             return true;
         }

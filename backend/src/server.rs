@@ -11,7 +11,7 @@ use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -35,6 +35,8 @@ pub struct Server {
     connections: Arc<AtomicUsize>,
     start_time: Instant,
     shutdown_scheduled: Arc<AtomicBool>,
+    /// Shared parser service across all connections (reduces memory and warm-up time)
+    parser_service: Arc<Mutex<treesitter::ParserService>>,
 }
 
 impl Server {
@@ -48,6 +50,7 @@ impl Server {
             connections: Arc::new(AtomicUsize::new(0)),
             start_time: Instant::now(),
             shutdown_scheduled: Arc::new(AtomicBool::new(false)),
+            parser_service: Arc::new(Mutex::new(create_parser_service())),
         }
     }
 
@@ -103,6 +106,7 @@ impl Server {
         let start_time = self.start_time;
         let socket_path = self.socket_path.clone();
         let lock_path = self.lock_path.clone();
+        let parser_service = self.parser_service.clone();
 
         std::thread::spawn(move || {
             // Each thread gets its own DB connection
@@ -115,15 +119,12 @@ impl Server {
                 }
             };
 
-            // Each thread gets its own ParserService (for tree caching)
-            let mut parser = create_parser_service();
-
             // Verify schema is accessible
             if let Err(e) = preload::sanity_check(&conn) {
                 eprintln!("Schema sanity check failed: {}", e);
             }
 
-            if let Err(e) = handle_connection(stream, &conn, &mut parser, start_time, &connections) {
+            if let Err(e) = handle_connection(stream, &conn, &parser_service, start_time, &connections) {
                 // Don't log "broken pipe" errors - that's just client disconnect
                 let err_str = e.to_string();
                 if !err_str.contains("Broken pipe") && !err_str.contains("Connection reset") {
@@ -145,7 +146,7 @@ impl Server {
 fn handle_connection(
     mut stream: UnixStream,
     conn: &rusqlite::Connection,
-    parser: &mut treesitter::ParserService,
+    parser_service: &Arc<Mutex<treesitter::ParserService>>,
     start_time: Instant,
     connections: &Arc<AtomicUsize>,
 ) -> Result<()> {
@@ -168,7 +169,7 @@ fn handle_connection(
                 // Process complete messages
                 while let Some((body, consumed)) = decode_framed(&buffer) {
                     buffer.drain(..consumed);
-                    let response = handle_request(&body, conn, parser, start_time, connections);
+                    let response = handle_request(&body, conn, parser_service, start_time, connections);
                     write_response(&mut stream, &response)?;
                 }
             }
@@ -184,7 +185,7 @@ fn handle_connection(
 fn handle_request(
     body: &[u8],
     conn: &rusqlite::Connection,
-    parser: &mut treesitter::ParserService,
+    parser_service: &Arc<Mutex<treesitter::ParserService>>,
     start_time: Instant,
     connections: &Arc<AtomicUsize>,
 ) -> Response {
@@ -213,8 +214,9 @@ fn handle_request(
         }
     }
 
-    // Delegate to standard handler
-    parse_and_handle(body, conn, parser)
+    // Delegate to standard handler (lock parser briefly for request handling)
+    let mut parser = parser_service.lock().unwrap();
+    parse_and_handle(body, conn, &mut parser)
 }
 
 /// Write a framed response to the stream.

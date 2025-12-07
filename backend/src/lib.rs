@@ -11,8 +11,8 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use treesitter::{
-    compute_anchor_position, compute_display_position, default_config, GrammarRegistry,
-    ParserService,
+    compute_anchor_position, compute_display_position, compute_node_path, default_config,
+    GrammarRegistry, ParserService,
 };
 
 /// Resolve project root: use provided value, or compute from file path via git.
@@ -228,6 +228,435 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             } else {
                 Response::error(id, INVALID_PARAMS, "missing projectRoot")
             }
+        }
+        "hemis/display-config" => {
+            // Return display configuration for UIs (colors, icons, templates)
+            // Single source of truth - UIs should use these values for consistency
+            Response::result(id, json!({
+                "colors": {
+                    "note": "#4682B4",       // Steel Blue - fresh notes
+                    "noteStale": "#808080",  // Gray - stale notes
+                    "marker": "#4682B4"      // Marker/gutter color
+                },
+                "icons": {
+                    "noteFresh": "📝",
+                    "noteStale": "📝",       // Same icon, color indicates state
+                    "noteAi": "🤖"
+                },
+                "templates": {
+                    "displayLabel": "{shortId} {summary}",
+                    "hoverText": "hemis: {summary}"
+                }
+            }))
+        }
+        "hemis/note-templates" => {
+            // Return available note templates for structured note creation
+            Response::result(id, json!({
+                "templates": [
+                    {
+                        "id": "bug",
+                        "name": "Bug Report",
+                        "fields": ["severity", "reproduction", "status"],
+                        "template": "## Bug Report\n\n**Severity:** \n**Steps to Reproduce:**\n1. \n\n**Expected:** \n**Actual:** \n**Status:** open"
+                    },
+                    {
+                        "id": "todo",
+                        "name": "TODO",
+                        "fields": ["priority", "assignee", "deadline"],
+                        "template": "## TODO\n\n**Priority:** medium\n**Assignee:** \n**Deadline:** \n\n**Description:**\n"
+                    },
+                    {
+                        "id": "api",
+                        "name": "API Contract",
+                        "fields": ["inputs", "outputs", "invariants"],
+                        "template": "## API Contract\n\n**Inputs:**\n- \n\n**Outputs:**\n- \n\n**Invariants:**\n- \n\n**Notes:**\n"
+                    },
+                    {
+                        "id": "decision",
+                        "name": "Design Decision",
+                        "fields": ["context", "options", "rationale"],
+                        "template": "## Design Decision\n\n**Context:**\n\n**Options Considered:**\n1. \n2. \n\n**Decision:**\n\n**Rationale:**\n"
+                    },
+                    {
+                        "id": "review",
+                        "name": "Code Review",
+                        "fields": ["issue", "suggestion", "severity"],
+                        "template": "## Code Review\n\n**Issue:**\n\n**Suggestion:**\n\n**Severity:** info"
+                    }
+                ]
+            }))
+        }
+        "hemis/suggest-tags" => {
+            // Suggest tags based on code context for rapid note capture
+            let file = req.params.get("file").and_then(|v| v.as_str());
+            let content = req.params.get("content").and_then(|v| v.as_str());
+            let line = req.params.get("line").and_then(|v| v.as_i64()).unwrap_or(1);
+            let column = req.params.get("column").and_then(|v| v.as_i64()).unwrap_or(0);
+
+            let Some(file) = file else {
+                return Response::error(id, INVALID_PARAMS, "missing file");
+            };
+
+            let mut tags: Vec<String> = Vec::new();
+            let file_path = Path::new(file);
+
+            // 1. Language tag from extension
+            if let Some(lang) = parser.language_for_file(file_path) {
+                tags.push(lang.to_string());
+            }
+
+            // 2. File pattern tags
+            let file_lower = file.to_lowercase();
+            if file_lower.contains("test") || file_lower.contains("spec") {
+                tags.push("test".to_string());
+            }
+            if file_lower.contains("readme") || file_lower.contains("doc") {
+                tags.push("docs".to_string());
+            }
+
+            // 3. Node type from tree-sitter (if content provided)
+            if let Some(content) = content {
+                let ts_line = user_to_ts_line(line);
+                let ts_column = column.clamp(0, i64::from(u32::MAX)) as u32;
+                let anchor = compute_anchor_position(parser, file_path, content, ts_line, ts_column);
+
+                // Extract semantic tags from node path
+                for node_type in &anchor.node_path {
+                    match node_type.as_str() {
+                        "function_item" | "function_definition" | "function_declaration" | "method_definition" => {
+                            tags.push("function".to_string());
+                        }
+                        "struct_item" | "class_definition" | "class_declaration" | "interface_declaration" => {
+                            tags.push("type".to_string());
+                        }
+                        "impl_item" | "method_declaration" => {
+                            tags.push("impl".to_string());
+                        }
+                        "enum_item" | "enum_declaration" => {
+                            tags.push("enum".to_string());
+                        }
+                        "const_item" | "static_item" | "variable_declaration" => {
+                            tags.push("var".to_string());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            // Deduplicate and return
+            tags.sort();
+            tags.dedup();
+            Response::result(id, json!({ "tags": tags }))
+        }
+        "hemis/graph" => {
+            // Return graph of notes and their edges for visualization
+            let project_root = req.params.get("projectRoot").and_then(|v| v.as_str());
+            let note_id = req.params.get("noteId").and_then(|v| v.as_str());
+            let _include_stale = req.params.get("includeStale").and_then(|v| v.as_bool()).unwrap_or(true);
+            let max_depth = req.params.get("maxDepth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
+
+            let Some(project_root) = project_root else {
+                return Response::error(id, INVALID_PARAMS, "missing projectRoot");
+            };
+
+            // Query notes for project
+            let mut stmt = match db.prepare(
+                "SELECT id, file, line, summary, tags, node_text_hash FROM notes WHERE project_root = ? ORDER BY updated_at DESC LIMIT 500"
+            ) {
+                Ok(s) => s,
+                Err(e) => return Response::error(id, INTERNAL_ERROR, e.to_string()),
+            };
+
+            let notes_iter = match stmt.query_map([project_root], |row| {
+                Ok(json!({
+                    "id": row.get::<_, String>(0)?,
+                    "file": row.get::<_, String>(1)?,
+                    "line": row.get::<_, i64>(2)?,
+                    "summary": row.get::<_, String>(3)?,
+                    "tags": row.get::<_, String>(4).ok().and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()).unwrap_or(json!([])),
+                    "hasHash": row.get::<_, Option<String>>(5)?.is_some()
+                }))
+            }) {
+                Ok(iter) => iter,
+                Err(e) => return Response::error(id, INTERNAL_ERROR, e.to_string()),
+            };
+
+            let nodes: Vec<serde_json::Value> = notes_iter.filter_map(|r| r.ok()).collect();
+            let node_ids: std::collections::HashSet<String> = nodes.iter()
+                .filter_map(|n| n.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                .collect();
+
+            // Query edges for project
+            let mut edge_stmt = match db.prepare(
+                "SELECT src, dst, kind FROM edges WHERE project_root = ?"
+            ) {
+                Ok(s) => s,
+                Err(e) => return Response::error(id, INTERNAL_ERROR, e.to_string()),
+            };
+
+            let edges_iter = match edge_stmt.query_map([project_root], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            }) {
+                Ok(iter) => iter,
+                Err(e) => return Response::error(id, INTERNAL_ERROR, e.to_string()),
+            };
+
+            // Filter edges to only include those between known nodes
+            let edges: Vec<serde_json::Value> = edges_iter
+                .filter_map(|r| r.ok())
+                .filter(|(src, dst, _)| node_ids.contains(src) && node_ids.contains(dst))
+                .map(|(src, dst, kind)| json!({ "src": src, "dst": dst, "kind": kind }))
+                .collect();
+
+            // If noteId is provided, filter to connected subgraph
+            let (filtered_nodes, filtered_edges) = if let Some(focus_id) = note_id {
+                // BFS to find connected nodes up to max_depth
+                let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+                let mut frontier = vec![focus_id.to_string()];
+                visited.insert(focus_id.to_string());
+
+                for _ in 0..max_depth {
+                    let mut next_frontier = Vec::new();
+                    for node in &frontier {
+                        for edge in &edges {
+                            let src = edge.get("src").and_then(|v| v.as_str()).unwrap_or("");
+                            let dst = edge.get("dst").and_then(|v| v.as_str()).unwrap_or("");
+                            if src == node && !visited.contains(dst) {
+                                visited.insert(dst.to_string());
+                                next_frontier.push(dst.to_string());
+                            }
+                            if dst == node && !visited.contains(src) {
+                                visited.insert(src.to_string());
+                                next_frontier.push(src.to_string());
+                            }
+                        }
+                    }
+                    frontier = next_frontier;
+                }
+
+                let filtered_nodes: Vec<_> = nodes.into_iter()
+                    .filter(|n| n.get("id").and_then(|v| v.as_str()).map(|id| visited.contains(id)).unwrap_or(false))
+                    .collect();
+                let filtered_edges: Vec<_> = edges.into_iter()
+                    .filter(|e| {
+                        let src = e.get("src").and_then(|v| v.as_str()).unwrap_or("");
+                        let dst = e.get("dst").and_then(|v| v.as_str()).unwrap_or("");
+                        visited.contains(src) && visited.contains(dst)
+                    })
+                    .collect();
+                (filtered_nodes, filtered_edges)
+            } else {
+                (nodes, edges)
+            };
+
+            Response::result(id, json!({
+                "nodes": filtered_nodes,
+                "edges": filtered_edges
+            }))
+        }
+        "hemis/tasks" => {
+            // Scan indexed files for TODO/FIXME/HACK comments
+            let project_root = req.params.get("projectRoot").and_then(|v| v.as_str());
+            let limit = req.params.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
+
+            let Some(project_root) = project_root else {
+                return Response::error(id, INVALID_PARAMS, "missing projectRoot");
+            };
+
+            // Query indexed files for project
+            let mut stmt = match db.prepare(
+                "SELECT file, content FROM files WHERE project_root = ? AND content IS NOT NULL"
+            ) {
+                Ok(s) => s,
+                Err(e) => return Response::error(id, INTERNAL_ERROR, e.to_string()),
+            };
+
+            let files_iter = match stmt.query_map([project_root], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            }) {
+                Ok(iter) => iter,
+                Err(e) => return Response::error(id, INTERNAL_ERROR, e.to_string()),
+            };
+
+            // Keywords to detect (case-insensitive)
+            const TASK_KEYWORDS: &[&str] = &["TODO", "FIXME", "HACK", "XXX", "BUG"];
+            let mut tasks: Vec<serde_json::Value> = Vec::new();
+
+            for file_result in files_iter {
+                if tasks.len() >= limit {
+                    break;
+                }
+                let Ok((file, content)) = file_result else { continue };
+
+                for (line_idx, line) in content.lines().enumerate() {
+                    if tasks.len() >= limit {
+                        break;
+                    }
+                    let upper = line.to_uppercase();
+                    for keyword in TASK_KEYWORDS {
+                        if let Some(pos) = upper.find(keyword) {
+                            // Extract text after the keyword
+                            let after_keyword = &line[pos + keyword.len()..];
+                            let text = after_keyword.trim_start_matches(|c| c == ':' || c == ' ').trim();
+                            tasks.push(json!({
+                                "file": file,
+                                "line": line_idx + 1,  // 1-indexed
+                                "kind": *keyword,
+                                "text": text,
+                                "context": line.trim()
+                            }));
+                            break; // Only report first keyword per line
+                        }
+                    }
+                }
+            }
+
+            Response::result(id, json!({ "tasks": tasks }))
+        }
+        "hemis/code-references" => {
+            // Extract code references (identifiers, calls, types) at a position
+            // Uses node path to identify semantic context
+            let file = req.params.get("file").and_then(|v| v.as_str());
+            let content = req.params.get("content").and_then(|v| v.as_str());
+            let line = req.params.get("line").and_then(|v| v.as_i64()).unwrap_or(1);
+            let column = req.params.get("column").and_then(|v| v.as_i64()).unwrap_or(0);
+
+            let Some(file) = file else {
+                return Response::error(id, INVALID_PARAMS, "missing file");
+            };
+            let Some(content) = content else {
+                return Response::error(id, INVALID_PARAMS, "missing content");
+            };
+
+            let file_path = Path::new(file);
+            let ts_line = user_to_ts_line(line);
+            let ts_column = column.clamp(0, i64::from(u32::MAX)) as u32;
+
+            // Get node path and anchor position
+            let node_path = compute_node_path(parser, file_path, content, ts_line, ts_column);
+            let anchor = compute_anchor_position(parser, file_path, content, ts_line, ts_column);
+
+            // Build references from node path
+            let mut references: Vec<serde_json::Value> = Vec::new();
+
+            for (i, node_type) in node_path.iter().enumerate() {
+                let ref_kind = match node_type.as_str() {
+                    "call_expression" | "function_call" | "macro_invocation" => Some("call"),
+                    "identifier" | "field_identifier" => Some("identifier"),
+                    "type_identifier" | "primitive_type" => Some("type"),
+                    "function_item" | "function_definition" => Some("function_def"),
+                    "struct_item" | "class_definition" => Some("type_def"),
+                    "impl_item" => Some("impl"),
+                    _ => None,
+                };
+
+                if let Some(kind) = ref_kind {
+                    references.push(json!({
+                        "kind": kind,
+                        "nodeType": node_type,
+                        "depth": i
+                    }));
+                }
+            }
+
+            // Add anchor info
+            Response::result(id, json!({
+                "references": references,
+                "anchor": {
+                    "line": anchor.line + 1,  // Convert to 1-indexed
+                    "column": anchor.column,
+                    "hash": anchor.node_text_hash
+                },
+                "nodePath": node_path
+            }))
+        }
+        "hemis/file-context" => {
+            // Return contextual suggestions when opening a file
+            // Includes: notes for file, backlinks, stale notes, related notes
+            let file = req.params.get("file").and_then(|v| v.as_str());
+            let project_root = req.params.get("projectRoot").and_then(|v| v.as_str());
+
+            let Some(file) = file else {
+                return Response::error(id, INVALID_PARAMS, "missing file");
+            };
+            let Some(project_root) = project_root else {
+                return Response::error(id, INVALID_PARAMS, "missing projectRoot");
+            };
+
+            // Get notes for this file
+            let filters = NoteFilters {
+                file,
+                project_root,
+                node_path: None,
+                commit: None,
+                blob: None,
+                include_stale: true,
+            };
+            let file_notes = notes::list_for_file(db, filters).unwrap_or_default();
+
+            // Get stale notes count
+            let stale_count = file_notes.iter().filter(|n| n.stale).count();
+
+            // Get backlinks (notes that link to notes in this file)
+            let note_ids: Vec<&str> = file_notes.iter().map(|n| n.id.as_str()).collect();
+            let mut backlinks: Vec<serde_json::Value> = Vec::new();
+            if !note_ids.is_empty() {
+                let placeholders: String = note_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                let query = format!(
+                    "SELECT DISTINCT n.id, n.file, n.line, n.summary FROM edges e \
+                     JOIN notes n ON e.src = n.id \
+                     WHERE e.dst IN ({}) AND n.file != ? LIMIT 10",
+                    placeholders
+                );
+                if let Ok(mut stmt) = db.prepare(&query) {
+                    let mut params: Vec<&dyn rusqlite::ToSql> = note_ids.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+                    params.push(&file);
+                    if let Ok(rows) = stmt.query_map(params.as_slice(), |row| {
+                        Ok(json!({
+                            "id": row.get::<_, String>(0)?,
+                            "file": row.get::<_, String>(1)?,
+                            "line": row.get::<_, i64>(2)?,
+                            "summary": row.get::<_, String>(3)?
+                        }))
+                    }) {
+                        backlinks = rows.filter_map(|r| r.ok()).collect();
+                    }
+                }
+            }
+
+            // Get recent notes in project for suggestions
+            let mut recent_stmt = db.prepare(
+                "SELECT id, file, line, summary FROM notes \
+                 WHERE project_root = ? AND file != ? \
+                 ORDER BY updated_at DESC LIMIT 5"
+            ).ok();
+            let recent_notes: Vec<serde_json::Value> = recent_stmt.as_mut()
+                .and_then(|stmt| stmt.query_map([project_root, file], |row| {
+                    Ok(json!({
+                        "id": row.get::<_, String>(0)?,
+                        "file": row.get::<_, String>(1)?,
+                        "line": row.get::<_, i64>(2)?,
+                        "summary": row.get::<_, String>(3)?
+                    }))
+                }).ok())
+                .map(|rows| rows.filter_map(|r| r.ok()).collect())
+                .unwrap_or_default();
+
+            Response::result(id, json!({
+                "notes": file_notes.len(),
+                "staleNotes": stale_count,
+                "backlinks": backlinks,
+                "recentNotes": recent_notes,
+                "suggestions": {
+                    "hasStaleNotes": stale_count > 0,
+                    "hasBacklinks": !backlinks.is_empty(),
+                    "uncoveredFile": file_notes.is_empty()
+                }
+            }))
         }
         "hemis/explain-region" => {
             let file = req.params.get("file").and_then(|v| v.as_str());
@@ -459,13 +888,36 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 .map(|s| s.to_string())
                 .or_else(|| file_param.map(|f| resolve_project_root(None, f)));
             if let Some(root) = root_opt.as_deref() {
-                let mut indexed = 0;
-                let mut skipped = 0;
                 let include_ai = req
                     .params
                     .get("includeAI")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
+                let async_mode = req
+                    .params
+                    .get("async")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
+                // If async mode, queue the job and return task ID immediately
+                if async_mode {
+                    let task_id = jobs::generate_task_id();
+                    jobs::job_queue().enqueue(jobs::Job::IndexProject {
+                        task_id: task_id.clone(),
+                        project_root: root.to_string(),
+                        include_ai,
+                    });
+                    return Response::result(id, json!({
+                        "ok": true,
+                        "taskId": task_id,
+                        "async": true,
+                        "statusMessage": "Indexing queued"
+                    }));
+                }
+
+                // Synchronous mode (existing behavior)
+                let mut indexed = 0;
+                let mut skipped = 0;
                 // Max file size for indexing (1MB - same as search limit)
                 const MAX_INDEX_FILE_SIZE: u64 = 1024 * 1024;
                 match list_files(Path::new(root)) {
@@ -1251,6 +1703,26 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             if let Some(note_id) = req.params.get("id").and_then(|v| v.as_str()) {
                 let text = req.params.get("text").and_then(|v| v.as_str()).map(str::trim);
                 let tags = req.params.get("tags").cloned();
+
+                // Save current state as version before updating
+                if let Ok(current) = notes::get(db, note_id) {
+                    let node_path_str = current
+                        .node_path
+                        .as_ref()
+                        .and_then(|np| serde_json::to_string(np).ok());
+                    let _ = storage::save_note_version(
+                        db,
+                        note_id,
+                        Some(&current.text),
+                        current.line,
+                        current.column,
+                        node_path_str.as_deref(),
+                        current.commit_sha.as_deref(),
+                        current.blob_sha.as_deref(),
+                        Some("update"),
+                    );
+                }
+
                 match notes::update(db, note_id, text, tags) {
                     Ok(n) => {
                         events::emit(Event::NoteUpdated {
@@ -1286,6 +1758,81 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 }
             } else {
                 Response::error(id, INVALID_PARAMS, "missing id")
+            }
+        }
+        "notes/history" => {
+            // Get version history for a note
+            if let Some(note_id) = req.params.get("id").and_then(|v| v.as_str()) {
+                let limit = req
+                    .params
+                    .get("limit")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as usize)
+                    .unwrap_or(50);
+                match storage::list_note_versions(db, note_id, limit) {
+                    Ok(versions) => Response::result_from(id, versions),
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
+                }
+            } else {
+                Response::error(id, INVALID_PARAMS, "missing id")
+            }
+        }
+        "notes/get-version" => {
+            // Get a specific version of a note
+            let note_id = req.params.get("id").and_then(|v| v.as_str());
+            let version = req.params.get("version").and_then(|v| v.as_i64());
+            if let (Some(note_id), Some(version)) = (note_id, version) {
+                match storage::get_note_version(db, note_id, version) {
+                    Ok(Some(v)) => Response::result_from(id, v),
+                    Ok(None) => Response::error(id, INVALID_PARAMS, "version not found"),
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
+                }
+            } else {
+                Response::error(id, INVALID_PARAMS, "missing id or version")
+            }
+        }
+        "notes/restore-version" => {
+            // Restore a note to a previous version
+            let note_id = req.params.get("id").and_then(|v| v.as_str());
+            let version = req.params.get("version").and_then(|v| v.as_i64());
+            if let (Some(note_id), Some(version)) = (note_id, version) {
+                // First get the version to restore
+                match storage::get_note_version(db, note_id, version) {
+                    Ok(Some(v)) => {
+                        // Save current state as a new version before restoring
+                        if let Ok(current) = notes::get(db, note_id) {
+                            let node_path_str = current
+                                .node_path
+                                .as_ref()
+                                .and_then(|np| serde_json::to_string(np).ok());
+                            let _ = storage::save_note_version(
+                                db,
+                                note_id,
+                                Some(&current.text),
+                                current.line,
+                                current.column,
+                                node_path_str.as_deref(),
+                                current.commit_sha.as_deref(),
+                                current.blob_sha.as_deref(),
+                                Some("before_restore"),
+                            );
+                        }
+                        // Update note with version data
+                        match notes::update(db, note_id, v.text.as_deref(), None) {
+                            Ok(n) => {
+                                events::emit(Event::NoteUpdated {
+                                    id: note_id.to_string(),
+                                });
+                                Response::result_from(id, n)
+                            }
+                            Err(_) => Response::error(id, INTERNAL_ERROR, "restore failed"),
+                        }
+                    }
+                    Ok(None) => Response::error(id, INVALID_PARAMS, "version not found"),
+                    Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
+                }
+            } else {
+                Response::error(id, INVALID_PARAMS, "missing id or version")
             }
         }
         "notes/reattach" => {
@@ -1435,6 +1982,103 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 Ok(results) => Response::result_from(id, results),
                 Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
             }
+        }
+        "hemis/summarize-file" => {
+            // Return file summary with stitched code snippets, note references, and backlinks
+            let file = req.params.get("file").and_then(|v| v.as_str());
+            let content = req.params.get("content").and_then(|v| v.as_str());
+            if let (Some(file), Some(content)) = (file, content) {
+                let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
+                let proj = resolve_project_root(proj_param, file);
+
+                // Get all notes for this file
+                let filters = NoteFilters {
+                    file,
+                    project_root: &proj,
+                    node_path: None,
+                    commit: None,
+                    blob: None,
+                    include_stale: true,
+                };
+                let notes_list = notes::list_for_file(db, filters).unwrap_or_default();
+
+                // Build sections with code snippets around each note
+                let mut sections: Vec<serde_json::Value> = Vec::new();
+                let lines: Vec<&str> = content.lines().collect();
+
+                for note in &notes_list {
+                    let line_idx = (note.line as usize).saturating_sub(1);
+                    let context_before = 2;
+                    let context_after = 2;
+                    let start = line_idx.saturating_sub(context_before);
+                    let end = (line_idx + context_after + 1).min(lines.len());
+
+                    let snippet_lines: Vec<String> = lines[start..end]
+                        .iter()
+                        .enumerate()
+                        .map(|(i, line)| {
+                            let line_num = start + i + 1;
+                            format!("{:4} | {}", line_num, line)
+                        })
+                        .collect();
+
+                    // Get backlinks for this note
+                    let backlinks = notes::backlinks(db, &note.id).unwrap_or_default();
+                    let backlink_refs: Vec<serde_json::Value> = backlinks
+                        .iter()
+                        .map(|bl| {
+                            json!({
+                                "noteId": bl.id,
+                                "summary": bl.summary,
+                                "file": bl.file
+                            })
+                        })
+                        .collect();
+
+                    sections.push(json!({
+                        "noteId": note.id,
+                        "line": note.line,
+                        "summary": note.summary,
+                        "text": note.text,
+                        "stale": note.stale,
+                        "codeSnippet": snippet_lines.join("\n"),
+                        "backlinks": backlink_refs
+                    }));
+                }
+
+                // AI summary not implemented yet - would come from file analysis
+                let ai_summary: Option<String> = None;
+
+                let result = json!({
+                    "file": file,
+                    "projectRoot": proj,
+                    "noteCount": notes_list.len(),
+                    "staleCount": notes_list.iter().filter(|n| n.stale).count(),
+                    "sections": sections,
+                    "aiSummary": ai_summary
+                });
+
+                Response::result(id, result)
+            } else {
+                Response::error(id, INVALID_PARAMS, "missing file or content")
+            }
+        }
+        "hemis/task-status" => {
+            // Get status of a background task by ID
+            if let Some(task_id) = req.params.get("taskId").and_then(|v| v.as_str()) {
+                match jobs::job_queue().get_status(task_id) {
+                    Some(info) => Response::result_from(id, info),
+                    None => Response::error(id, INVALID_PARAMS, "task not found"),
+                }
+            } else {
+                Response::error(id, INVALID_PARAMS, "missing taskId")
+            }
+        }
+        "hemis/task-list" => {
+            // List all tasks (optionally filtered by status)
+            let status_filter = req.params.get("status").and_then(|v| v.as_str());
+            let tasks = jobs::job_queue().list_tasks(status_filter);
+            Response::result_from(id, tasks)
         }
         "shutdown" => Response::result(id, json!("shutting down")),
         _ => Response::error(

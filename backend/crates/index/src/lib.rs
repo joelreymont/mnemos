@@ -676,7 +676,7 @@ mod tests {
 
     // Property: escape_fts_query always produces valid FTS5 syntax (no unbalanced quotes)
     #[quickcheck]
-    fn prop_escape_fts_query_balanced_quotes(input: String) -> bool {
+    fn prop_fts_query_balanced_quotes(input: String) -> bool {
         match escape_fts_query(&input) {
             None => true, // Empty result is valid
             Some(result) => {
@@ -689,14 +689,14 @@ mod tests {
 
     // Property: escape_fts_query never panics on any input
     #[quickcheck]
-    fn prop_escape_fts_query_never_panics(input: String) -> bool {
+    fn prop_fts_query_never_panics(input: String) -> bool {
         let _ = escape_fts_query(&input);
         true
     }
 
     // Property: escape_fts_literal never panics and produces valid output
     #[quickcheck]
-    fn prop_escape_fts_literal_never_panics(input: String) -> bool {
+    fn prop_fts_literal_never_panics(input: String) -> bool {
         let result = escape_fts_literal(&input);
         // Verify doubling worked: count quotes in output should be 2x quotes in input
         // (capped by truncation at 1000 chars)
@@ -707,7 +707,7 @@ mod tests {
 
     // Property: escape_fts_literal truncates long inputs
     #[quickcheck]
-    fn prop_escape_fts_literal_bounded_length(input: String) -> bool {
+    fn prop_fts_literal_bounded_length(input: String) -> bool {
         let result = escape_fts_literal(&input);
         // Output can be at most 2x input length (each char could become 2 chars if all quotes)
         // But also bounded by MAX_LITERAL_LEN * 2
@@ -801,5 +801,94 @@ mod tests {
         let hash = binary_hash(&floats);
         let expected_len = (floats.len() + 7) / 8;
         hash.len() == expected_len
+    }
+
+    // SSRF validation tests
+
+    #[test]
+    fn test_validate_embedder_url_accepts_https() {
+        assert!(validate_embedder_url("https://api.example.com/embed").is_ok());
+        assert!(validate_embedder_url("https://embeddings.openai.com/v1/embed").is_ok());
+    }
+
+    #[test]
+    fn test_validate_embedder_url_accepts_http_localhost() {
+        // HTTP is allowed only for localhost (development)
+        assert!(validate_embedder_url("http://localhost:8080/embed").is_ok());
+        assert!(validate_embedder_url("http://127.0.0.1:8080/embed").is_ok());
+    }
+
+    #[test]
+    fn test_validate_embedder_url_rejects_http_non_localhost() {
+        // HTTP should be rejected for non-localhost
+        assert!(validate_embedder_url("http://api.example.com/embed").is_err());
+        assert!(validate_embedder_url("http://192.168.1.1/embed").is_err());
+    }
+
+    #[test]
+    fn test_validate_embedder_url_rejects_blocked_hosts() {
+        // Should reject cloud metadata endpoints
+        assert!(validate_embedder_url("https://metadata/").is_err());
+        assert!(validate_embedder_url("https://metadata.google.internal/").is_err());
+        assert!(validate_embedder_url("https://169.254.169.254/").is_err());
+    }
+
+    #[test]
+    fn test_validate_embedder_url_rejects_invalid_url() {
+        assert!(validate_embedder_url("not-a-url").is_err());
+        assert!(validate_embedder_url("").is_err());
+        assert!(validate_embedder_url("ftp://example.com/embed").is_err());
+    }
+
+    #[test]
+    fn test_is_private_ip_detects_private_ranges() {
+        use std::net::IpAddr;
+
+        // Loopback
+        assert!(is_private_ip(&"127.0.0.1".parse::<IpAddr>().unwrap()));
+        assert!(is_private_ip(&"127.0.0.255".parse::<IpAddr>().unwrap()));
+
+        // Private ranges
+        assert!(is_private_ip(&"10.0.0.1".parse::<IpAddr>().unwrap()));
+        assert!(is_private_ip(&"172.16.0.1".parse::<IpAddr>().unwrap()));
+        assert!(is_private_ip(&"192.168.1.1".parse::<IpAddr>().unwrap()));
+
+        // Link-local
+        assert!(is_private_ip(&"169.254.1.1".parse::<IpAddr>().unwrap()));
+
+        // CGNAT
+        assert!(is_private_ip(&"100.64.0.1".parse::<IpAddr>().unwrap()));
+    }
+
+    #[test]
+    fn test_is_private_ip_allows_public() {
+        use std::net::IpAddr;
+
+        // Public IPs should not be flagged as private
+        assert!(!is_private_ip(&"8.8.8.8".parse::<IpAddr>().unwrap()));
+        assert!(!is_private_ip(&"1.1.1.1".parse::<IpAddr>().unwrap()));
+        assert!(!is_private_ip(&"142.250.185.206".parse::<IpAddr>().unwrap())); // google.com
+    }
+
+    // Vector blob conversion tests
+
+    #[test]
+    fn test_vector_to_blob_roundtrip() {
+        let original = vec![1.0f32, -2.5, 3.14159, 0.0, f32::MIN, f32::MAX];
+        let blob = vector_to_blob(&original);
+        let recovered = blob_to_vector(&blob).unwrap();
+        assert_eq!(original, recovered);
+    }
+
+    #[test]
+    fn test_blob_to_vector_rejects_malformed() {
+        // Blob length must be multiple of 4
+        assert!(blob_to_vector(&[1, 2, 3]).is_none());
+        assert!(blob_to_vector(&[1, 2, 3, 4, 5]).is_none());
+    }
+
+    #[test]
+    fn test_blob_to_vector_accepts_empty() {
+        assert_eq!(blob_to_vector(&[]).unwrap(), Vec::<f32>::new());
     }
 }

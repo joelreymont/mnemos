@@ -150,9 +150,9 @@ fn dos_prevention_max_message_size() {
     // Content-Length exactly at MAX_MESSAGE_SIZE
     let msg = format!("Content-Length: {}\r\n\r\n{{\"test\":1}}", MAX_MESSAGE_SIZE);
     let result = decode_framed(msg.as_bytes());
-    // Should be rejected as it's at the limit (or just over, depending on implementation)
-    // The current implementation rejects if len > MAX_MESSAGE_SIZE
-    assert!(result.is_none(), "Should accept message at MAX_MESSAGE_SIZE");
+    // Should be rejected as claimed Content-Length exceeds MAX_MESSAGE_SIZE limit
+    // The implementation rejects if len > MAX_MESSAGE_SIZE as a DoS safeguard
+    assert!(result.is_none(), "Should reject Content-Length at MAX_MESSAGE_SIZE limit");
 }
 
 #[test]
@@ -380,10 +380,19 @@ fn edge_case_exact_length_match() {
 #[test]
 fn edge_case_non_utf8_body() {
     // Body with invalid UTF-8 (but valid frame structure)
+    // decode_framed returns raw bytes without UTF-8 validation (for performance)
+    // UTF-8/JSON validation happens later in parse_request
     let msg = b"Content-Length: 5\r\n\r\n\xFF\xFE\xFD\xFC\xFB";
-    // The decode_framed function uses from_utf8 which should fail
     let result = decode_framed(msg);
-    assert!(result.is_none(), "Should reject invalid UTF-8 in buffer");
+    assert!(result.is_some(), "decode_framed returns raw bytes without UTF-8 validation");
+    let (body, consumed) = result.unwrap();
+    assert_eq!(body, b"\xFF\xFE\xFD\xFC\xFB");
+    // "Content-Length: 5\r\n\r\n" = 21 bytes + 5 body bytes = 26 total
+    assert_eq!(consumed, 26);
+
+    // parse_request will fail on invalid UTF-8 (serde_json requires valid UTF-8)
+    let parse_result = parse_request(&body);
+    assert!(parse_result.is_err(), "parse_request should reject invalid UTF-8");
 }
 
 #[test]
@@ -432,25 +441,38 @@ fn edge_case_trailing_data_after_message() {
 // ============================================================================
 
 #[test]
-fn stress_many_headers() {
-    // Many header lines before Content-Length
+fn stress_many_headers_within_limit() {
+    // Many header lines that stay within MAX_HEADER_SIZE (8KB)
+    // ~100 headers * ~20 bytes = ~2KB, well under limit
+    let mut msg = Vec::new();
+    for i in 0..100 {
+        msg.extend_from_slice(format!("Header-{}: value\r\n", i).as_bytes());
+    }
+    msg.extend_from_slice(b"Content-Length: 17\r\n\r\n{\"jsonrpc\":\"2.0\"}");
+    let result = decode_framed(&msg);
+    assert!(result.is_some(), "Should handle many headers within limit");
+}
+
+#[test]
+fn stress_many_headers_exceeds_limit() {
+    // Headers exceeding MAX_HEADER_SIZE (8KB) should be rejected
     let mut msg = Vec::new();
     for i in 0..1000 {
         msg.extend_from_slice(format!("Header-{}: value\r\n", i).as_bytes());
     }
     msg.extend_from_slice(b"Content-Length: 17\r\n\r\n{\"jsonrpc\":\"2.0\"}");
     let result = decode_framed(&msg);
-    assert!(result.is_some(), "Should handle many headers");
+    assert!(result.is_none(), "Should reject headers exceeding 8KB limit");
 }
 
 #[test]
 fn stress_very_long_header_line() {
-    // Single very long header line before Content-Length
+    // Single very long header line exceeds MAX_HEADER_SIZE - should be rejected
     let mut msg = b"X-Custom: ".to_vec();
     msg.extend(vec![b'a'; 100_000]);
     msg.extend_from_slice(b"\r\nContent-Length: 17\r\n\r\n{\"jsonrpc\":\"2.0\"}");
     let result = decode_framed(&msg);
-    assert!(result.is_some(), "Should handle very long header line");
+    assert!(result.is_none(), "Should reject headers exceeding 8KB limit");
 }
 
 #[test]

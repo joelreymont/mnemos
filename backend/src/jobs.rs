@@ -95,6 +95,32 @@ impl JobQueue {
     pub fn get_status(&self, task_id: &str) -> Option<JobInfo> {
         self.jobs.lock().ok()?.get(task_id).cloned()
     }
+
+    /// List all tasks, optionally filtered by status
+    pub fn list_tasks(&self, status_filter: Option<&str>) -> Vec<JobInfo> {
+        let jobs = match self.jobs.lock() {
+            Ok(j) => j,
+            Err(_) => return Vec::new(),
+        };
+        let mut tasks: Vec<JobInfo> = jobs.values().cloned().collect();
+
+        // Filter by status if provided
+        if let Some(filter) = status_filter {
+            tasks.retain(|t| {
+                let status_str = match t.status {
+                    JobStatus::Queued => "queued",
+                    JobStatus::Running => "running",
+                    JobStatus::Completed => "completed",
+                    JobStatus::Failed => "failed",
+                };
+                status_str == filter
+            });
+        }
+
+        // Sort by task_id for consistent ordering
+        tasks.sort_by(|a, b| a.task_id.cmp(&b.task_id));
+        tasks
+    }
 }
 
 /// Background worker loop that processes jobs
@@ -472,5 +498,113 @@ mod tests {
         assert_eq!(info.task_id, task_id);
         // Should be Queued or Running depending on timing
         assert!(matches!(info.status, JobStatus::Queued | JobStatus::Running));
+    }
+
+    // Security tests for filesystem traversal protection
+
+    #[test]
+    fn test_list_files_rejects_system_paths() {
+        // Should reject root path
+        assert!(list_files(Path::new("/")).is_err());
+        // Should reject /etc
+        assert!(list_files(Path::new("/etc")).is_err());
+        // Should reject /var
+        assert!(list_files(Path::new("/var")).is_err());
+        // Should reject /usr
+        assert!(list_files(Path::new("/usr")).is_err());
+    }
+
+    #[test]
+    fn test_list_files_rejects_non_directory() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let file_path = tmpdir.path().join("test.txt");
+        std::fs::write(&file_path, "content").unwrap();
+        // Should reject files (not directories)
+        assert!(list_files(&file_path).is_err());
+    }
+
+    #[test]
+    fn test_list_files_rejects_nonexistent_path() {
+        // Should reject paths that don't exist
+        assert!(list_files(Path::new("/nonexistent/path/that/does/not/exist")).is_err());
+    }
+
+    #[test]
+    fn test_list_files_skips_symlinks() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let target_file = tmpdir.path().join("target.txt");
+        std::fs::write(&target_file, "content").unwrap();
+
+        // Create a symlink
+        let link_path = tmpdir.path().join("link.txt");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target_file, &link_path).unwrap();
+
+        let result = list_files(tmpdir.path()).unwrap();
+        // Should only find the target file, not the symlink
+        assert_eq!(result.files.len(), 1);
+        assert!(result.files[0].file.ends_with("target.txt"));
+    }
+
+    #[test]
+    fn test_list_files_ignores_common_dirs() {
+        let tmpdir = tempfile::tempdir().unwrap();
+
+        // Create files in ignored directories
+        for dir_name in &[".git", "node_modules", "target", "__pycache__"] {
+            let ignored_dir = tmpdir.path().join(dir_name);
+            std::fs::create_dir_all(&ignored_dir).unwrap();
+            std::fs::write(ignored_dir.join("file.txt"), "content").unwrap();
+        }
+
+        // Create a file in a non-ignored directory
+        let src_dir = tmpdir.path().join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        std::fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+        let result = list_files(tmpdir.path()).unwrap();
+        // Should only find main.rs, not files in ignored directories
+        assert_eq!(result.files.len(), 1);
+        assert!(result.files[0].file.ends_with("main.rs"));
+    }
+
+    #[test]
+    fn test_list_files_respects_file_count_limit() {
+        let tmpdir = tempfile::tempdir().unwrap();
+
+        // Create files up to but not exceeding a reasonable count for testing
+        // (We can't easily test MAX_FILE_COUNT=100,000 but we verify the mechanism works)
+        for i in 0..10 {
+            std::fs::write(tmpdir.path().join(format!("file{}.txt", i)), "content").unwrap();
+        }
+
+        let result = list_files(tmpdir.path()).unwrap();
+        assert_eq!(result.files.len(), 10);
+        assert!(!result.truncated, "should not truncate with only 10 files");
+    }
+
+    #[test]
+    fn test_list_files_empty_directory() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        let result = list_files(tmpdir.path()).unwrap();
+        assert!(result.files.is_empty());
+        assert!(!result.truncated);
+    }
+
+    #[test]
+    fn test_list_files_nested_directories() {
+        let tmpdir = tempfile::tempdir().unwrap();
+
+        // Create nested structure
+        let deep = tmpdir.path().join("a/b/c/d");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::write(deep.join("deep.txt"), "content").unwrap();
+        std::fs::write(tmpdir.path().join("root.txt"), "content").unwrap();
+
+        let result = list_files(tmpdir.path()).unwrap();
+        assert_eq!(result.files.len(), 2);
+        // Files should be sorted
+        assert!(result.files.iter().any(|f| f.file.ends_with("deep.txt")));
+        assert!(result.files.iter().any(|f| f.file.ends_with("root.txt")));
     }
 }

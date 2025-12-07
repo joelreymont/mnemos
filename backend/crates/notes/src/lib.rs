@@ -651,4 +651,134 @@ mod tests {
         );
         true
     }
+
+    // Test summarize function
+    #[test]
+    fn test_summarize_short_text() {
+        let text = "Short text";
+        assert_eq!(summarize(text), "Short text");
+    }
+
+    #[test]
+    fn test_summarize_truncates_long_text() {
+        let text = "This is a very long text that should be truncated because it exceeds sixty characters limit";
+        let summary = summarize(text);
+        assert!(summary.len() <= 60);
+        assert!(summary.ends_with("..."));
+    }
+
+    #[test]
+    fn test_summarize_first_line_only() {
+        let text = "First line\nSecond line\nThird line";
+        assert_eq!(summarize(text), "First line");
+    }
+
+    #[test]
+    fn test_summarize_unicode() {
+        // Unicode characters should be handled correctly (not truncated mid-character)
+        let text = "日本語テスト文字列がここにあります。これは長いテキストです。";
+        let summary = summarize(text);
+        assert!(summary.is_empty() || summary.chars().all(|c| !c.is_ascii_control()));
+    }
+
+    // Test link extraction
+    #[test]
+    fn test_extract_links_finds_valid_links() {
+        let text = "See [[related note][12345678-1234-1234-1234-123456789012]] and [[another][abcdefab-abcd-abcd-abcd-abcdefabcdef]]";
+        let links = extract_links(text);
+        assert_eq!(links.len(), 2);
+        assert!(links.contains(&"12345678-1234-1234-1234-123456789012".to_string()));
+        assert!(links.contains(&"abcdefab-abcd-abcd-abcd-abcdefabcdef".to_string()));
+    }
+
+    #[test]
+    fn test_extract_links_empty_text() {
+        let links = extract_links("");
+        assert!(links.is_empty());
+    }
+
+    #[test]
+    fn test_extract_links_no_links() {
+        let links = extract_links("No links in this text");
+        assert!(links.is_empty());
+    }
+
+    #[test]
+    fn test_extract_links_ignores_invalid_format() {
+        // Wrong format - missing parts
+        let links = extract_links("[[not-a-uuid]] [just text]");
+        assert!(links.is_empty());
+    }
+
+    // Test display fields computation
+    #[test]
+    fn test_compute_display_fields_fresh() {
+        let df = compute_display_fields("abc12345", "Test summary", "Full text", "file.rs", 42, false);
+        assert_eq!(df.display_marker, "[n:abc12345]");
+        assert!(df.hover_text.contains("**Note**"));
+        assert!(df.hover_text.contains("abc12345"));
+        assert!(!df.hover_text.contains("[STALE]"));
+        assert_eq!(df.icon_hint, "fresh");
+        assert_eq!(df.display_label, "[Note] Test summary");
+        assert_eq!(df.display_detail, "file.rs:42");
+    }
+
+    #[test]
+    fn test_compute_display_fields_stale() {
+        let df = compute_display_fields("abc12345", "Test summary", "Full text", "file.rs", 42, true);
+        assert!(df.hover_text.contains("[STALE]"));
+        assert_eq!(df.icon_hint, "stale");
+    }
+
+    // Test format_timestamp
+    #[test]
+    fn test_format_timestamp_valid() {
+        // Known timestamp: 2024-01-15 00:00:00 UTC = 1705276800
+        let ts = 1705276800;
+        let formatted = format_timestamp(ts);
+        // Should be a valid date format (exact value depends on local timezone)
+        assert!(formatted.contains("2024") || formatted.contains("2025")); // depends on timezone
+    }
+
+    #[test]
+    fn test_format_timestamp_zero() {
+        // Unix epoch
+        let formatted = format_timestamp(0);
+        assert!(formatted.contains("1970") || formatted.contains("1969")); // depends on timezone
+    }
+
+    // Property: summarize never panics on any input
+    #[quickcheck]
+    fn prop_summarize_never_panics(input: String) -> bool {
+        let _ = summarize(&input);
+        true
+    }
+
+    // Property: summarize output is bounded
+    #[quickcheck]
+    fn prop_summarize_bounded_length(input: String) -> bool {
+        let summary = summarize(&input);
+        summary.len() <= 60 + 3 // max 60 chars + "..."
+    }
+
+    // Property: extract_links never panics
+    #[quickcheck]
+    fn prop_extract_links_never_panics(input: String) -> bool {
+        let _ = extract_links(&input);
+        true
+    }
+
+    // Property: display fields computation never panics
+    #[quickcheck]
+    fn prop_display_fields_never_panics(
+        short_id: String,
+        summary: String,
+        text: String,
+        file: String,
+        line: i64,
+        stale: bool,
+    ) -> bool {
+        let _ = compute_display_fields(&short_id, &summary, &text, &file, line, stale);
+        true
+    }
 }

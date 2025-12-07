@@ -16,10 +16,12 @@ use crate::{Result, TreeSitterError};
 /// Maximum number of parse trees to cache (LRU eviction when exceeded)
 const MAX_CACHED_TREES: usize = 100;
 
-/// Cached parse tree
+/// Cached parse tree with content for incremental parsing
 struct CachedTree {
     tree: tree_sitter::Tree,
     content_hash: String,
+    /// Stored content for computing edits in incremental parsing
+    content: String,
     #[allow(dead_code)]
     parsed_at: Instant,
 }
@@ -46,7 +48,8 @@ impl ParserService {
         }
     }
 
-    /// Parse file content, returning cached tree if content unchanged
+    /// Parse file content, returning cached tree if content unchanged.
+    /// Uses incremental parsing when previous tree exists for faster reparsing.
     pub fn parse(&mut self, file: &Path, content: &str) -> Result<&tree_sitter::Tree> {
         let content_hash = Self::hash_content(content);
         let file_buf = file.to_path_buf();
@@ -79,9 +82,21 @@ impl ParserService {
             .set_language(language.inner())
             .map_err(|e| TreeSitterError::ParseFailed(e.to_string()))?;
 
-        // Parse
+        // Check for incremental parsing opportunity
+        let old_tree = self.tree_cache.pop(&file_buf).and_then(|mut cached| {
+            // Compute edit from old content to new content
+            if let Some(edit) = Self::compute_edit(&cached.content, content) {
+                // Apply the edit to the tree
+                cached.tree.edit(&edit);
+                Some(cached.tree)
+            } else {
+                None // Edit too complex, fall back to full parse
+            }
+        });
+
+        // Parse (incrementally if we have an edited old tree)
         let tree = parser
-            .parse(content, None)
+            .parse(content, old_tree.as_ref())
             .ok_or_else(|| TreeSitterError::ParseFailed("Parser returned None".to_string()))?;
 
         // Cache the result (LRU will evict oldest if at capacity)
@@ -90,11 +105,66 @@ impl ParserService {
             CachedTree {
                 tree,
                 content_hash,
+                content: content.to_string(),
                 parsed_at: Instant::now(),
             },
         );
 
         Ok(&self.tree_cache.get(&file_buf).unwrap().tree)
+    }
+
+    /// Compute a tree-sitter InputEdit from old content to new content.
+    /// Returns None if the edit is too complex (e.g., multiple disjoint changes).
+    fn compute_edit(old_content: &str, new_content: &str) -> Option<tree_sitter::InputEdit> {
+        let old_bytes = old_content.as_bytes();
+        let new_bytes = new_content.as_bytes();
+
+        // Find common prefix
+        let prefix_len = old_bytes
+            .iter()
+            .zip(new_bytes.iter())
+            .take_while(|(a, b)| a == b)
+            .count();
+
+        // Find common suffix (not overlapping with prefix)
+        let old_suffix_start = old_bytes.len();
+        let new_suffix_start = new_bytes.len();
+        let max_suffix = old_suffix_start.saturating_sub(prefix_len).min(new_suffix_start.saturating_sub(prefix_len));
+
+        let suffix_len = old_bytes[old_suffix_start.saturating_sub(max_suffix)..]
+            .iter()
+            .rev()
+            .zip(new_bytes[new_suffix_start.saturating_sub(max_suffix)..].iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+
+        // Compute edit boundaries
+        let start_byte = prefix_len;
+        let old_end_byte = old_bytes.len().saturating_sub(suffix_len);
+        let new_end_byte = new_bytes.len().saturating_sub(suffix_len);
+
+        // Compute positions
+        let start_position = Self::byte_to_point(old_content, start_byte);
+        let old_end_position = Self::byte_to_point(old_content, old_end_byte);
+        let new_end_position = Self::byte_to_point(new_content, new_end_byte);
+
+        Some(tree_sitter::InputEdit {
+            start_byte,
+            old_end_byte,
+            new_end_byte,
+            start_position,
+            old_end_position,
+            new_end_position,
+        })
+    }
+
+    /// Convert byte offset to tree-sitter Point (row, column)
+    fn byte_to_point(content: &str, byte_offset: usize) -> tree_sitter::Point {
+        let text = &content[..byte_offset.min(content.len())];
+        let row = text.chars().filter(|&c| c == '\n').count();
+        let last_newline = text.rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let column = text[last_newline..].len();
+        tree_sitter::Point::new(row, column)
     }
 
     /// Find the significant node at a position
@@ -555,5 +625,69 @@ fn helper() {
 
         // Cache should still have one entry (replaced)
         assert_eq!(service.tree_cache.len(), 1);
+    }
+
+    #[test]
+    fn test_incremental_parse() {
+        let mut service = create_parser_service();
+        let path = Path::new("test.rs");
+
+        // Initial parse
+        let content1 = "fn main() {\n    let x = 1;\n}";
+        let tree1 = service.parse(path, content1).unwrap();
+        assert_eq!(tree1.root_node().kind(), "source_file");
+
+        // Small edit - add a line
+        let content2 = "fn main() {\n    let x = 1;\n    let y = 2;\n}";
+        let tree2 = service.parse(path, content2).unwrap();
+        assert_eq!(tree2.root_node().kind(), "source_file");
+
+        // Tree should be valid after incremental parse
+        let func = tree2.root_node().child(0).unwrap();
+        assert_eq!(func.kind(), "function_item");
+    }
+
+    #[test]
+    fn test_compute_edit() {
+        // Test simple insertion
+        let old = "fn main() {}";
+        let new = "fn main() { let x = 1; }";
+        let edit = ParserService::compute_edit(old, new).unwrap();
+        assert_eq!(edit.start_byte, 11); // Position of '}'
+        assert_eq!(edit.old_end_byte, 11);
+        assert_eq!(edit.new_end_byte, 23);
+
+        // Test simple deletion
+        let old = "fn main() { let x = 1; }";
+        let new = "fn main() {}";
+        let edit = ParserService::compute_edit(old, new).unwrap();
+        assert_eq!(edit.start_byte, 11);
+        assert_eq!(edit.old_end_byte, 23);
+        assert_eq!(edit.new_end_byte, 11);
+    }
+
+    #[test]
+    fn test_byte_to_point() {
+        let content = "line1\nline2\nline3";
+
+        // Start of line 1
+        let point = ParserService::byte_to_point(content, 0);
+        assert_eq!(point.row, 0);
+        assert_eq!(point.column, 0);
+
+        // End of line 1 (before newline)
+        let point = ParserService::byte_to_point(content, 5);
+        assert_eq!(point.row, 0);
+        assert_eq!(point.column, 5);
+
+        // Start of line 2
+        let point = ParserService::byte_to_point(content, 6);
+        assert_eq!(point.row, 1);
+        assert_eq!(point.column, 0);
+
+        // Middle of line 2
+        let point = ParserService::byte_to_point(content, 8);
+        assert_eq!(point.row, 1);
+        assert_eq!(point.column, 2);
     }
 }

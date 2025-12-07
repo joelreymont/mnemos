@@ -55,6 +55,24 @@ CREATE INDEX IF NOT EXISTS idx_edges_src ON edges(src);
 CREATE INDEX IF NOT EXISTS idx_edges_dst ON edges(dst);
 CREATE INDEX IF NOT EXISTS idx_edges_project ON edges(project_root);
 
+CREATE TABLE IF NOT EXISTS note_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  note_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  text TEXT,
+  line INTEGER,
+  column INTEGER,
+  node_path TEXT,
+  commit_sha TEXT,
+  blob_sha TEXT,
+  reason TEXT,
+  created_at INTEGER,
+  UNIQUE(note_id, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_note_versions_note ON note_versions(note_id);
+CREATE INDEX IF NOT EXISTS idx_note_versions_created ON note_versions(created_at DESC);
+
 CREATE TABLE IF NOT EXISTS project_meta (
   project_root TEXT PRIMARY KEY,
   indexed_at INTEGER,
@@ -443,4 +461,121 @@ pub fn project_analysis_stale(conn: &Connection, project_root: &str, current_com
     }
     // No analysis or no commit recorded means stale
     Ok(true)
+}
+
+/// A version of a note's state at a point in time
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteVersion {
+    pub note_id: String,
+    pub version: i64,
+    pub text: Option<String>,
+    pub line: i64,
+    pub column: i64,
+    pub node_path: Option<String>,
+    pub commit_sha: Option<String>,
+    pub blob_sha: Option<String>,
+    pub reason: Option<String>,
+    pub created_at: i64,
+}
+
+/// Save a version of a note before update
+pub fn save_note_version(
+    conn: &Connection,
+    note_id: &str,
+    text: Option<&str>,
+    line: i64,
+    column: i64,
+    node_path: Option<&str>,
+    commit_sha: Option<&str>,
+    blob_sha: Option<&str>,
+    reason: Option<&str>,
+) -> Result<i64> {
+    let now = now_unix();
+
+    // Get next version number
+    let next_version: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(version), 0) + 1 FROM note_versions WHERE note_id = ?1",
+            [note_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(1);
+
+    conn.execute(
+        "INSERT INTO note_versions (note_id, version, text, line, column, node_path, commit_sha, blob_sha, reason, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        rusqlite::params![note_id, next_version, text, line, column, node_path, commit_sha, blob_sha, reason, now],
+    )?;
+
+    Ok(next_version)
+}
+
+/// List all versions of a note (most recent first)
+pub fn list_note_versions(conn: &Connection, note_id: &str, limit: usize) -> Result<Vec<NoteVersion>> {
+    let mut stmt = conn.prepare(
+        "SELECT note_id, version, text, line, column, node_path, commit_sha, blob_sha, reason, created_at
+         FROM note_versions
+         WHERE note_id = ?1
+         ORDER BY version DESC
+         LIMIT ?2",
+    )?;
+
+    let rows = stmt.query_map(rusqlite::params![note_id, limit], |row| {
+        Ok(NoteVersion {
+            note_id: row.get(0)?,
+            version: row.get(1)?,
+            text: row.get(2)?,
+            line: row.get(3)?,
+            column: row.get(4)?,
+            node_path: row.get(5)?,
+            commit_sha: row.get(6)?,
+            blob_sha: row.get(7)?,
+            reason: row.get(8)?,
+            created_at: row.get(9)?,
+        })
+    })?;
+
+    let mut versions = Vec::new();
+    for row in rows {
+        versions.push(row?);
+    }
+    Ok(versions)
+}
+
+/// Get a specific version of a note
+pub fn get_note_version(conn: &Connection, note_id: &str, version: i64) -> Result<Option<NoteVersion>> {
+    let mut stmt = conn.prepare(
+        "SELECT note_id, version, text, line, column, node_path, commit_sha, blob_sha, reason, created_at
+         FROM note_versions
+         WHERE note_id = ?1 AND version = ?2",
+    )?;
+
+    let mut rows = stmt.query(rusqlite::params![note_id, version])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(NoteVersion {
+            note_id: row.get(0)?,
+            version: row.get(1)?,
+            text: row.get(2)?,
+            line: row.get(3)?,
+            column: row.get(4)?,
+            node_path: row.get(5)?,
+            commit_sha: row.get(6)?,
+            blob_sha: row.get(7)?,
+            reason: row.get(8)?,
+            created_at: row.get(9)?,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Count versions for a note
+pub fn count_note_versions(conn: &Connection, note_id: &str) -> Result<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM note_versions WHERE note_id = ?1",
+        [note_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| e.into())
 }
