@@ -617,10 +617,12 @@ fn print_help() {
     println!();
     println!("USAGE:");
     println!("    hemis [OPTIONS]");
+    println!("    hemis ensure-daemon");
     println!("    hemis grammar <COMMAND>");
     println!("    hemis oracle <QUESTION>");
     println!();
     println!("SUBCOMMANDS:");
+    println!("    ensure-daemon  Ensure daemon is running, output JSON with socket path");
     println!("    grammar        Manage tree-sitter grammars (list, fetch, build)");
     println!("    oracle         Ask codex -m o3 for help with difficult questions");
     println!();
@@ -759,10 +761,91 @@ fn run_oracle_command(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Ensure daemon is running and return connection info.
+/// This is the entry point for clients to discover/start the daemon.
+fn run_ensure_daemon() -> Result<()> {
+    use std::os::unix::net::UnixStream;
+    use std::time::Duration;
+
+    let hemis_dir = dirs::home_dir()
+        .map(|h| h.join(".hemis"))
+        .unwrap_or_else(|| PathBuf::from(".hemis"));
+    let socket_path = hemis_dir.join("hemis.sock");
+    let events_socket_path = hemis_dir.join("events.sock");
+    let lock_path = hemis_dir.join("hemis.lock");
+
+    // Try to connect to existing daemon
+    if socket_path.exists() {
+        match UnixStream::connect(&socket_path) {
+            Ok(_stream) => {
+                // Daemon is running
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "status": "running",
+                        "socketPath": socket_path.to_string_lossy(),
+                        "eventsSocketPath": events_socket_path.to_string_lossy(),
+                        "started": false
+                    })
+                );
+                return Ok(());
+            }
+            Err(_) => {
+                // Socket exists but not connectable - stale
+                eprintln!("Cleaning up stale socket...");
+                let _ = std::fs::remove_file(&socket_path);
+                let _ = std::fs::remove_file(&events_socket_path);
+                let _ = std::fs::remove_file(&lock_path);
+            }
+        }
+    }
+
+    // Create hemis directory if needed
+    std::fs::create_dir_all(&hemis_dir)?;
+
+    // Start daemon in background
+    let exe = std::env::current_exe()?;
+    let child = Command::new(&exe)
+        .arg("--serve")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+
+    eprintln!("Started daemon (pid {})", child.id());
+
+    // Wait for socket to appear (up to 5 seconds)
+    for _ in 0..50 {
+        std::thread::sleep(Duration::from_millis(100));
+        if socket_path.exists() {
+            if UnixStream::connect(&socket_path).is_ok() {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "status": "running",
+                        "socketPath": socket_path.to_string_lossy(),
+                        "eventsSocketPath": events_socket_path.to_string_lossy(),
+                        "started": true,
+                        "pid": child.id()
+                    })
+                );
+                return Ok(());
+            }
+        }
+    }
+
+    anyhow::bail!("Daemon failed to start within 5 seconds");
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
-    // Check for grammar subcommand first
+    // Check for ensure-daemon subcommand first
+    if args.len() > 1 && args[1] == "ensure-daemon" {
+        return run_ensure_daemon();
+    }
+
+    // Check for grammar subcommand
     if args.len() > 1 && args[1] == "grammar" {
         return run_grammar_command(&args[2..]);
     }
