@@ -493,9 +493,10 @@ export async function backlinksCommand(): Promise<void> {
       return;
     }
 
+    // Backend guarantees displayMarker is always present
     const items = backlinks.map((n) => ({
       label: n.summary,
-      description: n.displayMarker || path.basename(n.file),
+      description: n.displayMarker,
       detail: `Line ${n.line}`,
       note: n,
     }));
