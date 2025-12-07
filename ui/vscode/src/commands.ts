@@ -85,12 +85,6 @@ export async function addNoteCommand(): Promise<void> {
     return;
   }
 
-  const projectRoot = getProjectRoot();
-  if (!projectRoot) {
-    vscode.window.showErrorMessage('No workspace folder open');
-    return;
-  }
-
   const text = await vscode.window.showInputBox({
     prompt: 'Enter note text',
     placeHolder: 'Note about this code...',
@@ -102,11 +96,12 @@ export async function addNoteCommand(): Promise<void> {
 
   const document = editor.document;
   const position = editor.selection.active;
+  const projectRoot = getProjectRoot(); // Optional - backend derives from file if not provided
 
   try {
     await createNote({
       file: document.uri.fsPath,
-      projectRoot,
+      projectRoot: projectRoot || undefined,
       line: position.line + 1, // 1-indexed
       column: position.character,
       text,
@@ -299,14 +294,10 @@ export async function listNotesCommand(): Promise<void> {
   }
 
   const file = editor.document.uri.fsPath;
-  const projectRoot = getProjectRoot();
-  if (!projectRoot) {
-    vscode.window.showErrorMessage('No workspace folder open');
-    return;
-  }
+  const projectRoot = getProjectRoot(); // Optional - backend derives from file if not provided
 
   try {
-    const notes = await listNotes(file, projectRoot);
+    const notes = await listNotes(file, projectRoot || undefined);
 
     if (notes.length === 0) {
       vscode.window.showInformationMessage('No notes in this file');
