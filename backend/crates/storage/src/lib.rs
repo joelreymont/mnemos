@@ -1,6 +1,7 @@
 //! storage: SQLite connection and migrations.
 
 use anyhow::Result;
+use log::warn;
 use rusqlite::Connection;
 
 const SCHEMA: &str = r#"
@@ -326,7 +327,7 @@ where
         Err(e) => {
             // Log rollback failure but still return the original error
             if let Err(rollback_err) = conn.execute("ROLLBACK", []) {
-                eprintln!("Warning: ROLLBACK failed after error: {}", rollback_err);
+                warn!("ROLLBACK failed after error: {}", rollback_err);
             }
             Err(e)
         }

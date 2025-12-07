@@ -6,6 +6,7 @@
 //! User-installed grammars require a `.sha256` hash file for integrity verification.
 //! The hash file must contain the SHA-256 hash of the library file.
 
+use log::warn;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -174,7 +175,7 @@ impl GrammarRegistry {
                         self.grammars.insert(canonical_name, lang);
                     }
                     Err(e) => {
-                        eprintln!("Warning: Failed to load grammar from {:?}: {}", path, e);
+                        warn!("Failed to load grammar from {:?}: {}", path, e);
                     }
                 }
             }

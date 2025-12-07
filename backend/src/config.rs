@@ -10,6 +10,7 @@
 //!   db-path = "/path/to/hemis.db"
 //!   ai-provider = "claude"  # or "codex", "none"
 
+use log::warn;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -64,12 +65,12 @@ pub fn load_config_from(path: Option<&Path>) -> HemisConfig {
             Ok(content) => match toml::from_str(&content) {
                 Ok(config) => config,
                 Err(e) => {
-                    eprintln!("Warning: Failed to parse {}: {}", config_path.display(), e);
+                    warn!("Failed to parse {}: {}", config_path.display(), e);
                     HemisConfig::default()
                 }
             },
             Err(e) => {
-                eprintln!("Warning: Failed to read {}: {}", config_path.display(), e);
+                warn!("Failed to read {}: {}", config_path.display(), e);
                 HemisConfig::default()
             }
         }

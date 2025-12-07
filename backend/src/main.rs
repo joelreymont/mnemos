@@ -838,6 +838,11 @@ fn run_ensure_daemon() -> Result<()> {
 }
 
 fn main() -> Result<()> {
+    // Initialize logging: HEMIS_LOG=debug for verbose, default is info
+    env_logger::Builder::from_env(env_logger::Env::default().filter_or("HEMIS_LOG", "info"))
+        .format_timestamp_millis()
+        .init();
+
     let args: Vec<String> = std::env::args().collect();
 
     // Check for ensure-daemon subcommand first

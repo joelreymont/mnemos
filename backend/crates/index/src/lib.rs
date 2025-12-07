@@ -1,6 +1,7 @@
 //! index: naive text indexing and search.
 
 use anyhow::{anyhow, Result};
+use log::warn;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -624,8 +625,8 @@ pub fn semantic_search(
         // Skip vectors with mismatched dimensions (comparing different embedding models)
         if vector.len() != query_vector.len() {
             let file: String = row.get("file").unwrap_or_default();
-            eprintln!(
-                "[index] Warning: embedding dimension mismatch for {}: {} vs {} (expected)",
+            warn!(
+                "[index] embedding dimension mismatch for {}: {} vs {} (expected)",
                 file,
                 vector.len(),
                 query_vector.len()

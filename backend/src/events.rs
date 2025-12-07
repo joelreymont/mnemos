@@ -3,6 +3,7 @@
 //! Provides a push-based notification mechanism via a Unix socket.
 //! Clients connect to ~/.hemis/events.sock and receive JSON-lines events.
 
+use log::{debug, error, info, warn};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
@@ -128,7 +129,7 @@ fn broadcaster_loop(
             let subs = match subscribers.read() {
                 Ok(guard) => guard,
                 Err(poisoned) => {
-                    eprintln!("[events] Subscriber lock poisoned, recovering");
+                    warn!("[events] Subscriber lock poisoned, recovering");
                     poisoned.into_inner()
                 }
             };
@@ -162,13 +163,13 @@ fn broadcaster_loop(
             let mut subs = match subscribers.write() {
                 Ok(guard) => guard,
                 Err(poisoned) => {
-                    eprintln!("[events] Subscriber lock poisoned, recovering");
+                    warn!("[events] Subscriber lock poisoned, recovering");
                     poisoned.into_inner()
                 }
             };
             for id in failed {
                 subs.remove(&id);
-                eprintln!("[events] Client {} write failed, removed", id);
+                debug!("[events] Client {} write failed, removed", id);
             }
         }
     }
@@ -199,7 +200,7 @@ pub fn start_event_server(socket_path: PathBuf) {
     thread::spawn(move || {
         match UnixListener::bind(&socket_path) {
             Ok(listener) => {
-                eprintln!("[events] Event server listening on {}", socket_path.display());
+                info!("[events] Event server listening on {}", socket_path.display());
 
                 for stream in listener.incoming() {
                     match stream {
@@ -227,7 +228,7 @@ pub fn start_event_server(socket_path: PathBuf) {
                                     Err(poisoned) => poisoned.into_inner(),
                                 };
                                 s.insert(id, Arc::new(Mutex::new(stream)));
-                                eprintln!("[events] Client {} connected ({} total)", id, s.len());
+                                info!("[events] Client {} connected ({} total)", id, s.len());
                                 id
                             };
 
@@ -237,13 +238,13 @@ pub fn start_event_server(socket_path: PathBuf) {
                             let _ = id;
                         }
                         Err(e) => {
-                            eprintln!("[events] Connection error: {}", e);
+                            error!("[events] Connection error: {}", e);
                         }
                     }
                 }
             }
             Err(e) => {
-                eprintln!("[events] Failed to bind socket {}: {}", socket_path.display(), e);
+                error!("[events] Failed to bind socket {}: {}", socket_path.display(), e);
             }
         }
     });

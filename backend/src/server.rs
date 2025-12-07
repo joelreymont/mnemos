@@ -19,6 +19,8 @@ use rpc::{decode_framed, encode_response, Response};
 use serde_json::json;
 use storage::connect;
 
+use log::{debug, error, info, warn};
+
 use crate::events;
 use crate::version::{GIT_HASH, PROTOCOL_VERSION, VersionInfo};
 use crate::{create_parser_service, parse_and_handle, preload};
@@ -66,7 +68,7 @@ impl Server {
 
         // Create the socket
         let listener = UnixListener::bind(&self.socket_path)?;
-        eprintln!("Hemis server listening on {}", self.socket_path.display());
+        info!("Hemis server listening on {}", self.socket_path.display());
 
         // Write PID to lock file
         fs::write(
@@ -85,7 +87,7 @@ impl Server {
         for stream in listener.incoming() {
             match stream {
                 Ok(stream) => self.handle_client(stream),
-                Err(e) => eprintln!("Connection failed: {}", e),
+                Err(e) => error!("Connection failed: {}", e),
             }
         }
 
@@ -95,7 +97,7 @@ impl Server {
     /// Handle a client connection in a new thread.
     fn handle_client(&self, stream: UnixStream) {
         let count = self.connections.fetch_add(1, Ordering::SeqCst) + 1;
-        eprintln!("Client connected ({} total)", count);
+        info!("Client connected ({} total)", count);
 
         // Cancel any pending shutdown
         self.shutdown_scheduled.store(false, Ordering::SeqCst);
@@ -113,7 +115,7 @@ impl Server {
             let conn = match connect(&db_path) {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("Failed to connect to DB: {}", e);
+                    error!("Failed to connect to DB: {}", e);
                     connections.fetch_sub(1, Ordering::SeqCst);
                     return;
                 }
@@ -121,19 +123,19 @@ impl Server {
 
             // Verify schema is accessible
             if let Err(e) = preload::sanity_check(&conn) {
-                eprintln!("Schema sanity check failed: {}", e);
+                warn!("Schema sanity check failed: {}", e);
             }
 
             if let Err(e) = handle_connection(stream, &conn, &parser_service, start_time, &connections) {
                 // Don't log "broken pipe" errors - that's just client disconnect
                 let err_str = e.to_string();
                 if !err_str.contains("Broken pipe") && !err_str.contains("Connection reset") {
-                    eprintln!("Connection error: {}", e);
+                    debug!("Connection error: {}", e);
                 }
             }
 
             let remaining = connections.fetch_sub(1, Ordering::SeqCst) - 1;
-            eprintln!("Client disconnected ({} remaining)", remaining);
+            info!("Client disconnected ({} remaining)", remaining);
 
             if remaining == 0 {
                 schedule_shutdown_check(connections, shutdown_scheduled, socket_path, lock_path);
@@ -205,7 +207,7 @@ fn handle_request(
                 // Schedule shutdown after response is sent
                 std::thread::spawn(|| {
                     std::thread::sleep(Duration::from_millis(100));
-                    eprintln!("Shutdown requested, exiting...");
+                    info!("Shutdown requested, exiting...");
                     std::process::exit(0);
                 });
                 return Response::result(req.id, json!({"status": "shutting_down"}));
@@ -240,17 +242,17 @@ fn schedule_shutdown_check(
     }
 
     std::thread::spawn(move || {
-        eprintln!(
+        info!(
             "No clients connected, scheduling shutdown in {}s",
             SHUTDOWN_GRACE_SECS
         );
         std::thread::sleep(Duration::from_secs(SHUTDOWN_GRACE_SECS));
 
         if connections.load(Ordering::SeqCst) == 0 {
-            eprintln!("No clients for {}s, shutting down", SHUTDOWN_GRACE_SECS);
+            info!("No clients for {}s, shutting down", SHUTDOWN_GRACE_SECS);
             cleanup_and_exit(socket_path, lock_path);
         } else {
-            eprintln!("Clients reconnected, cancelling shutdown");
+            info!("Clients reconnected, cancelling shutdown");
             shutdown_scheduled.store(false, Ordering::SeqCst);
         }
     });

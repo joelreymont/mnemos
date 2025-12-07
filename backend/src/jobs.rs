@@ -4,6 +4,7 @@
 //! thread, preventing long-running operations from blocking RPC responses.
 
 use crate::events::{self, Event};
+use log::{debug, error, warn};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -205,7 +206,7 @@ pub fn process_index_project(
                     match index::add_file(db, &f.file, root, &content) {
                         Ok(Some(_)) => indexed += 1,
                         Ok(None) => skipped += 1,
-                        Err(e) => eprintln!("index failed for {}: {}", f.file, e),
+                        Err(e) => warn!("index failed for {}: {}", f.file, e),
                     }
                 }
             }
@@ -220,7 +221,7 @@ pub fn process_index_project(
                 let root_path = Path::new(root).to_path_buf();
                 std::thread::spawn(move || {
                     if let Err(e) = crate::ai_cli::warm_up_claude(&root_path) {
-                        eprintln!("[hemis] Claude warm-up failed: {}", e);
+                        debug!("[hemis] Claude warm-up failed: {}", e);
                     }
                 });
             }
@@ -289,7 +290,7 @@ pub fn process_index_project(
             Ok(result)
         }
         Err(e) => {
-            eprintln!("Failed to list files: {}", e);
+            error!("Failed to list files: {}", e);
             Err(rusqlite::Error::InvalidQuery)
         }
     }

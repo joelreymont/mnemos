@@ -1,5 +1,6 @@
 use anyhow::Context;
 use git::info_for_file;
+use log::{debug, warn};
 use index as idx;
 use notes::{self, Note, NoteFilters};
 use rpc::{Request, Response, INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, PARSE_ERROR};
@@ -936,7 +937,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                 match idx::add_file(db, &f.file, root, &content) {
                                     Ok(Some(_)) => indexed += 1,
                                     Ok(None) => skipped += 1, // unchanged
-                                    Err(e) => eprintln!("index failed for {}: {}", f.file, e),
+                                    Err(e) => warn!("index failed for {}: {}", f.file, e),
                                 }
                             }
                         }
@@ -949,7 +950,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                             let root_path = Path::new(root).to_path_buf();
                             std::thread::spawn(move || {
                                 if let Err(e) = ai_cli::warm_up_claude(&root_path) {
-                                    eprintln!("[hemis] Claude warm-up failed: {}", e);
+                                    debug!("[hemis] Claude warm-up failed: {}", e);
                                 }
                             });
                         }

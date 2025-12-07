@@ -4,6 +4,7 @@
 //! (e.g., git checkout, external editor). When files with notes change,
 //! notifies connected clients to refresh their note positions.
 
+use log::warn;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -70,7 +71,7 @@ impl FileWatcher {
                         let mut pending = match pending_for_handler.lock() {
                             Ok(guard) => guard,
                             Err(_) => {
-                                eprintln!("Warning: file watcher mutex poisoned, skipping event");
+                                warn!("file watcher mutex poisoned, skipping event");
                                 return;
                             }
                         };
@@ -103,7 +104,7 @@ impl FileWatcher {
                     let mut pending = match pending_for_processor.lock() {
                         Ok(guard) => guard,
                         Err(_) => {
-                            eprintln!("Warning: file watcher pending mutex poisoned, skipping cycle");
+                            warn!("file watcher pending mutex poisoned, skipping cycle");
                             continue;
                         }
                     };
@@ -131,7 +132,7 @@ impl FileWatcher {
                         let guard = match callbacks_for_processor.lock() {
                             Ok(g) => g,
                             Err(_) => {
-                                eprintln!("Warning: file watcher callbacks mutex poisoned, skipping notifications");
+                                warn!("file watcher callbacks mutex poisoned, skipping notifications");
                                 continue;
                             }
                         };

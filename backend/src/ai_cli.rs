@@ -11,6 +11,7 @@
 //! simpler behaviour (e.g. returning the raw snippet).
 
 use anyhow::{anyhow, Context, Result};
+use log::{debug, warn};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -189,7 +190,7 @@ impl PersistentClaude {
     fn query(&mut self, prompt: &str) -> Result<String> {
         use std::io::{BufRead, Write};
 
-        eprintln!("[hemis] Sending query to persistent Claude...");
+        debug!("[hemis] Sending query to persistent Claude...");
 
         // Send user message in stream-json format
         let msg = serde_json::json!({
@@ -202,7 +203,7 @@ impl PersistentClaude {
         writeln!(self.stdin, "{}", msg)?;
         self.stdin.flush()?;
 
-        eprintln!("[hemis] Query sent, waiting for response...");
+        debug!("[hemis] Query sent, waiting for response...");
 
         // Read responses until we get the result message
         let start = Instant::now();
@@ -226,12 +227,12 @@ impl PersistentClaude {
                     // Parse JSON response
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
                         let msg_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
-                        eprintln!("[hemis] Claude message type: {}", msg_type);
+                        debug!("[hemis] Claude message type: {}", msg_type);
 
                         // Check for result message (final response)
                         if msg_type == "result" {
                             if let Some(text) = json.get("result").and_then(|r| r.as_str()) {
-                                eprintln!("[hemis] Got result after {} lines, {} chars", line_count, text.len());
+                                debug!("[hemis] Got result after {} lines, {} chars", line_count, text.len());
                                 return Ok(text.to_string());
                             }
                             // Check for error
@@ -272,11 +273,11 @@ fn get_persistent_claude(project_root: &Path) -> Result<std::sync::MutexGuard<'s
         None => true,
         Some(claude) => {
             if !claude.is_alive() {
-                eprintln!("[hemis] Claude process died, respawning...");
+                debug!("[hemis] Claude process died, respawning...");
                 true
             } else if claude.project_root != project_root {
                 // Project changed - kill old process and spawn new one for isolation
-                eprintln!(
+                debug!(
                     "[hemis] Project changed ({} -> {}), respawning Claude...",
                     claude.project_root.display(),
                     project_root.display()
@@ -289,7 +290,7 @@ fn get_persistent_claude(project_root: &Path) -> Result<std::sync::MutexGuard<'s
     };
 
     if needs_spawn {
-        eprintln!("[hemis] Spawning persistent Claude process for {}...", project_root.display());
+        debug!("[hemis] Spawning persistent Claude process for {}...", project_root.display());
         *guard = Some(PersistentClaude::spawn(project_root)?);
     }
 
@@ -306,7 +307,7 @@ pub fn warm_up_claude(project_root: &Path) -> Result<()> {
     // Send a simple query to ensure Claude is fully initialized
     if let Some(claude) = guard.as_mut() {
         let _ = claude.query("Say OK")?;
-        eprintln!("[hemis] Claude process warmed up and ready");
+        debug!("[hemis] Claude process warmed up and ready");
     }
 
     Ok(())
@@ -661,42 +662,42 @@ fn run_codex(project_root: &Path, prompt: &str) -> Result<String> {
 /// Helper: run Claude Code CLI with a prompt in the given project root.
 /// Uses persistent process for fast response times after first call.
 fn run_claude(project_root: &Path, prompt: &str) -> Result<String> {
-    eprintln!("[hemis] run_claude: starting...");
+    debug!("[hemis] run_claude: starting...");
 
     // Acquire concurrency guard (limits parallel AI calls and rate limiting)
     let _concurrency_guard = AiCallGuard::try_acquire()?;
-    eprintln!("[hemis] run_claude: acquired concurrency guard");
+    debug!("[hemis] run_claude: acquired concurrency guard");
 
     // Validate project root
     let safe_project_root = validate_project_root(project_root)?;
-    eprintln!("[hemis] run_claude: validated project root");
+    debug!("[hemis] run_claude: validated project root");
 
     // Try persistent process first
-    eprintln!("[hemis] run_claude: trying to get persistent claude...");
+    debug!("[hemis] run_claude: trying to get persistent claude...");
     if let Ok(mut guard) = get_persistent_claude(&safe_project_root) {
-        eprintln!("[hemis] run_claude: got persistent claude mutex");
+        debug!("[hemis] run_claude: got persistent claude mutex");
         if let Some(claude) = guard.as_mut() {
-            eprintln!("[hemis] run_claude: sending query to persistent claude...");
+            debug!("[hemis] run_claude: sending query to persistent claude...");
             match claude.query(prompt) {
                 Ok(result) => {
-                    eprintln!("[hemis] run_claude: persistent query succeeded ({} chars)", result.len());
+                    debug!("[hemis] run_claude: persistent query succeeded ({} chars)", result.len());
                     return Ok(result);
                 }
                 Err(e) => {
                     // Process died or failed, will respawn on next call
-                    eprintln!("[hemis] Persistent claude failed: {}, falling back to one-shot", e);
+                    debug!("[hemis] Persistent claude failed: {}, falling back to one-shot", e);
                     *guard = None;
                 }
             }
         } else {
-            eprintln!("[hemis] run_claude: no persistent claude in mutex");
+            debug!("[hemis] run_claude: no persistent claude in mutex");
         }
     } else {
-        eprintln!("[hemis] run_claude: failed to get persistent claude mutex");
+        debug!("[hemis] run_claude: failed to get persistent claude mutex");
     }
 
     // Fallback: one-shot process (slower but more reliable)
-    eprintln!("[hemis] run_claude: falling back to one-shot mode");
+    debug!("[hemis] run_claude: falling back to one-shot mode");
     run_claude_oneshot(&safe_project_root, prompt)
 }
 
