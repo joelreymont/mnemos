@@ -39,3 +39,4 @@ insta = { workspace = true }
 regex = "1"
 quickcheck = "1"
 quickcheck_macros = "1"
+serial_test = "3"

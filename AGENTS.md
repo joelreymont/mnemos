@@ -1,37 +1,22 @@
-The docs describing this app are in docs/
-
-## Demo Automation
-
-The demo driver (`hemis-demo`) takes control of keyboard/mouse. **Always ask for confirmation before running demos.** Wait for explicit "go", "run it", "start".
+Docs: `docs/`
 
 ## MCP Tools (MANDATORY)
 
-**ALWAYS use MCP tools. NEVER fall back to Bash when an MCP tool exists.**
+**ALWAYS use MCP tools. NEVER use Bash when an MCP tool exists.** If broken, FIX IT - don't work around. MCP server: `backend/tools/hemis_mcp/src/main.rs`.
 
-**If an MCP tool is broken, FIX IT IMMEDIATELY.** Do not work around broken tools with Bash. The MCP server is in `backend/tools/hemis_mcp/src/main.rs`. Rebuild with `cargo_build` (cwd: `backend/tools/hemis_mcp`, release: true).
+| Task | Tool | Key Params |
+|------|------|------------|
+| Git | `git_context` | `include_diff`, `diff_limit` |
+| Work items | `bd_*` | `bd_create(title)`, `bd_close/show(id)`, `bd_list(status)` |
+| Rust | `cargo_test/clippy/build` | `cwd`, `package`, `filter`, `fix`, `release` |
+| Swift | `swift_test` | `cwd`, `filter` |
+| Ask o3 | `ask_oracle` | `question` |
 
-| Task | MCP Tool |
-|------|----------|
-| Git status | `git_context` |
-| Work items | `bd_context`, `bd_list`, `bd_create`, `bd_close`, `bd_show`, `bd_update` |
-| Rust tests | `cargo_test` |
-| Rust clippy | `cargo_clippy` |
-| Rust build | `cargo_build` |
-| Swift tests | `swift_test` |
-| Rebuild MCP | `cargo_build` with `cwd` and `release: true` |
-| Ask o3 | `ask_oracle` |
+**Bash OK for:** git commit/push/pull, hemis CLI, installing deps.
 
-**Parameters** (all optional unless noted):
-- `cargo_test/clippy/build`: `cwd`, `package`, `filter` (test only), `fix` (clippy), `release` (build)
-- `swift_test`: `cwd`, `filter`
-- `git_context`: `include_diff`, `diff_limit`
-- `bd_list`: `status` (ready/open/closed/in_progress), `label`, `limit`
-- `bd_create`: `title` (required), `description`, `labels`, `priority`
-- `bd_close/show`: `id` (required)
-- `bd_update`: `id` (required), `status`, `add_labels`
-- `ask_oracle`: `question` (required)
+## Demo Automation
 
-**When Bash IS appropriate:** git commit/push/pull, hemis CLI, installing deps, file operations not covered by MCP.
+Demo driver (`hemis-demo`) controls keyboard/mouse. **Ask for explicit confirmation ("go", "run it") before running.**
 
 ## Development Guidelines
 
@@ -39,42 +24,41 @@ The demo driver (`hemis-demo`) takes control of keyboard/mouse. **Always ask for
 - One commit per logical feature with tests
 - Short summaries, no emojis
 
-### Testing (MANDATORY)
-Every bug fix and feature MUST include tests. Write tests FIRST or alongside implementation.
+### Testing (MANDATORY - ZERO TOLERANCE)
+**ALL tests MUST pass. There are NO "pre-existing" failing tests.** If a test fails, FIX IT IMMEDIATELY before continuing. No exceptions.
+
+- Every bug fix and feature MUST include tests
+- Write tests FIRST or alongside implementation
+- Run `cargo test` before committing - if ANY test fails, the commit is blocked
+- Flaky tests must be either fixed or marked `#[ignore]` with explanation
 
 ### Workflow
 - Run tests yourself, don't ask user
 - Work continuously without pausing unless blocked
-- Break work into small steps, execute end-to-end
-
-**MANDATORY: Create beads for ALL new tasks** via `bd_create` BEFORE starting work. This applies to bug fixes, new features, refactors, and any tasks discovered while working. No exceptions. Close beads when done.
-
-**MANDATORY: Commit after closing beads.** Each bead closure = one commit.
+- **Beads: Create via `bd_create` BEFORE starting ANY task. Close when done. Each closure = one commit.**
 
 ### Key Files
-- `backend/src/lib.rs` - RPC dispatch
-- `backend/src/ai_cli.rs` - AI provider integration
-- `backend/crates/storage/src/lib.rs` - SQLite
-- `backend/crates/treesitter/src/lib.rs` - Parser
+| File | Purpose |
+|------|---------|
+| `backend/src/lib.rs` | RPC dispatch |
+| `backend/src/ai_cli.rs` | AI providers |
+| `backend/crates/storage/src/lib.rs` | SQLite |
+| `backend/crates/treesitter/src/lib.rs` | Parser |
 
 ### RPC Methods
-- `notes/` - create, get, update, delete, list-for-file, list-by-node, list-project, search, backlinks, reattach, buffer-update
-- `index/` - add-file, search
-- `hemis/` - search, status, index-project, list-files, get-file, explain-region, project-meta, open-project, save-snapshot, load-snapshot, shutdown
+`notes/` create, get, update, delete, list-for-file, list-by-node, list-project, search, backlinks, reattach, buffer-update
+`index/` add-file, search
+`hemis/` search, status, index-project, list-files, get-file, explain-region, project-meta, open-project, save-snapshot, load-snapshot, shutdown
 
 ### Conventions
-- **Staleness**: `nodeTextHash` = SHA256 of node text; search +/-20 lines for matching hash
-- **AI**: `HEMIS_AI_PROVIDER` env (codex/claude/none), Codex preferred
-- **Tree-sitter**: Bundled (rust, python, js, ts, go, lua, c, cpp, java); dynamic via `~/.config/hemis/grammars/`
+- **Staleness**: `nodeTextHash` = SHA256; search +/-20 lines for match
+- **AI**: `HEMIS_AI_PROVIDER` env (codex/claude/none)
+- **Tree-sitter**: Bundled; dynamic via `~/.config/hemis/grammars/`
 
 ### Demo Driver
-- Swift-based in `../hemis-demo/` (sibling directory)
-- Run: `cd ../hemis-demo && swift run hemis-demo <script> --show-labels`
-- Scripts: `neovim`, `reattach`
-- Options: `--prepare-only`, `--skip-setup`, `--countdown N`, `--record`
+`cd ../hemis-demo && swift run hemis-demo <script> --show-labels`
+Scripts: `neovim`, `reattach` | Options: `--prepare-only`, `--skip-setup`, `--countdown N`, `--record`
 
-## Creating New MCP Tools
+## Creating MCP Tools
 
-Add to `backend/tools/hemis_mcp/src/main.rs`. Each tool should return minimal structured output with appropriate timeout.
-
-**MANDATORY: Update this file when creating new tools.**
+Add to `backend/tools/hemis_mcp/src/main.rs`. **Update this file when adding tools.**

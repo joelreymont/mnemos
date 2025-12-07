@@ -792,6 +792,7 @@ fn run_claude_oneshot(project_root: &Path, prompt: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
     fn clean_markdown_removes_code_block_wrapper() {
@@ -814,6 +815,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(env)]
     fn provider_from_env_respects_disabled() {
         std::env::set_var("HEMIS_AI_PROVIDER", "none");
         assert!(CliProvider::from_env().is_none());

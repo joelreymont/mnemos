@@ -129,10 +129,7 @@ impl ResolvedConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    // Mutex to prevent env var tests from running concurrently
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    use serial_test::serial;
 
     #[test]
     fn test_parse_config() {
@@ -156,10 +153,9 @@ mod tests {
     // Test precedence: CLI > env var > config file > default
 
     #[test]
+    #[serial(env)]
     fn test_cli_overrides_env_var() {
         // CLI arg should take precedence over env var
-        let _guard = ENV_LOCK.lock().unwrap();
-
         // Set env var
         std::env::set_var("HEMIS_DB_PATH", "/env/db.db");
         std::env::set_var("HEMIS_AI_PROVIDER", "env-provider");
@@ -182,10 +178,9 @@ mod tests {
     }
 
     #[test]
+    #[serial(env)]
     fn test_env_var_overrides_config_file() {
         // Env var should take precedence over config file
-        let _guard = ENV_LOCK.lock().unwrap();
-
         // Create temp config file
         let tmp = tempfile::TempDir::new().unwrap();
         let config_path = tmp.path().join("config.toml");
@@ -217,10 +212,9 @@ mod tests {
     }
 
     #[test]
+    #[serial(env)]
     fn test_cli_overrides_config_file() {
         // CLI arg should take precedence over config file
-        let _guard = ENV_LOCK.lock().unwrap();
-
         // Clear env vars
         std::env::remove_var("HEMIS_DB_PATH");
         std::env::remove_var("HEMIS_AI_PROVIDER");
@@ -251,10 +245,9 @@ mod tests {
     }
 
     #[test]
+    #[serial(env)]
     fn test_config_file_used_when_no_cli_or_env() {
         // Config file should be used when no CLI or env var is set
-        let _guard = ENV_LOCK.lock().unwrap();
-
         // Clear env vars
         std::env::remove_var("HEMIS_DB_PATH");
         std::env::remove_var("HEMIS_AI_PROVIDER");
@@ -282,10 +275,9 @@ mod tests {
     }
 
     #[test]
+    #[serial(env)]
     fn test_default_used_when_nothing_set() {
         // Default should be used when nothing is set
-        let _guard = ENV_LOCK.lock().unwrap();
-
         // Clear env vars
         std::env::remove_var("HEMIS_DB_PATH");
         std::env::remove_var("HEMIS_AI_PROVIDER");

@@ -4233,7 +4233,10 @@ fn explain_region_with_real_ai() -> anyhow::Result<()> {
 
 // Test that persistent Claude process speeds up consecutive calls.
 // Second call should be faster because it reuses the running process.
+// NOTE: Ignored because timing assertions are inherently flaky - depends on
+// network conditions and Claude API response times which vary.
 #[test]
+#[ignore]
 fn persistent_claude_speedup() -> anyhow::Result<()> {
     // Only run with Claude
     if !std::process::Command::new("claude")
