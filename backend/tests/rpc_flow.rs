@@ -1738,9 +1738,8 @@ fn buffer_update_recomputes_positions() -> anyhow::Result<()> {
 }
 
 /// Test dynamic grammar loading: fetch, build, and use a grammar.
-/// Requires tree-sitter CLI and headers - run manually with --ignored.
+/// Uses bundled tree-sitter headers from test fixtures.
 #[test]
-#[ignore = "requires tree-sitter headers installed"]
 fn dynamic_grammar_fetch_build_and_use() -> anyhow::Result<()> {
     // Skip if tree-sitter CLI is not available
     let ts_check = Command::new("tree-sitter").arg("--version").output();
@@ -1803,6 +1802,16 @@ container-nodes = ["document", "object", "array"]
         fixture_grammar_path.join("src").join("parser.c"),
         src_dir.join("parser.c"),
     )?;
+
+    // Copy bundled tree_sitter headers for hermetic build
+    let ts_header_dir = src_dir.join("tree_sitter");
+    fs::create_dir_all(&ts_header_dir)?;
+    for header in ["parser.h", "alloc.h", "array.h"] {
+        fs::copy(
+            fixture_grammar_path.join("src").join("tree_sitter").join(header),
+            ts_header_dir.join(header),
+        )?;
+    }
 
     // Verify sources directory was created
     assert!(sources_dir.exists(), "Grammar source should exist");
@@ -1915,7 +1924,7 @@ container-nodes = ["document", "object", "array"]
     let notes = resp
         .result
         .as_ref()
-        .and_then(|v| v.as_array())
+        .and_then(extract_notes)
         .expect("notes array");
 
     assert_eq!(notes.len(), 1, "Should have one note");
