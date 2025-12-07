@@ -149,6 +149,101 @@ Messages are timestamped and written to `hemis--debug-buffer' and log file."
 (defvar-local hemis--overlays nil
   "List of Hemis note overlays in the current buffer.")
 
+;;; Event client for push notifications
+
+(defvar hemis--events-process nil
+  "Process object for the events socket connection.")
+
+(defvar hemis--events-buffer ""
+  "Buffer for accumulating partial event data.")
+
+(defvar hemis--events-handlers (make-hash-table :test 'equal)
+  "Hash table of event type -> handler function.")
+
+(defvar hemis--events-reconnect-timer nil
+  "Timer for reconnecting to events socket.")
+
+(defun hemis--events-socket-path ()
+  "Return the path to the Hemis events socket."
+  (expand-file-name "events.sock" hemis-dir))
+
+(defun hemis--events-filter (proc output)
+  "Process filter for events socket. Parse JSON lines from OUTPUT."
+  (setq hemis--events-buffer (concat hemis--events-buffer output))
+  ;; Parse complete lines
+  (while (string-match "\n" hemis--events-buffer)
+    (let* ((newline-pos (match-beginning 0))
+           (line (substring hemis--events-buffer 0 newline-pos)))
+      (setq hemis--events-buffer (substring hemis--events-buffer (1+ newline-pos)))
+      (when (> (length line) 0)
+        (condition-case err
+            (let* ((event (json-parse-string line :object-type 'alist))
+                   (event-type (alist-get 'type event)))
+              (hemis--debug "Event: %s" event-type)
+              (let ((handler (gethash event-type hemis--events-handlers)))
+                (when handler
+                  (funcall handler event)))
+              ;; Also call catch-all handler
+              (let ((catch-all (gethash "*" hemis--events-handlers)))
+                (when catch-all
+                  (funcall catch-all event))))
+          (error
+           (hemis--debug "Event parse error: %s" (error-message-string err))))))))
+
+(defun hemis--events-sentinel (proc event)
+  "Process sentinel for events socket. Reconnect on disconnect."
+  (hemis--debug "Events socket: %s" (string-trim event))
+  (when (memq (process-status proc) '(closed exit signal))
+    (setq hemis--events-process nil)
+    (hemis--events-schedule-reconnect)))
+
+(defun hemis--events-schedule-reconnect ()
+  "Schedule reconnection to events socket."
+  (unless hemis--events-reconnect-timer
+    (setq hemis--events-reconnect-timer
+          (run-at-time 2 nil #'hemis--events-try-connect))))
+
+(defun hemis--events-try-connect ()
+  "Try to connect to the events socket."
+  (setq hemis--events-reconnect-timer nil)
+  (if (file-exists-p (hemis--events-socket-path))
+      (condition-case err
+          (let ((proc (make-network-process
+                       :name "hemis-events"
+                       :family 'local
+                       :service (hemis--events-socket-path)
+                       :coding 'utf-8
+                       :noquery t
+                       :filter #'hemis--events-filter
+                       :sentinel #'hemis--events-sentinel)))
+            (setq hemis--events-process proc)
+            (setq hemis--events-buffer "")
+            (hemis--debug "Connected to events socket"))
+        (error
+         (hemis--debug "Events connect error: %s" (error-message-string err))
+         (hemis--events-schedule-reconnect)))
+    (hemis--events-schedule-reconnect)))
+
+(defun hemis--events-start ()
+  "Start the events client."
+  (unless (and hemis--events-process (process-live-p hemis--events-process))
+    (hemis--events-try-connect)))
+
+(defun hemis--events-stop ()
+  "Stop the events client."
+  (when hemis--events-reconnect-timer
+    (cancel-timer hemis--events-reconnect-timer)
+    (setq hemis--events-reconnect-timer nil))
+  (when (and hemis--events-process (process-live-p hemis--events-process))
+    (delete-process hemis--events-process))
+  (setq hemis--events-process nil)
+  (setq hemis--events-buffer ""))
+
+(defun hemis--events-on (event-type handler)
+  "Register HANDLER for EVENT-TYPE events.
+EVENT-TYPE is a string like \"note-created\" or \"*\" for all events."
+  (puthash event-type handler hemis--events-handlers))
+
 (defun hemis--kill-backend-processes ()
   "Kill any running Hemis backend processes and clear state."
   (dolist (proc (process-list))
@@ -346,6 +441,7 @@ Use `hemis-shutdown' to stop it (sends shutdown RPC)."
   "Shutdown the Hemis backend server.
 Sends shutdown RPC to stop the detached server process."
   (interactive)
+  (hemis--events-stop)
   (when (and hemis--conn (jsonrpc-running-p hemis--conn))
     (ignore-errors (jsonrpc-request hemis--conn "shutdown" nil :timeout 1)))
   (when (and hemis--process (process-live-p hemis--process))
@@ -1533,6 +1629,50 @@ Otherwise, prompt for a note ID."
       (goto-char (point-min))
       (special-mode))
     (pop-to-buffer buf)))
+
+;;; Event handlers setup
+
+(defun hemis--setup-event-handlers ()
+  "Set up handlers for backend events."
+  ;; Handle note position changes
+  (hemis--events-on "note-position-changed"
+    (lambda (event)
+      (let ((file (alist-get 'file event)))
+        (when-let ((buf (get-file-buffer file)))
+          (with-current-buffer buf
+            (hemis-refresh-notes))))))
+
+  ;; Handle note created
+  (hemis--events-on "note-created"
+    (lambda (event)
+      (let ((file (alist-get 'file event)))
+        (when-let ((buf (get-file-buffer file)))
+          (with-current-buffer buf
+            (hemis-refresh-notes))))))
+
+  ;; Handle note updated
+  (hemis--events-on "note-updated"
+    (lambda (_event)
+      ;; Full refresh since we don't know which buffer
+      (dolist (buf (buffer-list))
+        (when (and (buffer-file-name buf) (buffer-live-p buf))
+          (with-current-buffer buf
+            (when hemis--overlays
+              (hemis-refresh-notes)))))))
+
+  ;; Handle note deleted
+  (hemis--events-on "note-deleted"
+    (lambda (_event)
+      ;; Full refresh since we don't know which buffer
+      (dolist (buf (buffer-list))
+        (when (and (buffer-file-name buf) (buffer-live-p buf))
+          (with-current-buffer buf
+            (when hemis--overlays
+              (hemis-refresh-notes))))))))
+
+;; Initialize event handlers and start event client
+(hemis--setup-event-handlers)
+(add-hook 'emacs-startup-hook #'hemis--events-start)
 
 (provide 'hemis)
 
