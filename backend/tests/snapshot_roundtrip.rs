@@ -720,3 +720,223 @@ fn snapshot_with_large_text_within_limits() {
     assert!(result.is_ok(), "should handle large text within limits");
     verify_note(&conn2, "note-large", "/test.rs", &large_text);
 }
+
+// ============================================================================
+// QuickCheck property-based tests
+// ============================================================================
+
+/// Newtype for generating valid note IDs (alphanumeric + dashes)
+#[derive(Debug, Clone)]
+struct ValidNoteId(String);
+
+impl quickcheck::Arbitrary for ValidNoteId {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        let len = usize::arbitrary(g) % 32 + 8; // 8-40 chars
+        let chars: String = (0..len)
+            .map(|_| {
+                let choices = b"abcdefghijklmnopqrstuvwxyz0123456789-";
+                let idx = usize::arbitrary(g) % choices.len();
+                choices[idx] as char
+            })
+            .collect();
+        ValidNoteId(chars)
+    }
+}
+
+/// Newtype for generating valid file paths
+#[derive(Debug, Clone)]
+struct ValidPath(String);
+
+impl quickcheck::Arbitrary for ValidPath {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        let segments = usize::arbitrary(g) % 4 + 1; // 1-5 path segments
+        let path: String = (0..segments)
+            .map(|_| {
+                let len = usize::arbitrary(g) % 10 + 1;
+                let seg: String = (0..len)
+                    .map(|_| {
+                        let choices = b"abcdefghijklmnopqrstuvwxyz0123456789_";
+                        let idx = usize::arbitrary(g) % choices.len();
+                        choices[idx] as char
+                    })
+                    .collect();
+                seg
+            })
+            .collect::<Vec<_>>()
+            .join("/");
+        ValidPath(format!("/test/{}.rs", path))
+    }
+}
+
+/// Newtype for generating safe note text (no control chars)
+#[derive(Debug, Clone)]
+struct SafeText(String);
+
+impl quickcheck::Arbitrary for SafeText {
+    fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+        let len = usize::arbitrary(g) % 200;
+        let text: String = (0..len)
+            .map(|_| {
+                let choices = b"abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?\n";
+                let idx = usize::arbitrary(g) % choices.len();
+                choices[idx] as char
+            })
+            .collect();
+        SafeText(text)
+    }
+}
+
+#[quickcheck_macros::quickcheck]
+fn prop_snapshot_roundtrip_preserves_notes(
+    id: ValidNoteId,
+    file: ValidPath,
+    text: SafeText,
+    line: u16,
+    column: u16,
+) -> bool {
+    let conn1 = connect(":memory:").unwrap();
+    let project_root = "/test";
+    let line = (line as i64).max(1); // Ensure positive line
+    let column = column as i64;
+
+    // Insert note
+    insert_test_note(&conn1, &id.0, &file.0, project_root, line, column, &text.0);
+
+    // Create snapshot
+    let snapshot = match snapshot::create(&conn1, None) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    // Restore to new database
+    let conn2 = connect(":memory:").unwrap();
+    if snapshot::restore(&conn2, &snapshot).is_err() {
+        return false;
+    }
+
+    // Verify note preserved
+    let result: Result<(String, String, i64, i64), _> = conn2.query_row(
+        "SELECT file, text, line, column FROM notes WHERE id = ?",
+        [&id.0],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    );
+
+    match result {
+        Ok((restored_file, restored_text, restored_line, restored_column)) => {
+            restored_file == file.0
+                && restored_text == text.0
+                && restored_line == line
+                && restored_column == column
+        }
+        Err(_) => false,
+    }
+}
+
+#[quickcheck_macros::quickcheck]
+fn prop_snapshot_roundtrip_preserves_edges(
+    src_id: ValidNoteId,
+    dst_id: ValidNoteId,
+) -> bool {
+    // Skip if src and dst are the same
+    if src_id.0 == dst_id.0 {
+        return true;
+    }
+
+    let conn1 = connect(":memory:").unwrap();
+    let project_root = "/test";
+
+    // Insert notes first (edges need valid notes)
+    insert_test_note(&conn1, &src_id.0, "/test/src.rs", project_root, 1, 0, "source");
+    insert_test_note(&conn1, &dst_id.0, "/test/dst.rs", project_root, 2, 0, "dest");
+    insert_test_edge(&conn1, &src_id.0, &dst_id.0, "link", project_root);
+
+    // Create snapshot
+    let snapshot = match snapshot::create(&conn1, None) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    // Restore to new database
+    let conn2 = connect(":memory:").unwrap();
+    if snapshot::restore(&conn2, &snapshot).is_err() {
+        return false;
+    }
+
+    // Verify edge preserved
+    let result: Result<String, _> = conn2.query_row(
+        "SELECT kind FROM edges WHERE src = ? AND dst = ?",
+        [&src_id.0, &dst_id.0],
+        |row| row.get(0),
+    );
+
+    result.map(|kind| kind == "link").unwrap_or(false)
+}
+
+#[quickcheck_macros::quickcheck]
+fn prop_malformed_json_never_panics(random_bytes: Vec<u8>) -> bool {
+    let conn = connect(":memory:").unwrap();
+
+    // Try to parse random bytes as JSON
+    let maybe_json: Result<serde_json::Value, _> =
+        serde_json::from_slice(&random_bytes);
+
+    // If it parses as JSON, try to restore it
+    if let Ok(json_value) = maybe_json {
+        // This should never panic, even with garbage JSON
+        let _ = snapshot::restore(&conn, &json_value);
+    }
+
+    // If we got here without panicking, the property holds
+    true
+}
+
+#[quickcheck_macros::quickcheck]
+fn prop_arbitrary_json_object_never_panics(
+    version: Option<i64>,
+    has_notes: bool,
+    has_files: bool,
+) -> bool {
+    let conn = connect(":memory:").unwrap();
+
+    // Build a somewhat valid-looking JSON object with random structure
+    let mut obj = serde_json::Map::new();
+
+    if let Some(v) = version {
+        obj.insert("version".to_string(), json!(v));
+    }
+
+    if has_notes {
+        obj.insert("notes".to_string(), json!([]));
+    }
+
+    if has_files {
+        obj.insert("files".to_string(), json!([]));
+    }
+
+    let json_value = serde_json::Value::Object(obj);
+
+    // This should never panic
+    let _ = snapshot::restore(&conn, &json_value);
+
+    true
+}
+
+#[quickcheck_macros::quickcheck]
+fn prop_version_field_variations(version: i64) -> bool {
+    let conn = connect(":memory:").unwrap();
+
+    let snapshot = json!({
+        "version": version,
+        "notes": [],
+        "files": [],
+        "embeddings": [],
+        "edges": []
+    });
+
+    // Restore should handle any version gracefully (no panic)
+    let _ = snapshot::restore(&conn, &snapshot);
+
+    // Database should still be accessible
+    let count: Result<i64, _> = conn.query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0));
+    count.is_ok()
+}
