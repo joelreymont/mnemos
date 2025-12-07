@@ -23,10 +23,14 @@ setup_highlights()
 -- Server provides formattedLines when content is sent
 local function format_note_lines(note)
   local lines = {}
-  local hl = note.stale and "HemisNoteStale" or "HemisNote"
+
+  -- Use icon_hint from backend if available, fallback to stale field
+  local icon_hint = note.icon_hint or note.iconHint
+  local is_stale = icon_hint == "stale" or note.stale
+  local hl = is_stale and "HemisNoteStale" or "HemisNote"
 
   -- Server provides formattedLines; fallback to raw text if missing
-  local formatted = note.formattedLines or { "// " .. (note.text or ""):sub(1, 50) }
+  local formatted = note.formattedLines or note.formatted_lines or { "// " .. (note.text or ""):sub(1, 50) }
   for _, formatted_line in ipairs(formatted) do
     table.insert(lines, { { formatted_line, hl } })
   end
@@ -69,10 +73,15 @@ function M.render_note(bufnr, note, display_line, is_stale)
 
   if style == "minimal" then
     -- Single line indicator at end of line
-    local short_id = note.shortId or (note.id or ""):sub(1, 8)
+    -- Use display_marker from backend if available
+    local marker = note.display_marker or note.displayMarker
+    if not marker then
+      local short_id = note.shortId or (note.id or ""):sub(1, 8)
+      marker = "[n:" .. short_id .. "]"
+    end
     local hl = note_with_stale.stale and "HemisNoteStale" or "HemisNoteMarker"
     return vim.api.nvim_buf_set_extmark(bufnr, M.ns_id, line, 0, {
-      virt_text = { { "[n:" .. short_id .. "]", hl } },
+      virt_text = { { marker, hl } },
       virt_text_pos = "eol",
       hl_mode = "combine",
     })
