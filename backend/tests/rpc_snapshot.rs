@@ -41,6 +41,14 @@ fn scrub_obj(obj: &mut serde_json::Map<String, Value>) {
             obj.insert((*key).to_string(), json!(scrubbed));
         }
     }
+    // Scrub UUIDs from formattedLines array
+    if let Some(Value::Array(lines)) = obj.get_mut("formattedLines") {
+        for line in lines {
+            if let Value::String(s) = line {
+                *s = scrub_uuids_in_string(s);
+            }
+        }
+    }
 }
 
 fn scrub_response(mut resp: Value) -> Value {

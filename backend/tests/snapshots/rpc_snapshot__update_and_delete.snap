@@ -14,6 +14,9 @@ expression: responses
       "displayMarker": "<displayMarker>",
       "file": "/tmp/test.rs",
       "formattedCreatedAt": "<formatted_ts>",
+      "formattedLines": [
+        "// initial"
+      ],
       "formattedUpdatedAt": "<formatted_ts>",
       "hoverText": "<hoverText>",
       "iconHint": "fresh",
@@ -39,6 +42,9 @@ expression: responses
       "displayMarker": "<displayMarker>",
       "file": "/tmp/test.rs",
       "formattedCreatedAt": "<formatted_ts>",
+      "formattedLines": [
+        "// updated"
+      ],
       "formattedUpdatedAt": "<formatted_ts>",
       "hoverText": "<hoverText>",
       "iconHint": "fresh",

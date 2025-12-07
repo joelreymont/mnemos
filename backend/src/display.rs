@@ -152,6 +152,27 @@ pub fn format_note_lines(
     result
 }
 
+/// Ensure a note has formatted_lines set.
+/// Uses the file extension to determine comment syntax.
+/// Default width of 70 characters if no wrap_width specified.
+pub fn ensure_formatted_lines(note: &mut notes::Note, wrap_width: Option<usize>) {
+    if note.formatted_lines.is_some() {
+        return;
+    }
+    let ext = Path::new(&note.file)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("txt");
+    note.formatted_lines = Some(format_note_lines(&note.text, ext, wrap_width, note.stale));
+}
+
+/// Ensure all notes in a list have formatted_lines set.
+pub fn ensure_formatted_lines_all(notes: &mut [notes::Note], wrap_width: Option<usize>) {
+    for note in notes {
+        ensure_formatted_lines(note, wrap_width);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

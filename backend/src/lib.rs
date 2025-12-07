@@ -1283,25 +1283,19 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                 note.stale = pos.stale;
                             }
                         }
-                        // If language is provided, compute formatted lines server-side
-                        // Uses file extension as fallback if no language specified
-                        let lang = language
-                            .map(String::from)
-                            .or_else(|| {
-                                Path::new(file)
-                                    .extension()
-                                    .and_then(|e| e.to_str())
-                                    .map(String::from)
-                            });
-                        if let Some(lang) = lang {
+                        // Compute formatted lines for all notes (always, for UI consistency)
+                        // Use explicit language param if provided, otherwise derive from file
+                        if let Some(lang) = language {
                             for note in &mut notes_list {
                                 note.formatted_lines = Some(display::format_note_lines(
                                     &note.text,
-                                    &lang,
+                                    lang,
                                     wrap_width,
                                     note.stale,
                                 ));
                             }
+                        } else {
+                            display::ensure_formatted_lines_all(&mut notes_list, wrap_width);
                         }
                         // Apply onlyStale filter after all staleness computation
                         let notes_list = if only_stale {
@@ -1365,14 +1359,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         let found = notes_list.into_iter().find(|n| n.line == target_line);
                         // Apply formatting if found
                         if let Some(mut note) = found {
-                            let lang = Path::new(file)
-                                .extension()
-                                .and_then(|e| e.to_str())
-                                .map(String::from);
-                            if let Some(lang) = lang {
-                                note.formatted_lines =
-                                    Some(display::format_note_lines(&note.text, &lang, None, note.stale));
-                            }
+                            display::ensure_formatted_lines(&mut note, None);
                             Response::result_from(id, Some(note))
                         } else {
                             Response::result_from(id, Option::<notes::Note>::None)
@@ -1397,7 +1384,10 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0) as usize;
                 match notes::list_project(db, proj, limit, offset) {
-                    Ok(n) => Response::result_from(id, n),
+                    Ok(mut notes_list) => {
+                        display::ensure_formatted_lines_all(&mut notes_list, None);
+                        Response::result_from(id, notes_list)
+                    }
                     Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
@@ -1427,7 +1417,10 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0) as usize;
             match notes::search(db, query, proj.as_deref(), limit, offset) {
-                Ok(n) => Response::result_from(id, n),
+                Ok(mut notes_list) => {
+                    display::ensure_formatted_lines_all(&mut notes_list, None);
+                    Response::result_from(id, notes_list)
+                }
                 Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
             }
         }
@@ -1496,7 +1489,10 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     include_stale,
                 };
                 match notes::list_by_node(db, filters) {
-                    Ok(n) => Response::result_from(id, n),
+                    Ok(mut notes_list) => {
+                        display::ensure_formatted_lines_all(&mut notes_list, None);
+                        Response::result_from(id, notes_list)
+                    }
                     Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
@@ -1570,15 +1566,16 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     git,
                     node_text_hash,
                 ) {
-                    Ok(n) => {
+                    Ok(mut note) => {
                         // Emit note-created event
                         events::emit(Event::NoteCreated {
-                            id: n.id.clone(),
+                            id: note.id.clone(),
                             file: file.to_string(),
                             line: final_line,
                             project_root: Some(proj.clone()),
                         });
-                        Response::result_from(id, n)
+                        display::ensure_formatted_lines(&mut note, None);
+                        Response::result_from(id, note)
                     }
                     Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
@@ -1665,15 +1662,16 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         git,
                         anchor.node_text_hash,
                     ) {
-                        Ok(n) => {
+                        Ok(mut note) => {
                             events::emit(Event::NoteCreated {
-                                id: n.id.clone(),
+                                id: note.id.clone(),
                                 file: file.to_string(),
                                 line: anchored_line,
                                 project_root: Some(proj.clone()),
                             });
+                            display::ensure_formatted_lines(&mut note, None);
                             Response::result(id, json!({
-                                "note": n,
+                                "note": note,
                                 "ai": ai_info
                             }))
                         }
@@ -1725,11 +1723,12 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 }
 
                 match notes::update(db, note_id, text, tags) {
-                    Ok(n) => {
+                    Ok(mut note) => {
                         events::emit(Event::NoteUpdated {
                             id: note_id.to_string(),
                         });
-                        Response::result_from(id, n)
+                        display::ensure_formatted_lines(&mut note, None);
+                        Response::result_from(id, note)
                     }
                     Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
@@ -1740,7 +1739,10 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
         "notes/get" => {
             if let Some(note_id) = req.params.get("id").and_then(|v| v.as_str()) {
                 match notes::get(db, note_id) {
-                    Ok(n) => Response::result_from(id, n),
+                    Ok(mut note) => {
+                        display::ensure_formatted_lines(&mut note, None);
+                        Response::result_from(id, note)
+                    }
                     // "not found" is safe to expose (no sensitive details)
                     Err(e) if e.to_string().contains("not found") => {
                         Response::error(id, INVALID_PARAMS, "note not found")
@@ -1754,7 +1756,10 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
         "notes/backlinks" => {
             if let Some(note_id) = req.params.get("id").and_then(|v| v.as_str()) {
                 match notes::backlinks(db, note_id) {
-                    Ok(n) => Response::result_from(id, n),
+                    Ok(mut notes_list) => {
+                        display::ensure_formatted_lines_all(&mut notes_list, None);
+                        Response::result_from(id, notes_list)
+                    }
                     Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
             } else {
@@ -1820,11 +1825,12 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         }
                         // Update note with version data
                         match notes::update(db, note_id, v.text.as_deref(), None) {
-                            Ok(n) => {
+                            Ok(mut note) => {
                                 events::emit(Event::NoteUpdated {
                                     id: note_id.to_string(),
                                 });
-                                Response::result_from(id, n)
+                                display::ensure_formatted_lines(&mut note, None);
+                                Response::result_from(id, note)
                             }
                             Err(_) => Response::error(id, INTERNAL_ERROR, "restore failed"),
                         }
@@ -1881,7 +1887,10 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 };
                 let git = file.and_then(info_for_file);
                 match notes::reattach(db, note_id, final_line, final_column, node_path, git, node_text_hash) {
-                    Ok(n) => Response::result_from(id, n),
+                    Ok(mut note) => {
+                        display::ensure_formatted_lines(&mut note, None);
+                        Response::result_from(id, note)
+                    }
                     // "not found" is safe to expose (no sensitive details)
                     Err(e) if e.to_string().contains("not found") => {
                         Response::error(id, INVALID_PARAMS, "note not found")
@@ -1940,6 +1949,8 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                 });
                             }
                         }
+                        // Ensure formatted lines for all notes
+                        display::ensure_formatted_lines_all(&mut notes_list, None);
                         // Return wrapper with content hash
                         let response = NotesListResponse {
                             notes: notes_list,

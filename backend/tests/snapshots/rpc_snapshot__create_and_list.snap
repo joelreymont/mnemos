@@ -14,6 +14,9 @@ expression: responses
       "displayMarker": "<displayMarker>",
       "file": "/tmp/test.rs",
       "formattedCreatedAt": "<formatted_ts>",
+      "formattedLines": [
+        "// snapshot note"
+      ],
       "formattedUpdatedAt": "<formatted_ts>",
       "hoverText": "<hoverText>",
       "iconHint": "fresh",
