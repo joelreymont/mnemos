@@ -12,38 +12,33 @@ fn scrub_uuids_in_string(s: &str) -> String {
     re.replace_all(s, "<uuid>").to_string()
 }
 
+/// Fields to replace with static placeholder values (field_name, replacement).
+const FIELD_SCRUBS: &[(&str, &str)] = &[
+    ("id", "<id>"),
+    ("shortId", "<shortId>"),
+    ("createdAt", "<ts>"),
+    ("updatedAt", "<ts>"),
+    ("formattedCreatedAt", "<formatted_ts>"),
+    ("formattedUpdatedAt", "<formatted_ts>"),
+    ("displayMarker", "<displayMarker>"),
+    ("hoverText", "<hoverText>"),
+];
+
+/// Fields containing text that may have embedded UUIDs to scrub.
+const UUID_TEXT_FIELDS: &[&str] = &["text", "summary", "displayLabel"];
+
 fn scrub_obj(obj: &mut serde_json::Map<String, Value>) {
-    if obj.contains_key("id") {
-        obj.insert("id".into(), json!("<id>"));
+    // Replace dynamic fields with static placeholders
+    for (field, replacement) in FIELD_SCRUBS {
+        if obj.contains_key(*field) {
+            obj.insert((*field).into(), json!(replacement));
+        }
     }
-    if obj.contains_key("shortId") {
-        obj.insert("shortId".into(), json!("<shortId>"));
-    }
-    if obj.contains_key("createdAt") {
-        obj.insert("createdAt".into(), json!("<ts>"));
-    }
-    if obj.contains_key("updatedAt") {
-        obj.insert("updatedAt".into(), json!("<ts>"));
-    }
-    // Scrub formatted timestamps (human-readable versions)
-    if obj.contains_key("formattedCreatedAt") {
-        obj.insert("formattedCreatedAt".into(), json!("<formatted_ts>"));
-    }
-    if obj.contains_key("formattedUpdatedAt") {
-        obj.insert("formattedUpdatedAt".into(), json!("<formatted_ts>"));
-    }
-    // Scrub display fields that contain shortId
-    if obj.contains_key("displayMarker") {
-        obj.insert("displayMarker".into(), json!("<displayMarker>"));
-    }
-    if obj.contains_key("hoverText") {
-        obj.insert("hoverText".into(), json!("<hoverText>"));
-    }
-    // Scrub UUIDs from text, summary, and displayLabel fields
-    for key in ["text", "summary", "displayLabel"] {
-        if let Some(Value::String(s)) = obj.get(key) {
+    // Scrub UUIDs from text fields
+    for key in UUID_TEXT_FIELDS {
+        if let Some(Value::String(s)) = obj.get(*key) {
             let scrubbed = scrub_uuids_in_string(s);
-            obj.insert(key.to_string(), json!(scrubbed));
+            obj.insert((*key).to_string(), json!(scrubbed));
         }
     }
 }
