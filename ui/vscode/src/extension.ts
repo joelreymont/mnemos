@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
 import { getRpcClient, disposeRpcClient } from './rpc';
 import { registerCommands } from './commands';
-import { refreshNotes, disposeDecorations, refreshAllEditors } from './decorations';
+import { refreshNotes, disposeDecorations, refreshAllEditors, updateNotePosition } from './decorations';
 import { getConfig } from './config';
 import { NotesTreeDataProvider } from './providers/notesView';
 import { debug, disposeDebug } from './debug';
+import { getEventClient, disposeEventClient, NotePositionChangedEvent, NoteCreatedEvent, NoteDeletedEvent, NoteUpdatedEvent } from './events';
 
 let notesProvider: NotesTreeDataProvider | null = null;
 
@@ -30,6 +31,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   } else {
     console.log('Hemis backend failed to start - commands will try to start it on demand');
   }
+
+  // Start event client for push notifications
+  const eventClient = getEventClient();
+  eventClient.start();
+
+  // Handle note position changes (from buffer-update events)
+  eventClient.on('note-position-changed', (event: NotePositionChangedEvent) => {
+    debug(`Event: note-position-changed ${event.id} ${event.old_line}->${event.new_line}`);
+    updateNotePosition(event.file, event.id, event.new_line, event.stale);
+  });
+
+  // Handle note CRUD events
+  eventClient.on('note-created', (event: NoteCreatedEvent) => {
+    debug(`Event: note-created ${event.id} at ${event.file}:${event.line}`);
+    // Refresh the file where note was created
+    refreshFileDecorations(event.file);
+    notesProvider?.refresh();
+  });
+
+  eventClient.on('note-updated', (event: NoteUpdatedEvent) => {
+    debug(`Event: note-updated ${event.id}`);
+    // Full refresh since we don't know which file
+    refreshAllEditors();
+    notesProvider?.refresh();
+  });
+
+  eventClient.on('note-deleted', (event: NoteDeletedEvent) => {
+    debug(`Event: note-deleted ${event.id}`);
+    // Full refresh since we don't know which file
+    refreshAllEditors();
+    notesProvider?.refresh();
+  });
 
   // Auto-refresh on file open
   if (getConfig().autoRefresh) {
@@ -78,8 +111,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 export function deactivate(): void {
   console.log('Hemis extension deactivating...');
   debug('Extension deactivating');
+  disposeEventClient();
   disposeRpcClient();
   disposeDecorations();
   disposeDebug();
   console.log('Hemis extension deactivated');
+}
+
+// Helper to refresh decorations for a specific file
+async function refreshFileDecorations(file: string): Promise<void> {
+  for (const editor of vscode.window.visibleTextEditors) {
+    if (editor.document.uri.fsPath === file) {
+      await refreshNotes(editor);
+      return;
+    }
+  }
 }

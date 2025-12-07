@@ -97,6 +97,7 @@ export async function refreshNotes(editor: vscode.TextEditor): Promise<void> {
   if (!projectRoot) {
     debug('refreshNotes: no project root, clearing');
     clearNotes(editor);
+    noteCache.delete(file);
     return;
   }
 
@@ -105,11 +106,20 @@ export async function refreshNotes(editor: vscode.TextEditor): Promise<void> {
     const notes = await listNotes(file, projectRoot, true, content);
     debug(`refreshNotes: received ${notes.length} notes`);
     debugVerbose('refreshNotes: notes', notes.map(n => ({ id: n.shortId, line: n.line })));
+
+    // Update cache for incremental updates
+    const fileNotes = new Map<string, Note>();
+    for (const note of notes) {
+      fileNotes.set(note.id, note);
+    }
+    noteCache.set(file, fileNotes);
+
     renderNotes(editor, notes);
   } catch (err) {
     // Backend might not be running, silently ignore
     debug(`refreshNotes: error - ${err}`);
     clearNotes(editor);
+    noteCache.delete(file);
   }
 }
 
@@ -123,4 +133,45 @@ export function disposeDecorations(): void {
   noteDecorationType.dispose();
   staleNoteDecorationType.dispose();
   editorDecorations.clear();
+  noteCache.clear();
+}
+
+// Track notes by ID for incremental updates
+const noteCache: Map<string, Map<string, Note>> = new Map(); // file -> (id -> Note)
+
+/**
+ * Update a single note's position without full refresh.
+ * Called when receiving NotePositionChanged events.
+ */
+export function updateNotePosition(file: string, noteId: string, newLine: number, stale: boolean): void {
+  // Find the editor for this file
+  const editor = vscode.window.visibleTextEditors.find(
+    e => e.document.uri.fsPath === file
+  );
+
+  if (!editor) {
+    return; // File not visible, nothing to update
+  }
+
+  // Get cached notes for this file
+  const fileNotes = noteCache.get(file);
+  if (!fileNotes) {
+    // No cache, need full refresh
+    refreshNotes(editor);
+    return;
+  }
+
+  const note = fileNotes.get(noteId);
+  if (!note) {
+    // Note not in cache, need full refresh
+    refreshNotes(editor);
+    return;
+  }
+
+  // Update the note in cache
+  note.line = newLine;
+  note.stale = stale;
+
+  // Re-render all notes for this editor
+  renderNotes(editor, Array.from(fileNotes.values()));
 }
