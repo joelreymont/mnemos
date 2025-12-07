@@ -824,8 +824,9 @@ export async function selectNoteCommand(): Promise<void> {
 
     // Show quick pick
     const items = notes.map(n => ({
-      label: n.displayLabel || `[Note] ${n.summary}`,
-      detail: n.displayDetail || `Line ${n.line}`,
+      label: n.displayMarker || `[${n.shortId}]`,
+      description: n.summary,
+      detail: `Line ${n.displayLine ?? n.line}${n.stale ? ' [STALE]' : ''}`,
       note: n
     }));
 
