@@ -1,9 +1,19 @@
 use assert_cmd::cargo::cargo_bin_cmd;
 use rpc::{decode_framed, Response};
-use serde_json;
+use serde_json::{self, Value};
 use std::fs;
 use std::process::Command;
 use tempfile::NamedTempFile;
+
+/// Extract notes array from response result (handles both wrapped and unwrapped formats)
+fn extract_notes(result: &Value) -> Option<Vec<Value>> {
+    // New wrapped format: { notes: [...], contentHash: "..." }
+    if let Some(notes) = result.get("notes").and_then(|v| v.as_array()) {
+        return Some(notes.clone());
+    }
+    // Legacy format: direct array
+    result.as_array().cloned()
+}
 
 fn git(dir: &std::path::Path, args: &[&str]) -> anyhow::Result<String> {
     let output = Command::new("git")
@@ -230,7 +240,8 @@ fn filters_stale_notes_by_commit() -> anyhow::Result<()> {
     let filtered: Response = serde_json::from_slice(&bodies[1])?;
     let filtered_list = filtered
         .result
-        .and_then(|v| v.as_array().cloned())
+        .as_ref()
+        .and_then(extract_notes)
         .unwrap_or_default();
     assert_eq!(
         filtered_list.len(),
@@ -241,7 +252,8 @@ fn filters_stale_notes_by_commit() -> anyhow::Result<()> {
     let included: Response = serde_json::from_slice(&bodies[2])?;
     let included_list = included
         .result
-        .and_then(|v| v.as_array().cloned())
+        .as_ref()
+        .and_then(extract_notes)
         .unwrap_or_default();
     assert_eq!(included_list.len(), 1, "stale notes should be included when includeStale=true");
     let stale_flag = included_list[0]
@@ -360,7 +372,8 @@ fn filters_stale_notes_by_blob() -> anyhow::Result<()> {
     let filtered: Response = serde_json::from_slice(&bodies[1])?;
     let filtered_list = filtered
         .result
-        .and_then(|v| v.as_array().cloned())
+        .as_ref()
+        .and_then(extract_notes)
         .unwrap_or_default();
     assert_eq!(
         filtered_list.len(),
@@ -371,7 +384,8 @@ fn filters_stale_notes_by_blob() -> anyhow::Result<()> {
     let included: Response = serde_json::from_slice(&bodies[2])?;
     let included_list = included
         .result
-        .and_then(|v| v.as_array().cloned())
+        .as_ref()
+        .and_then(extract_notes)
         .unwrap_or_default();
     assert_eq!(included_list.len(), 1, "stale notes should be included when includeStale=true");
     let stale_flag = included_list[0]
@@ -1631,8 +1645,7 @@ fn list_with_content_computes_positions() -> anyhow::Result<()> {
     let notes = resp
         .result
         .as_ref()
-        .and_then(|v| v.as_array())
-        .cloned()
+        .and_then(extract_notes)
         .expect("notes list");
 
     assert_eq!(notes.len(), 1, "should have one note");
@@ -1712,8 +1725,7 @@ fn buffer_update_recomputes_positions() -> anyhow::Result<()> {
     let notes = resp
         .result
         .as_ref()
-        .and_then(|v| v.as_array())
-        .cloned()
+        .and_then(extract_notes)
         .expect("notes list");
 
     assert_eq!(notes.len(), 1, "should have one note");
@@ -2886,7 +2898,7 @@ impl Server {
     let stdout = assert.get_output().stdout.clone();
     let (body, _) = decode_framed(&stdout).expect("list response");
     let resp: Response = serde_json::from_slice(&body)?;
-    let notes = resp.result.as_ref().and_then(|v| v.as_array()).cloned().unwrap();
+    let notes = resp.result.as_ref().and_then(extract_notes).unwrap();
     assert_eq!(notes.len(), 1, "should have one note");
     let display_line = notes[0].get("line").and_then(|v| v.as_i64()).unwrap();
     assert_eq!(display_line, 18, "note should follow code to line 18 (original 16 + 2 comments)");
@@ -2942,7 +2954,7 @@ impl Server {
     let stdout = assert.get_output().stdout.clone();
     let (body, _) = decode_framed(&stdout).expect("list stale response");
     let resp: Response = serde_json::from_slice(&body)?;
-    let notes = resp.result.as_ref().and_then(|v| v.as_array()).cloned().unwrap();
+    let notes = resp.result.as_ref().and_then(extract_notes).unwrap();
     assert_eq!(notes.len(), 1, "should still have one note");
     let stale = notes[0].get("stale").and_then(|v| v.as_bool()).unwrap_or(false);
     assert!(stale, "note SHOULD be stale (function renamed)");
@@ -3004,7 +3016,7 @@ impl Server {
     let stdout = assert.get_output().stdout.clone();
     let (body, _) = decode_framed(&stdout).expect("list fresh response");
     let resp: Response = serde_json::from_slice(&body)?;
-    let notes = resp.result.as_ref().and_then(|v| v.as_array()).cloned().unwrap();
+    let notes = resp.result.as_ref().and_then(extract_notes).unwrap();
     assert_eq!(notes.len(), 1, "should have one note");
     let stale = notes[0].get("stale").and_then(|v| v.as_bool()).unwrap_or(true);
     assert!(!stale, "note should be fresh after reattach");
@@ -3159,7 +3171,7 @@ impl Server {
     let stdout = assert.get_output().stdout.clone();
     let (body, _) = decode_framed(&stdout).expect("list response");
     let resp: Response = serde_json::from_slice(&body)?;
-    let notes = resp.result.as_ref().and_then(|v| v.as_array()).cloned().unwrap();
+    let notes = resp.result.as_ref().and_then(extract_notes).unwrap();
     assert_eq!(notes.len(), 2, "should have two notes");
 
     // Find notes by their lines
@@ -3225,7 +3237,7 @@ impl Server {
     let stdout = assert.get_output().stdout.clone();
     let (body, _) = decode_framed(&stdout).expect("list stale response");
     let resp: Response = serde_json::from_slice(&body)?;
-    let notes = resp.result.as_ref().and_then(|v| v.as_array()).cloned().unwrap();
+    let notes = resp.result.as_ref().and_then(extract_notes).unwrap();
 
     let ai_note = notes.iter().find(|n| n.get("text").and_then(|t| t.as_str()).unwrap_or("").contains("claude")).unwrap();
     let factory_note = notes.iter().find(|n| n.get("text").and_then(|t| t.as_str()).unwrap_or("").contains("Factory")).unwrap();
@@ -3284,7 +3296,7 @@ impl Server {
     let stdout = assert.get_output().stdout.clone();
     let (body, _) = decode_framed(&stdout).expect("list fresh response");
     let resp: Response = serde_json::from_slice(&body)?;
-    let notes = resp.result.as_ref().and_then(|v| v.as_array()).cloned().unwrap();
+    let notes = resp.result.as_ref().and_then(extract_notes).unwrap();
 
     for note in &notes {
         let stale = note.get("stale").and_then(|v| v.as_bool()).unwrap_or(true);
@@ -3446,7 +3458,7 @@ pub fn validate_port(port: u16) -> bool {
     let stdout = assert.get_output().stdout.clone();
     let (body, _) = decode_framed(&stdout).expect("list response");
     let resp: Response = serde_json::from_slice(&body)?;
-    let notes = resp.result.as_ref().and_then(|v| v.as_array()).cloned().unwrap();
+    let notes = resp.result.as_ref().and_then(extract_notes).unwrap();
     assert_eq!(notes.len(), 2, "should have two notes");
 
     // Step 4: Index project
@@ -3592,7 +3604,7 @@ pub fn validate_port(port: u16) -> bool {
     let stdout = assert.get_output().stdout.clone();
     let (body, _) = decode_framed(&stdout).expect("list2 response");
     let resp: Response = serde_json::from_slice(&body)?;
-    let notes = resp.result.as_ref().and_then(|v| v.as_array()).cloned().unwrap();
+    let notes = resp.result.as_ref().and_then(extract_notes).unwrap();
     assert_eq!(notes.len(), 1, "should have one note after deletion");
 
     // Step 10: Check status

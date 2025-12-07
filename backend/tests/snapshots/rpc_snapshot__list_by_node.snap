@@ -9,6 +9,8 @@ expression: responses
     "result": {
       "column": 1,
       "createdAt": "<ts>",
+      "displayDetail": "/tmp/test.rs:5",
+      "displayLabel": "[Note] by-node",
       "displayMarker": "<displayMarker>",
       "file": "/tmp/test.rs",
       "formattedCreatedAt": "<formatted_ts>",
@@ -37,6 +39,8 @@ expression: responses
       {
         "column": 1,
         "createdAt": "<ts>",
+        "displayDetail": "/tmp/test.rs:5",
+        "displayLabel": "[Note] by-node",
         "displayMarker": "<displayMarker>",
         "file": "/tmp/test.rs",
         "formattedCreatedAt": "<formatted_ts>",

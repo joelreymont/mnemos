@@ -58,6 +58,12 @@ pub struct Note {
     /// Icon hint for UI: "fresh", "stale"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon_hint: Option<String>,
+    /// Ready-to-show label for QuickPick/lists (e.g., "[Note] Summary text")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_label: Option<String>,
+    /// Path/line info for display (e.g., "path/file.rs:42")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_detail: Option<String>,
 }
 
 pub struct NoteFilters<'a> {
@@ -172,6 +178,8 @@ pub fn create(
     // Compute display fields (not stale on creation)
     let display_marker = format!("[n:{}]", &short_id);
     let hover_text = format!("**Note** ({})\n\n{}", &short_id, text);
+    let display_label = format!("[Note] {}", &summary);
+    let display_detail = format!("{}:{}", file, line);
     Ok(Note {
         id,
         short_id,
@@ -195,6 +203,8 @@ pub fn create(
         display_marker: Some(display_marker),
         hover_text: Some(hover_text),
         icon_hint: Some("fresh".to_string()),
+        display_label: Some(display_label),
+        display_detail: Some(display_detail),
     })
 }
 
@@ -207,19 +217,23 @@ fn map_note(row: &rusqlite::Row<'_>, stale: bool) -> Result<Note> {
     let updated_at: i64 = row.get("updated_at")?;
     let text: String = row.get("text")?;
     let summary: String = row.get("summary")?;
+    let file: String = row.get("file")?;
+    let line: i64 = row.get("line")?;
 
     // Compute display fields
     let display_marker = format!("[n:{}]", &short_id);
     let stale_marker = if stale { " [STALE]" } else { "" };
     let hover_text = format!("**Note** ({}){}\n\n{}", &short_id, stale_marker, &text);
     let icon_hint = if stale { "stale" } else { "fresh" };
+    let display_label = format!("[Note] {}", &summary);
+    let display_detail = format!("{}:{}", &file, line);
 
     Ok(Note {
         id,
         short_id,
-        file: row.get("file")?,
+        file,
         project_root: row.get("project_root")?,
-        line: row.get("line")?,
+        line,
         column: row.get("column")?,
         node_path: node_path.and_then(|s| serde_json::from_str(&s).ok()),
         tags: tags
@@ -239,6 +253,8 @@ fn map_note(row: &rusqlite::Row<'_>, stale: bool) -> Result<Note> {
         display_marker: Some(display_marker),
         hover_text: Some(hover_text),
         icon_hint: Some(icon_hint.to_string()),
+        display_label: Some(display_label),
+        display_detail: Some(display_detail),
     })
 }
 

@@ -1,10 +1,12 @@
 use anyhow::Context;
 use git::info_for_file;
 use index as idx;
-use notes::{self, NoteFilters};
+use notes::{self, Note, NoteFilters};
 use rpc::{Request, Response, INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, PARSE_ERROR};
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -28,6 +30,22 @@ fn resolve_project_root(provided: Option<&str>, file: &str) -> String {
         .unwrap_or(Path::new("."))
         .to_string_lossy()
         .into_owned()
+}
+
+/// Compute SHA256 hash of content, returning hex string
+fn content_hash(content: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+/// Response wrapper for note list endpoints that includes content hash
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NotesListResponse {
+    notes: Vec<Note>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content_hash: Option<String>,
 }
 
 use events::Event;
@@ -780,10 +798,12 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .get("wrapWidth")
                     .and_then(|v| v.as_u64())
                     .map(|w| w as usize);
+                // Extract content early for both position computation and hash
+                let content_param = req.params.get("content").and_then(|v| v.as_str());
                 match notes::list_for_file(db, filters) {
                     Ok(mut notes_list) => {
                         // If content is provided, compute display positions server-side
-                        if let Some(content) = req.params.get("content").and_then(|v| v.as_str()) {
+                        if let Some(content) = content_param {
                             let file_path = Path::new(file);
                             for note in &mut notes_list {
                                 // Convert from 1-based (database) to 0-based (tree-sitter)
@@ -823,7 +843,12 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                 ));
                             }
                         }
-                        Response::result_from(id, notes_list)
+                        // Return wrapper with content hash if content was provided
+                        let response = NotesListResponse {
+                            notes: notes_list,
+                            content_hash: content_param.map(content_hash),
+                        };
+                        Response::result_from(id, response)
                     }
                     Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }
@@ -1354,7 +1379,12 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                                 });
                             }
                         }
-                        Response::result_from(id, notes_list)
+                        // Return wrapper with content hash
+                        let response = NotesListResponse {
+                            notes: notes_list,
+                            content_hash: Some(content_hash(content)),
+                        };
+                        Response::result_from(id, response)
                     }
                     Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }

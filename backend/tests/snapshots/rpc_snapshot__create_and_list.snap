@@ -9,6 +9,8 @@ expression: responses
     "result": {
       "column": 2,
       "createdAt": "<ts>",
+      "displayDetail": "/tmp/test.rs:3",
+      "displayLabel": "[Note] snapshot note",
       "displayMarker": "<displayMarker>",
       "file": "/tmp/test.rs",
       "formattedCreatedAt": "<formatted_ts>",
@@ -31,31 +33,35 @@ expression: responses
   {
     "id": 2,
     "jsonrpc": "2.0",
-    "result": [
-      {
-        "column": 2,
-        "createdAt": "<ts>",
-        "displayMarker": "<displayMarker>",
-        "file": "/tmp/test.rs",
-        "formattedCreatedAt": "<formatted_ts>",
-        "formattedLines": [
-          "// snapshot note"
-        ],
-        "formattedUpdatedAt": "<formatted_ts>",
-        "hoverText": "<hoverText>",
-        "iconHint": "fresh",
-        "id": "<id>",
-        "line": 3,
-        "projectRoot": "/tmp",
-        "shortId": "<shortId>",
-        "stale": false,
-        "summary": "snapshot note",
-        "tags": [
-          "x"
-        ],
-        "text": "snapshot note",
-        "updatedAt": "<ts>"
-      }
-    ]
+    "result": {
+      "notes": [
+        {
+          "column": 2,
+          "createdAt": "<ts>",
+          "displayDetail": "/tmp/test.rs:3",
+          "displayLabel": "[Note] snapshot note",
+          "displayMarker": "<displayMarker>",
+          "file": "/tmp/test.rs",
+          "formattedCreatedAt": "<formatted_ts>",
+          "formattedLines": [
+            "// snapshot note"
+          ],
+          "formattedUpdatedAt": "<formatted_ts>",
+          "hoverText": "<hoverText>",
+          "iconHint": "fresh",
+          "id": "<id>",
+          "line": 3,
+          "projectRoot": "/tmp",
+          "shortId": "<shortId>",
+          "stale": false,
+          "summary": "snapshot note",
+          "tags": [
+            "x"
+          ],
+          "text": "snapshot note",
+          "updatedAt": "<ts>"
+        }
+      ]
+    }
   }
 ]

@@ -39,8 +39,8 @@ fn scrub_obj(obj: &mut serde_json::Map<String, Value>) {
     if obj.contains_key("hoverText") {
         obj.insert("hoverText".into(), json!("<hoverText>"));
     }
-    // Scrub UUIDs from text and summary fields
-    for key in ["text", "summary"] {
+    // Scrub UUIDs from text, summary, and displayLabel fields
+    for key in ["text", "summary", "displayLabel"] {
         if let Some(Value::String(s)) = obj.get(key) {
             let scrubbed = scrub_uuids_in_string(s);
             obj.insert(key.to_string(), json!(scrubbed));
@@ -51,7 +51,22 @@ fn scrub_obj(obj: &mut serde_json::Map<String, Value>) {
 fn scrub_response(mut resp: Value) -> Value {
     if let Some(result) = resp.get_mut("result") {
         match result {
-            Value::Object(obj) => scrub_obj(obj),
+            Value::Object(obj) => {
+                // Handle wrapped response format: { notes: [...], contentHash: "..." }
+                if let Some(Value::Array(notes)) = obj.get_mut("notes") {
+                    for note in notes {
+                        if let Some(note_obj) = note.as_object_mut() {
+                            scrub_obj(note_obj);
+                        }
+                    }
+                }
+                // Scrub contentHash (dynamic based on content)
+                if obj.contains_key("contentHash") {
+                    obj.insert("contentHash".into(), json!("<contentHash>"));
+                }
+                // Also scrub direct object (single note responses)
+                scrub_obj(obj);
+            }
             Value::Array(arr) => {
                 for val in arr {
                     if let Some(obj) = val.as_object_mut() {
