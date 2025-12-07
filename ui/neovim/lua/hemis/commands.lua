@@ -314,21 +314,14 @@ function M.list_notes()
     local lines = { "Hemis notes for " .. file, "" }
 
     for i, note in ipairs(result) do
-      -- Use display_marker from backend if available
-      local marker = note.display_marker or note.displayMarker
-      if not marker then
-        local short_id = note.shortId or (note.id or ""):sub(1, 8)
-        marker = "[" .. short_id .. "]"
-      end
-
-      -- Use icon_hint for staleness display
-      local icon_hint = note.icon_hint or note.iconHint
-      local stale = (icon_hint == "stale" or note.stale) and " [stale]" or ""
+      -- Backend guarantees display_marker and icon_hint are always present
+      local marker = note.display_marker
+      local stale = note.icon_hint == "stale" and " [stale]" or ""
 
       table.insert(lines, string.format("  %d %s L%d,C%d%s", i - 1, marker, note.line or 0, note.column or 0, stale))
 
-      -- Use summary field (server-provided) or fallback to text
-      local text = note.summary or note.text or ""
+      -- Backend guarantees summary is always present
+      local text = note.summary
       for line in text:gmatch("[^\n]+") do
         table.insert(lines, "    " .. line)
       end
@@ -413,19 +406,14 @@ function M.search()
       end
 
       -- Show results in quickfix
+      -- Backend guarantees display_label is always present in search results
       local items = {}
       for _, hit in ipairs(result) do
-        -- Use displayLabel from backend if available, fallback to constructed label
-        local label = hit.displayLabel or hit.display_label
-        if not label then
-          label = string.format("[%s] %s", hit.kind or "file", hit.text or hit.summary or "")
-        end
-
         table.insert(items, {
           filename = hit.file,
           lnum = hit.line or 1,
           col = hit.column or 0,
-          text = label,
+          text = hit.display_label,
         })
       end
 
@@ -554,26 +542,17 @@ function M.show_backlinks()
 
     -- Create backlinks buffer
     local buf = vim.api.nvim_create_buf(false, true)
-    -- Use display_marker from backend if available
-    local marker = note.display_marker or note.displayMarker
-    if not marker then
-      local short_id = note.shortId or (note.id or ""):sub(1, 8)
-      marker = "[" .. short_id .. "]"
-    end
+    -- Backend guarantees display_marker is always present
+    local marker = note.display_marker
 
     local lines = { string.format("Backlinks to note %s", marker), string.format("(%d notes link to this note)", #result), "" }
 
     for i, n in ipairs(result) do
-      -- Use display_marker from backend if available
-      local n_marker = n.display_marker or n.displayMarker
-      if not n_marker then
-        local n_short_id = n.shortId or (n.id or ""):sub(1, 8)
-        n_marker = "[" .. n_short_id .. "]"
-      end
+      -- Backend guarantees display_marker and summary are always present
+      local n_marker = n.display_marker
       table.insert(lines, string.format("  %d %s L%d,C%d", i - 1, n_marker, n.line or 0, n.column or 0))
 
-      -- Use summary field (server-provided) or fallback to text
-      local text = n.summary or n.text or ""
+      local text = n.summary
       for line in text:gmatch("[^\n]+") do
         table.insert(lines, "    " .. line)
       end

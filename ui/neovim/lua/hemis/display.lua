@@ -24,16 +24,12 @@ setup_highlights()
 local function format_note_lines(note)
   local lines = {}
 
-  -- Backend guarantees icon_hint is always present
-  local is_stale = (note.icon_hint or note.iconHint) == "stale"
+  -- Backend guarantees icon_hint and formatted_lines are always present
+  local is_stale = note.icon_hint == "stale"
   local hl = is_stale and "HemisNoteStale" or "HemisNote"
 
-  -- Backend provides formattedLines (may be empty if language unknown)
-  local formatted = note.formattedLines or note.formatted_lines or {}
-  if #formatted == 0 then
-    -- Only fallback if server returned empty array (no language detection)
-    formatted = { "// " .. (note.text or ""):sub(1, 50) }
-  end
+  -- Backend guarantees formatted_lines is always populated
+  local formatted = note.formatted_lines
   for _, formatted_line in ipairs(formatted) do
     table.insert(lines, { { formatted_line, hl } })
   end
@@ -77,7 +73,7 @@ function M.render_note(bufnr, note, display_line, is_stale)
   if style == "minimal" then
     -- Single line indicator at end of line
     -- Backend guarantees display_marker is always present
-    local marker = note.display_marker or note.displayMarker
+    local marker = note.display_marker
     local hl = note_with_stale.stale and "HemisNoteStale" or "HemisNoteMarker"
     return vim.api.nvim_buf_set_extmark(bufnr, M.ns_id, line, 0, {
       virt_text = { { marker, hl } },
@@ -181,7 +177,7 @@ function M.get_note_at_cursor_with_picker(notes, bufnr, callback)
   -- Backend guarantees display_label is always present
   local items = {}
   for _, note in ipairs(notes_at_cursor) do
-    table.insert(items, note.display_label or note.displayLabel)
+    table.insert(items, note.display_label)
   end
 
   vim.ui.select(items, { prompt = "Multiple notes on this line:" }, function(_, idx)
