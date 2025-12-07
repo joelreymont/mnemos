@@ -127,167 +127,171 @@ end
 
 -- Delete note at cursor
 function M.delete_note()
-  local note = display.get_note_at_cursor(M.buffer_notes)
-  if not note then
-    vim.notify("No note at cursor", vim.log.levels.WARN)
-    return
-  end
-
-  vim.ui.select({ "Yes", "No" }, { prompt = "Delete note?" }, function(choice)
-    if choice == "Yes" then
-      notes.delete(note.id, function(err, _)
-        if not err then
-          M.refresh()
-        end
-      end)
+  display.get_note_at_cursor_with_picker(M.buffer_notes, nil, function(note)
+    if not note then
+      vim.notify("No note at cursor", vim.log.levels.WARN)
+      return
     end
+
+    vim.ui.select({ "Yes", "No" }, { prompt = "Delete note?" }, function(choice)
+      if choice == "Yes" then
+        notes.delete(note.id, function(err, _)
+          if not err then
+            M.refresh()
+          end
+        end)
+      end
+    end)
   end)
 end
 
 -- Edit note at cursor
 function M.edit_note()
-  local note = display.get_note_at_cursor(M.buffer_notes)
-  if not note then
-    vim.notify("No note at cursor", vim.log.levels.WARN)
-    return
-  end
-
-  -- Capture file path before creating edit buffer (edit buffer has no file)
+  -- Capture file path before picker (in case we open an edit buffer)
   local file = vim.fn.expand("%:p")
 
-  -- Create scratch buffer with existing text
-  local buf = vim.api.nvim_create_buf(false, true)
-  local width = math.floor(vim.o.columns * 0.6)
-  local height = 10
-
-  local win = vim.api.nvim_open_win(buf, true, {
-    relative = "editor",
-    width = width,
-    height = height,
-    col = math.floor((vim.o.columns - width) / 2),
-    row = math.floor((vim.o.lines - height) / 2),
-    style = "minimal",
-    border = "rounded",
-    title = " Edit Note (C-c C-c to save, C-c C-k to cancel) ",
-    title_pos = "center",
-  })
-
-  local lines = vim.split(note.text or "", "\n")
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].buftype = "nofile"
-  vim.bo[buf].filetype = "markdown"
-
-  local function save()
-    local new_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    local text = table.concat(new_lines, "\n")
-
-    vim.api.nvim_win_close(win, true)
-
-    -- Backend trims, but skip if only whitespace
-    if text:match("%S") then
-      notes.update(note.id, text, {}, function(err, _)
-        if not err then
-          M.refresh()
-        end
-      end)
+  display.get_note_at_cursor_with_picker(M.buffer_notes, nil, function(note)
+    if not note then
+      vim.notify("No note at cursor", vim.log.levels.WARN)
+      return
     end
-  end
 
-  local function cancel()
-    vim.api.nvim_win_close(win, true)
-  end
+    -- Create scratch buffer with existing text
+    local buf = vim.api.nvim_create_buf(false, true)
+    local width = math.floor(vim.o.columns * 0.6)
+    local height = 10
 
-  vim.keymap.set("n", "q", cancel, { buffer = buf })
-  vim.keymap.set("n", "<Esc>", cancel, { buffer = buf })
-  vim.keymap.set({ "n", "i" }, "<C-c><C-c>", save, { buffer = buf })
-  vim.keymap.set({ "n", "i" }, "<C-c><C-k>", cancel, { buffer = buf })
-  vim.keymap.set("n", "<CR>", save, { buffer = buf })
+    local win = vim.api.nvim_open_win(buf, true, {
+      relative = "editor",
+      width = width,
+      height = height,
+      col = math.floor((vim.o.columns - width) / 2),
+      row = math.floor((vim.o.lines - height) / 2),
+      style = "minimal",
+      border = "rounded",
+      title = " Edit Note (C-c C-c to save, C-c C-k to cancel) ",
+      title_pos = "center",
+    })
 
-  -- Add insert-link keymap for the edit buffer (uses same prefix as main keymaps)
-  -- Pass captured file since edit buffer has no associated file
-  local prefix = config.get("keymap_prefix") or "<leader>h"
-  vim.keymap.set({ "n", "i" }, prefix .. "k", function()
-    M.insert_link({ file = file })
-  end, { buffer = buf, desc = "Hemis: Insert link" })
-end
+    local lines = vim.split(note.text or "", "\n")
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].buftype = "nofile"
+    vim.bo[buf].filetype = "markdown"
 
--- Edit note in a full split buffer (for longer notes like AI explanations)
-function M.edit_note_buffer()
-  local note = display.get_note_at_cursor(M.buffer_notes)
-  if not note then
-    vim.notify("No note at cursor", vim.log.levels.WARN)
-    return
-  end
-
-  -- Capture file path before creating edit buffer
-  local file = vim.fn.expand("%:p")
-  local note_id = note.id
-
-  -- Create a new buffer in a horizontal split
-  vim.cmd("new")
-  local buf = vim.api.nvim_get_current_buf()
-  local win = vim.api.nvim_get_current_win()
-
-  -- Set buffer properties
-  vim.bo[buf].buftype = "acwrite"
-  vim.bo[buf].filetype = "markdown"
-  vim.bo[buf].swapfile = false
-  vim.api.nvim_buf_set_name(buf, "hemis://note/" .. note_id)
-
-  -- Insert note content
-  local lines = vim.split(note.text or "", "\n")
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].modified = false
-
-  -- Set up autocmd to save on :w
-  vim.api.nvim_create_autocmd("BufWriteCmd", {
-    buffer = buf,
-    callback = function()
+    local function save()
       local new_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
       local text = table.concat(new_lines, "\n")
 
+      vim.api.nvim_win_close(win, true)
+
       -- Backend trims, but skip if only whitespace
       if text:match("%S") then
-        notes.update(note_id, text, {}, function(err, _)
-          if err then
-            vim.notify("Failed to save note: " .. (err.message or "unknown"), vim.log.levels.ERROR)
-          else
-            vim.bo[buf].modified = false
-            vim.notify("Note saved", vim.log.levels.INFO)
-            -- Refresh notes display in source buffer
+        notes.update(note.id, text, {}, function(err, _)
+          if not err then
             M.refresh()
           end
         end)
       end
-    end,
-  })
+    end
 
-  -- Add keymaps
-  vim.keymap.set("n", "q", function()
-    if vim.bo[buf].modified then
-      vim.ui.select({ "Save and close", "Discard changes", "Cancel" }, {
-        prompt = "Buffer has unsaved changes:",
-      }, function(choice)
-        if choice == "Save and close" then
-          vim.cmd("write")
-          vim.api.nvim_win_close(win, true)
-        elseif choice == "Discard changes" then
-          vim.bo[buf].modified = false
-          vim.api.nvim_win_close(win, true)
-        end
-      end)
-    else
+    local function cancel()
       vim.api.nvim_win_close(win, true)
     end
-  end, { buffer = buf, desc = "Close buffer" })
 
-  -- Add insert-link keymap
-  local prefix = config.get("keymap_prefix") or "<leader>h"
-  vim.keymap.set({ "n", "i" }, prefix .. "k", function()
-    M.insert_link({ file = file })
-  end, { buffer = buf, desc = "Hemis: Insert link" })
+    vim.keymap.set("n", "q", cancel, { buffer = buf })
+    vim.keymap.set("n", "<Esc>", cancel, { buffer = buf })
+    vim.keymap.set({ "n", "i" }, "<C-c><C-c>", save, { buffer = buf })
+    vim.keymap.set({ "n", "i" }, "<C-c><C-k>", cancel, { buffer = buf })
+    vim.keymap.set("n", "<CR>", save, { buffer = buf })
 
-  vim.notify("Editing note in buffer. :w to save, q to close.", vim.log.levels.INFO)
+    -- Add insert-link keymap for the edit buffer (uses same prefix as main keymaps)
+    -- Pass captured file since edit buffer has no associated file
+    local prefix = config.get("keymap_prefix") or "<leader>h"
+    vim.keymap.set({ "n", "i" }, prefix .. "k", function()
+      M.insert_link({ file = file })
+    end, { buffer = buf, desc = "Hemis: Insert link" })
+  end)
+end
+
+-- Edit note in a full split buffer (for longer notes like AI explanations)
+function M.edit_note_buffer()
+  -- Capture file path before picker
+  local file = vim.fn.expand("%:p")
+
+  display.get_note_at_cursor_with_picker(M.buffer_notes, nil, function(note)
+    if not note then
+      vim.notify("No note at cursor", vim.log.levels.WARN)
+      return
+    end
+
+    local note_id = note.id
+
+    -- Create a new buffer in a horizontal split
+    vim.cmd("new")
+    local buf = vim.api.nvim_get_current_buf()
+    local win = vim.api.nvim_get_current_win()
+
+    -- Set buffer properties
+    vim.bo[buf].buftype = "acwrite"
+    vim.bo[buf].filetype = "markdown"
+    vim.bo[buf].swapfile = false
+    vim.api.nvim_buf_set_name(buf, "hemis://note/" .. note_id)
+
+    -- Insert note content
+    local lines = vim.split(note.text or "", "\n")
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].modified = false
+
+    -- Set up autocmd to save on :w
+    vim.api.nvim_create_autocmd("BufWriteCmd", {
+      buffer = buf,
+      callback = function()
+        local new_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        local text = table.concat(new_lines, "\n")
+
+        -- Backend trims, but skip if only whitespace
+        if text:match("%S") then
+          notes.update(note_id, text, {}, function(err, _)
+            if err then
+              vim.notify("Failed to save note: " .. (err.message or "unknown"), vim.log.levels.ERROR)
+            else
+              vim.bo[buf].modified = false
+              vim.notify("Note saved", vim.log.levels.INFO)
+              -- Refresh notes display in source buffer
+              M.refresh()
+            end
+          end)
+        end
+      end,
+    })
+
+    -- Add keymaps
+    vim.keymap.set("n", "q", function()
+      if vim.bo[buf].modified then
+        vim.ui.select({ "Save and close", "Discard changes", "Cancel" }, {
+          prompt = "Buffer has unsaved changes:",
+        }, function(choice)
+          if choice == "Save and close" then
+            vim.cmd("write")
+            vim.api.nvim_win_close(win, true)
+          elseif choice == "Discard changes" then
+            vim.bo[buf].modified = false
+            vim.api.nvim_win_close(win, true)
+          end
+        end)
+      else
+        vim.api.nvim_win_close(win, true)
+      end
+    end, { buffer = buf, desc = "Close buffer" })
+
+    -- Add insert-link keymap
+    local prefix = config.get("keymap_prefix") or "<leader>h"
+    vim.keymap.set({ "n", "i" }, prefix .. "k", function()
+      M.insert_link({ file = file })
+    end, { buffer = buf, desc = "Hemis: Insert link" })
+
+    vim.notify("Editing note in buffer. :w to save, q to close.", vim.log.levels.INFO)
+  end)
 end
 
 -- List notes in a buffer
@@ -500,43 +504,44 @@ end
 
 -- Reattach stale note at cursor to current position
 function M.reattach_note()
-  local note = display.get_note_at_cursor(M.buffer_notes)
-  if not note then
-    vim.notify("No note at cursor", vim.log.levels.WARN)
-    return
-  end
-
-  -- Server computes staleness when content is provided
-  if not note.stale then
-    vim.notify("Note is not stale", vim.log.levels.INFO)
-    return
-  end
-
-  -- Capture raw cursor position (server computes anchor from content)
+  -- Capture cursor position before picker
   local anchor = get_cursor_position()
 
-  vim.ui.select({ "Yes", "No" }, { prompt = "Reattach note to current position?" }, function(choice)
-    if choice == "Yes" then
-      notes.reattach(note.id, {
-        anchor = anchor,
-      }, function(err, _)
-        if not err then
-          M.refresh()
-        end
-      end)
+  display.get_note_at_cursor_with_picker(M.buffer_notes, nil, function(note)
+    if not note then
+      vim.notify("No note at cursor", vim.log.levels.WARN)
+      return
     end
+
+    -- Server computes staleness when content is provided
+    if not note.stale then
+      vim.notify("Note is not stale", vim.log.levels.INFO)
+      return
+    end
+
+    vim.ui.select({ "Yes", "No" }, { prompt = "Reattach note to current position?" }, function(choice)
+      if choice == "Yes" then
+        notes.reattach(note.id, {
+          anchor = anchor,
+        }, function(err, _)
+          if not err then
+            M.refresh()
+          end
+        end)
+      end
+    end)
   end)
 end
 
 -- Show backlinks for note at cursor
 function M.show_backlinks()
-  local note = display.get_note_at_cursor(M.buffer_notes)
-  if not note then
-    vim.notify("No note at cursor", vim.log.levels.WARN)
-    return
-  end
+  display.get_note_at_cursor_with_picker(M.buffer_notes, nil, function(note)
+    if not note then
+      vim.notify("No note at cursor", vim.log.levels.WARN)
+      return
+    end
 
-  notes.backlinks(note.id, function(err, result)
+    notes.backlinks(note.id, function(err, result)
     if err then
       vim.notify("Failed to fetch backlinks: " .. (err.message or "unknown"), vim.log.levels.ERROR)
       return
@@ -592,6 +597,7 @@ function M.show_backlinks()
     vim.keymap.set("n", "<CR>", function()
       M.visit_note_from_list(buf)
     end, { buffer = buf })
+    end)
   end)
 end
 
@@ -661,16 +667,40 @@ end
 
 -- Select note at cursor or from picker
 function M.select_note()
-  -- First try to get note at cursor
-  local note = display.get_note_at_cursor(M.buffer_notes)
-  if note then
+  -- First try notes at cursor (handles multi-note disambiguation)
+  local notes_at_cursor = display.get_notes_at_cursor(M.buffer_notes)
+
+  if #notes_at_cursor == 1 then
+    -- Single note at cursor, select it directly
+    local note = notes_at_cursor[1]
     M.set_selected_note(note)
     local short_id = note.shortId or (note.id or ""):sub(1, 8)
     vim.notify("Selected note: " .. short_id .. " - " .. (note.summary or ""):sub(1, 40), vim.log.levels.INFO)
     return
   end
 
-  -- No note at cursor, show picker if we have notes
+  if #notes_at_cursor > 1 then
+    -- Multiple notes at cursor, show picker for just those
+    local items = {}
+    for _, n in ipairs(notes_at_cursor) do
+      local short_id = n.shortId or (n.id or ""):sub(1, 8)
+      local summary = n.summary or (n.text or ""):sub(1, 40)
+      local stale = n.stale and " [STALE]" or ""
+      table.insert(items, string.format("[%s] %s%s", short_id, summary, stale))
+    end
+
+    vim.ui.select(items, { prompt = "Multiple notes on this line:" }, function(_, idx)
+      if idx then
+        local selected = notes_at_cursor[idx]
+        M.set_selected_note(selected)
+        local short_id = selected.shortId or (selected.id or ""):sub(1, 8)
+        vim.notify("Selected note: " .. short_id, vim.log.levels.INFO)
+      end
+    end)
+    return
+  end
+
+  -- No note at cursor, show picker for all notes in file
   if not M.buffer_notes or #M.buffer_notes == 0 then
     vim.notify("No notes in this file", vim.log.levels.INFO)
     return

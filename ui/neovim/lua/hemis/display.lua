@@ -142,6 +142,60 @@ function M.get_note_at_cursor(notes, bufnr)
   return nil
 end
 
+-- Get all notes at cursor position (for multi-note disambiguation)
+function M.get_notes_at_cursor(notes, bufnr)
+  if not notes or #notes == 0 then
+    return {}
+  end
+
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  local cursor_line = cursor[1]
+
+  -- Find all notes whose display position matches cursor
+  local result = {}
+  for _, note in ipairs(notes) do
+    local display_line = get_note_display_position(note)
+    if display_line == cursor_line then
+      table.insert(result, note)
+    end
+  end
+
+  return result
+end
+
+-- Get note at cursor with picker if multiple notes on same line
+function M.get_note_at_cursor_with_picker(notes, bufnr, callback)
+  local notes_at_cursor = M.get_notes_at_cursor(notes, bufnr)
+
+  if #notes_at_cursor == 0 then
+    callback(nil)
+    return
+  end
+
+  if #notes_at_cursor == 1 then
+    callback(notes_at_cursor[1])
+    return
+  end
+
+  -- Multiple notes - show picker
+  local items = {}
+  for _, note in ipairs(notes_at_cursor) do
+    local short_id = note.shortId or (note.id or ""):sub(1, 8)
+    local summary = note.summary or (note.text or ""):sub(1, 40)
+    local stale = note.stale and " [STALE]" or ""
+    table.insert(items, string.format("[%s] %s%s", short_id, summary, stale))
+  end
+
+  vim.ui.select(items, { prompt = "Multiple notes on this line:" }, function(_, idx)
+    if idx then
+      callback(notes_at_cursor[idx])
+    else
+      callback(nil)
+    end
+  end)
+end
+
 -- Note cache for incremental updates: bufnr -> (id -> note)
 M.note_cache = {}
 

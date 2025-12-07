@@ -264,3 +264,56 @@ export async function getNoteAtCursor(
   // Server computes display positions and returns the note at the line, or null
   return client.request<Note | null>('notes/get-at-position', { file, line, content });
 }
+
+// Helper to get all notes at a specific line (for multi-note disambiguation)
+export async function getNotesAtLine(
+  editor: vscode.TextEditor
+): Promise<Note[]> {
+  const client = getRpcClient();
+  const document = editor.document;
+  const position = editor.selection.active;
+  const file = document.uri.fsPath;
+  const targetLine = position.line + 1; // 1-indexed
+  const content = document.getText();
+
+  // Get all notes for the file with display positions computed
+  const response = await client.request<{ notes: Note[], contentHash?: string } | Note[]>(
+    'notes/list-for-file',
+    { file, content, includeStale: true }
+  );
+
+  // Handle both wrapped and unwrapped response formats
+  const notes = Array.isArray(response) ? response : response.notes;
+
+  // Filter to notes at the target line (using displayLine if available)
+  return notes.filter(n => (n.displayLine ?? n.line) === targetLine);
+}
+
+// Helper to get note at cursor, showing picker if multiple notes on same line
+export async function getNoteAtCursorWithPicker(
+  editor: vscode.TextEditor
+): Promise<Note | null> {
+  const notesAtLine = await getNotesAtLine(editor);
+
+  if (notesAtLine.length === 0) {
+    return null;
+  }
+
+  if (notesAtLine.length === 1) {
+    return notesAtLine[0];
+  }
+
+  // Multiple notes on the same line - show picker
+  const items = notesAtLine.map(note => ({
+    label: note.displayMarker || `[${note.shortId}]`,
+    description: note.summary,
+    detail: note.stale ? '[STALE]' : undefined,
+    note,
+  }));
+
+  const selected = await vscode.window.showQuickPick(items, {
+    placeHolder: 'Multiple notes on this line. Select one:',
+  });
+
+  return selected?.note ?? null;
+}

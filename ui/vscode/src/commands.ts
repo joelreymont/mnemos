@@ -13,6 +13,7 @@ import {
   shutdown,
   explainRegion,
   getNoteAtCursor,
+  getNoteAtCursorWithPicker,
   getProjectRoot,
   getProjectMeta,
   reattachNote,
@@ -127,7 +128,7 @@ export async function deleteNoteCommand(): Promise<void> {
     return;
   }
 
-  const note = await getNoteAtCursor(editor);
+  const note = await getNoteAtCursorWithPicker(editor);
   if (!note) {
     vscode.window.showInformationMessage('No note at cursor position');
     return;
@@ -160,7 +161,7 @@ export async function reattachNoteCommand(): Promise<void> {
     return;
   }
 
-  const note = await getNoteAtCursor(editor);
+  const note = await getNoteAtCursorWithPicker(editor);
   if (!note) {
     vscode.window.showInformationMessage('No note at cursor position');
     return;
@@ -195,7 +196,7 @@ export async function editNoteCommand(): Promise<void> {
     return;
   }
 
-  const note = await getNoteAtCursor(editor);
+  const note = await getNoteAtCursorWithPicker(editor);
   if (!note) {
     vscode.window.showInformationMessage('No note at cursor position');
     return;
@@ -227,7 +228,7 @@ export async function editNoteBufferCommand(): Promise<void> {
     return;
   }
 
-  const note = await getNoteAtCursor(editor);
+  const note = await getNoteAtCursorWithPicker(editor);
   if (!note) {
     vscode.window.showInformationMessage('No note at cursor position');
     return;
@@ -488,7 +489,7 @@ export async function backlinksCommand(): Promise<void> {
     return;
   }
 
-  const note = await getNoteAtCursor(editor);
+  const note = await getNoteAtCursorWithPicker(editor);
   if (!note) {
     vscode.window.showInformationMessage('No note at cursor position');
     return;
@@ -536,7 +537,7 @@ export async function viewNoteCommand(): Promise<void> {
     return;
   }
 
-  const note = await getNoteAtCursor(editor);
+  const note = await getNoteAtCursorWithPicker(editor);
   if (!note) {
     vscode.window.showInformationMessage('No note at cursor position');
     return;
@@ -804,7 +805,7 @@ export async function selectNoteCommand(): Promise<void> {
 
   try {
     // First try to get note at cursor position
-    const note = await getNoteAtCursor(editor);
+    const note = await getNoteAtCursorWithPicker(editor);
     if (note) {
       setSelectedNote(note);
       vscode.window.showInformationMessage(`Selected note: ${note.summary}`);

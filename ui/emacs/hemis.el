@@ -1031,10 +1031,10 @@ With prefix arg or INCLUDE-AI non-nil, also run AI analysis."
 
 (defun hemis-reattach-note ()
   "Reattach the stale note at point to the current cursor position.
-Use this when a note becomes stale due to code changes."
+Use this when a note becomes stale due to code changes.
+Shows picker if multiple notes at same position."
   (interactive)
-  (let* ((note (or (get-text-property (point) 'hemis-note)
-                   (hemis--note-at-overlay (point))))
+  (let* ((note (hemis--note-at-point-with-picker))
          (id (and note (hemis--note-get note 'id))))
     (unless id
       (user-error "No note at point"))
@@ -1181,10 +1181,10 @@ Sends buffer content so server can compute nodeTextHash."
     (message "Hemis: %d notes, %d files, %d embeddings" notes files embeddings)))
 
 (defun hemis-edit-note-at-point ()
-  "Edit the note at point (overlay or notes list)."
+  "Edit the note at point (overlay or notes list).
+Shows picker if multiple notes at same position."
   (interactive)
-  (let* ((note (or (get-text-property (point) 'hemis-note)
-                   (hemis--note-at-overlay (point))))
+  (let* ((note (hemis--note-at-point-with-picker))
          (id (and note (hemis--note-get note 'id)))
          (text (and note (hemis--note-text note))))
     (unless id
@@ -1201,10 +1201,10 @@ Sends buffer content so server can compute nodeTextHash."
 (defun hemis-edit-note-buffer ()
   "Edit the note at point in a dedicated buffer.
 Opens a new buffer with the note content for editing longer notes.
-Use C-c C-c to save, C-c C-k to cancel."
+Use C-c C-c to save, C-c C-k to cancel.
+Shows picker if multiple notes at same position."
   (interactive)
-  (let* ((note (or (get-text-property (point) 'hemis-note)
-                   (hemis--note-at-overlay (point))))
+  (let* ((note (hemis--note-at-point-with-picker))
          (id (and note (hemis--note-get note 'id)))
          (text (and note (hemis--note-text note))))
     (unless id
@@ -1246,10 +1246,10 @@ Use C-c C-c to save, C-c C-k to cancel."
     (kill-buffer-and-window)))
 
 (defun hemis-delete-note-at-point ()
-  "Delete the note at point (overlay or notes list)."
+  "Delete the note at point (overlay or notes list).
+Shows picker if multiple notes at same position."
   (interactive)
-  (let* ((note (or (get-text-property (point) 'hemis-note)
-                   (hemis--note-at-overlay (point))))
+  (let* ((note (hemis--note-at-point-with-picker))
          (id (and note (hemis--note-get note 'id))))
     (unless id
       (user-error "No note at point"))
@@ -1269,19 +1269,19 @@ Use C-c C-c to save, C-c C-k to cancel."
 
 (defun hemis-select-note ()
   "Select the note at point, or choose from notes in current file.
-If cursor is on a note, select it. Otherwise show a completion list."
+If cursor is on a note, select it. If multiple notes at cursor,
+show picker for those. Otherwise show picker for all notes in file."
   (interactive)
-  (let* ((note-at-point (or (get-text-property (point) 'hemis-note)
-                            (hemis--note-at-overlay (point)))))
+  (let* ((note-at-point (hemis--note-at-point-with-picker)))
     (if note-at-point
-        ;; Select note at cursor
+        ;; Selected note at cursor (possibly via picker)
         (let* ((id (hemis--note-get note-at-point 'id))
                (short-id (or (hemis--note-get note-at-point 'shortId)
                              (if (> (length id) 8) (substring id 0 8) id)))
                (summary (or (hemis--note-text note-at-point) "")))
           (hemis-set-selected-note note-at-point)
           (message "Selected note: %s - %s" short-id (truncate-string-to-width summary 40)))
-      ;; No note at cursor, show picker
+      ;; No note at cursor, show picker for all notes in file
       (let* ((params (hemis--buffer-params))
              (notes (let ((result (hemis--request "notes/list-for-file"
                                                    (append params '((includeStale . t))))))
@@ -1325,6 +1325,44 @@ If cursor is on a note, select it. Otherwise show a completion list."
           (when notes
             (setq result (car notes))))))
     result))
+
+(defun hemis--notes-at-overlay (pos)
+  "Return ALL hemis notes at POS from overlays."
+  (let ((result nil))
+    (dolist (ov hemis--overlays)
+      (when (and (overlay-get ov 'hemis-note-marker)
+                 (<= (overlay-start ov) pos)
+                 (< pos (overlay-end ov)))
+        (let ((notes (overlay-get ov 'hemis-notes)))
+          (when notes
+            (setq result (append result notes))))))
+    result))
+
+(defun hemis--note-at-point-with-picker ()
+  "Return note at point, showing picker if multiple notes at same position.
+Returns nil if no note or user cancelled."
+  (let* ((text-prop-note (get-text-property (point) 'hemis-note))
+         (overlay-notes (hemis--notes-at-overlay (point)))
+         (all-notes (if text-prop-note
+                        (cons text-prop-note overlay-notes)
+                      overlay-notes)))
+    (cond
+     ((null all-notes) nil)
+     ((= (length all-notes) 1) (car all-notes))
+     (t
+      ;; Multiple notes - show picker
+      (let* ((choices (mapcar (lambda (note)
+                                (let* ((id (hemis--note-get note 'id))
+                                       (short-id (or (hemis--note-get note 'shortId)
+                                                     (if (> (length id) 8) (substring id 0 8) id)))
+                                       (summary (or (hemis--note-text note) "")))
+                                  (cons (format "[%s] %s" short-id
+                                                (truncate-string-to-width summary 40))
+                                        note)))
+                              all-notes))
+             (chosen (cdr (assoc (completing-read "Multiple notes here: " choices nil t)
+                                 choices))))
+        chosen)))))
 
 (defun hemis-notes-for-node (node-path)
   "Return notes for NODE-PATH in the current file/project."
@@ -1437,12 +1475,16 @@ Opens in another window if available, keeping the notes list visible."
 (defun hemis-show-backlinks (&optional note-or-id)
   "Show all notes that link TO the given NOTE-OR-ID.
 If called interactively in *Hemis Notes*, use the note at point.
-Otherwise, prompt for a note ID."
+Otherwise, prompt for a note ID.
+Shows picker if multiple notes at same position."
   (interactive)
   (let* ((note (cond
                 ((and (null note-or-id)
                       (get-text-property (line-beginning-position) 'hemis-note))
                  (get-text-property (line-beginning-position) 'hemis-note))
+                ((null note-or-id)
+                 ;; Not in notes list, try picker at point
+                 (hemis--note-at-point-with-picker))
                 ((stringp note-or-id) nil)
                 (t note-or-id)))
          (id (cond
