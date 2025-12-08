@@ -1080,6 +1080,61 @@ impl Server {
       -- Original line 7 + 2 inserted = 9
       assert.equals(9, line_after, "Note should move to line 9 after inserting 2 lines above")
     end)
+
+    it("displays note at updated line position after lines inserted", function()
+      local env = get_demo_env()
+      local display = require("hemis.display")
+      local done = false
+      local connect_ok = false
+      local extmark_line = nil
+
+      env.rpc.start(function(ok)
+        if not ok then done = true return end
+        connect_ok = true
+
+        -- Create note at line 7 (fn load_config)
+        env.rpc.request("notes/create", {
+          file = env.file,
+          line = 7,
+          column = 0,
+          text = "Position display test",
+          projectRoot = env.dir,
+          content = DEMO_CODE,
+        }, function(err, res)
+          if not res then done = true return end
+
+          -- Insert 2 comment lines at top
+          local new_content = "// Comment 1\n// Comment 2\n" .. DEMO_CODE
+
+          -- Update buffer content to match
+          vim.api.nvim_buf_set_lines(env.buf, 0, -1, false, vim.split(new_content, "\n"))
+
+          -- List with new content and render
+          env.rpc.request("notes/list-for-file", {
+            file = env.file,
+            projectRoot = env.dir,
+            content = new_content,
+          }, function(err2, notes_wrapped)
+            local notes = helpers.unwrap_notes(notes_wrapped)
+            if notes then
+              display.render_notes(env.buf, notes)
+              helpers.wait(50)
+            end
+            done = true
+          end)
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 10000)
+
+      local state = helpers.capture_display_state(env.buf)
+      env.cleanup()
+
+      assert.truthy(connect_ok)
+      assert.equals(1, #state.extmarks, "Should have 1 extmark")
+      -- Note moved from line 7 to line 9 (7 + 2 inserted lines)
+      assert.equals(9, state.extmarks[1].line, "Extmark should be at updated line 9")
+    end)
   end)
 
   describe("stale detection", function()
@@ -1260,6 +1315,78 @@ impl Server {
       assert.truthy(connect_ok)
       assert.is_not_nil(note_id)
       assert.is_false(stale_after_reattach, "Note should be fresh after reattach")
+    end)
+
+    it("displays fresh highlight after reattach clears stale", function()
+      local env = get_demo_env()
+      local display = require("hemis.display")
+      local done = false
+      local connect_ok = false
+      local note_id = nil
+
+      env.rpc.start(function(ok)
+        if not ok then done = true return end
+        connect_ok = true
+
+        -- Create note at fn new (line 12) with content
+        env.rpc.request("notes/create", {
+          file = env.file,
+          line = 12,
+          column = 0,
+          text = "Reattach display test",
+          projectRoot = env.dir,
+          content = DEMO_CODE,
+        }, function(err, res)
+          if not res then done = true return end
+          note_id = res.id
+
+          -- Change anchor code (makes note stale)
+          local modified_content = DEMO_CODE:gsub("fn new", "fn create")
+
+          -- Reattach note to new code
+          env.rpc.request("notes/reattach", {
+            id = note_id,
+            file = env.file,
+            line = 12,
+            content = modified_content,
+            projectRoot = env.dir,
+          }, function(err2, res2)
+            -- List and render after reattach
+            env.rpc.request("notes/list-for-file", {
+              file = env.file,
+              projectRoot = env.dir,
+              content = modified_content,
+            }, function(err3, notes_wrapped)
+              local notes = helpers.unwrap_notes(notes_wrapped)
+              if notes then
+                display.render_notes(env.buf, notes)
+                helpers.wait(50)
+              end
+              done = true
+            end)
+          end)
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 10000)
+
+      local state = helpers.capture_display_state(env.buf)
+      env.cleanup()
+
+      assert.truthy(connect_ok)
+      assert.truthy(#state.extmarks > 0, "Should have extmark")
+
+      -- Check that stale highlight is NOT present (should use HemisNote, not HemisNoteStale)
+      local has_stale_hl = false
+      for _, mark in ipairs(state.extmarks) do
+        for _, hl in ipairs(mark.hl_groups or {}) do
+          if hl:find("Stale") then
+            has_stale_hl = true
+            break
+          end
+        end
+      end
+      assert.is_false(has_stale_hl, "Reattached note should NOT use HemisNoteStale highlight")
     end)
   end)
 
