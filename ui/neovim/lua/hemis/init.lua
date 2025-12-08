@@ -12,6 +12,35 @@ M.commands = require("hemis.commands")
 M.config = require("hemis.config")
 M.events = require("hemis.events")
 
+-- Find buffer by file path, handling path canonicalization
+-- Server sends canonicalized paths (e.g., /private/tmp/foo on macOS)
+-- But buffers may have non-canonicalized names (e.g., /tmp/foo)
+local function find_buffer_by_path(file_path)
+  -- Try direct lookup first (fast path)
+  local bufnr = vim.fn.bufnr(file_path)
+  if bufnr ~= -1 then
+    return bufnr
+  end
+
+  -- Canonicalize the event path for comparison
+  local canonical_event = vim.fn.resolve(file_path)
+
+  -- Check all loaded buffers for matching canonical path
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(buf) then
+      local buf_name = vim.api.nvim_buf_get_name(buf)
+      if buf_name ~= "" then
+        local canonical_buf = vim.fn.resolve(buf_name)
+        if canonical_buf == canonical_event or canonical_buf == file_path then
+          return buf
+        end
+      end
+    end
+  end
+
+  return -1
+end
+
 -- Setup function (called by lazy.nvim)
 function M.setup(opts)
   -- Initialize configuration
@@ -32,7 +61,7 @@ function M.setup(opts)
   -- Register event handlers
   M.events.on("note-position-changed", function(event)
     -- Update display for the affected file
-    local bufnr = vim.fn.bufnr(event.file)
+    local bufnr = find_buffer_by_path(event.file)
     if bufnr ~= -1 and vim.api.nvim_buf_is_loaded(bufnr) then
       M.display.update_note_position(bufnr, event.id, event.new_line, event.stale)
     end
@@ -40,7 +69,7 @@ function M.setup(opts)
 
   M.events.on("note-created", function(event)
     -- Refresh display for the file where note was created
-    local bufnr = vim.fn.bufnr(event.file)
+    local bufnr = find_buffer_by_path(event.file)
     if bufnr ~= -1 and vim.api.nvim_buf_is_loaded(bufnr) then
       M.commands.refresh()
     end

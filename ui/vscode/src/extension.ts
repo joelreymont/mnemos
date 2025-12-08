@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { getRpcClient, disposeRpcClient } from './rpc';
 import { registerCommands } from './commands';
 import { refreshNotes, disposeDecorations, refreshAllEditors, updateNotePosition } from './decorations';
@@ -6,6 +7,33 @@ import { getConfig } from './config';
 import { NotesTreeDataProvider } from './providers/notesView';
 import { debug, disposeDebug } from './debug';
 import { getEventClient, disposeEventClient, NotePositionChangedEvent, NoteCreatedEvent, NoteDeletedEvent, NoteUpdatedEvent } from './events';
+
+/**
+ * Resolve a path to its canonical form (resolving symlinks).
+ * On macOS, /tmp is a symlink to /private/tmp.
+ * Falls back to the original path if resolution fails.
+ */
+function resolveRealPath(filePath: string): string {
+  try {
+    return fs.realpathSync(filePath);
+  } catch {
+    return filePath;
+  }
+}
+
+/**
+ * Check if two file paths refer to the same file, handling symlinks.
+ * Server sends canonicalized paths (e.g., /private/tmp/foo on macOS)
+ * but editors may have non-canonicalized names (e.g., /tmp/foo).
+ */
+function pathsMatch(editorPath: string, eventPath: string): boolean {
+  // Fast path: direct comparison
+  if (editorPath === eventPath) {
+    return true;
+  }
+  // Resolve symlinks and compare
+  return resolveRealPath(editorPath) === resolveRealPath(eventPath);
+}
 
 let notesProvider: NotesTreeDataProvider | null = null;
 
@@ -121,7 +149,7 @@ export function deactivate(): void {
 // Helper to refresh decorations for a specific file
 async function refreshFileDecorations(file: string): Promise<void> {
   for (const editor of vscode.window.visibleTextEditors) {
-    if (editor.document.uri.fsPath === file) {
+    if (pathsMatch(editor.document.uri.fsPath, file)) {
       await refreshNotes(editor);
       return;
     }

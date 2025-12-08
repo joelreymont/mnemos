@@ -1601,13 +1601,27 @@ Shows picker if multiple notes at same position."
 
 ;;; Event handlers setup
 
+(defun hemis--find-buffer-by-path (file-path)
+  "Find buffer visiting FILE-PATH, handling path canonicalization.
+Server sends canonicalized paths (e.g., /private/tmp/foo on macOS)
+but buffers may have non-canonicalized names (e.g., /tmp/foo)."
+  ;; Try direct lookup first (fast path)
+  (or (get-file-buffer file-path)
+      ;; Compare canonical paths for all file-visiting buffers
+      (let ((canonical-event (file-truename file-path)))
+        (cl-find-if
+         (lambda (buf)
+           (when-let ((buf-file (buffer-file-name buf)))
+             (string= (file-truename buf-file) canonical-event)))
+         (buffer-list)))))
+
 (defun hemis--setup-event-handlers ()
   "Set up handlers for backend events."
   ;; Handle note position changes
   (hemis--events-on "note-position-changed"
     (lambda (event)
       (let ((file (alist-get 'file event)))
-        (when-let ((buf (get-file-buffer file)))
+        (when-let ((buf (hemis--find-buffer-by-path file)))
           (with-current-buffer buf
             (hemis-refresh-notes))))))
 
@@ -1615,7 +1629,7 @@ Shows picker if multiple notes at same position."
   (hemis--events-on "note-created"
     (lambda (event)
       (let ((file (alist-get 'file event)))
-        (when-let ((buf (get-file-buffer file)))
+        (when-let ((buf (hemis--find-buffer-by-path file)))
           (with-current-buffer buf
             (hemis-refresh-notes))))))
 

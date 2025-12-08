@@ -1,7 +1,35 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { Note, listNotes, getProjectRoot } from './notes';
 import { getConfig } from './config';
 import { debug, debugVerbose } from './debug';
+
+/**
+ * Resolve a path to its canonical form (resolving symlinks).
+ * On macOS, /tmp is a symlink to /private/tmp.
+ * Falls back to the original path if resolution fails.
+ */
+function resolveRealPath(filePath: string): string {
+  try {
+    return fs.realpathSync(filePath);
+  } catch {
+    return filePath;
+  }
+}
+
+/**
+ * Check if two file paths refer to the same file, handling symlinks.
+ * Server sends canonicalized paths (e.g., /private/tmp/foo on macOS)
+ * but editors may have non-canonicalized names (e.g., /tmp/foo).
+ */
+function pathsMatch(editorPath: string, eventPath: string): boolean {
+  // Fast path: direct comparison
+  if (editorPath === eventPath) {
+    return true;
+  }
+  // Resolve symlinks and compare
+  return resolveRealPath(editorPath) === resolveRealPath(eventPath);
+}
 
 // Decoration type for note markers
 const noteDecorationType = vscode.window.createTextEditorDecorationType({
@@ -144,9 +172,9 @@ const noteCache: Map<string, Map<string, Note>> = new Map(); // file -> (id -> N
  * Called when receiving NotePositionChanged events.
  */
 export function updateNotePosition(file: string, noteId: string, newLine: number, stale: boolean): void {
-  // Find the editor for this file
+  // Find the editor for this file (handle path canonicalization)
   const editor = vscode.window.visibleTextEditors.find(
-    e => e.document.uri.fsPath === file
+    e => pathsMatch(e.document.uri.fsPath, file)
   );
 
   if (!editor) {

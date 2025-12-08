@@ -278,18 +278,27 @@ test.describe('Demo Workflow E2E', () => {
     // Take screenshot
     await window.screenshot({ path: path.join(testDir, 'after-create.png') });
 
-    // Verify the note marker appears in the editor
-    // Decorations use CSS before pseudo-elements, so we check for the virtual line
-    const hasDecoration = await window.locator('.monaco-editor').first().evaluate((el) => {
-      // Check for decoration content or marker
-      const text = el.textContent || '';
-      return text.includes('Configuration') || text.includes('[n:') || text.includes('// ');
-    });
+    // VISUAL VERIFICATION for VSCode decorations:
+    // VSCode decorations use CSS ::before pseudo-elements which are not easily accessible from DOM
+    // We verify:
+    // 1. The editor is visible and rendering
+    // 2. The command executed without errors
+    // 3. Screenshots are saved for visual regression testing
+    //
+    // For CI/automated testing, the key verification is that the workflow completes without errors.
+    // Visual inspection of screenshots (after-create.png) confirms decoration appearance.
 
-    // The decoration might not be in textContent due to CSS pseudo-elements
-    // Just verify no error occurred and we can see the editor
+    // Verify the main editor is visible and has content
     const codeEditor = window.locator('.monaco-editor[data-uri^="file://"]').first();
     await expect(codeEditor).toBeVisible();
+
+    // Verify view-lines exist (Monaco editor is rendering)
+    const viewLines = window.locator('.monaco-editor[data-uri^="file://"] .view-lines');
+    await expect(viewLines).toBeVisible();
+
+    // Check that Monaco has rendered lines (basic rendering verification)
+    const lineCount = await viewLines.locator('.view-line').count();
+    expect(lineCount).toBeGreaterThan(0);
   });
 
   test('position tracking: note moves when lines inserted', async () => {

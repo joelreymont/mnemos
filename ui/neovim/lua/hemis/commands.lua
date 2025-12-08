@@ -3,6 +3,7 @@ local notes = require("hemis.notes")
 local display = require("hemis.display")
 local rpc = require("hemis.rpc")
 local config = require("hemis.config")
+local events = require("hemis.events")
 
 local M = {}
 
@@ -20,9 +21,17 @@ function M.refresh()
       return
     end
 
-    M.buffer_notes = result or {}
+    -- Backend returns {notes: [...]} wrapper
+    local notes_list = result
+    if result and result.notes then
+      notes_list = result.notes
+    end
+
+    M.buffer_notes = notes_list or {}
     display.render_notes(nil, M.buffer_notes)
     display.cache_notes(nil, M.buffer_notes)
+    -- Force redraw to ensure extmarks appear immediately
+    vim.cmd("redraw")
   end)
 end
 
@@ -735,6 +744,7 @@ function M.clear_selection()
 end
 
 -- Explain region using AI and create a note
+-- Display refresh is triggered by server-side "note-created" event (see init.lua)
 function M.explain_region()
   -- Exit visual mode first to set '< and '> marks
   local mode = vim.fn.mode()
@@ -752,72 +762,52 @@ function M.explain_region()
     return
   end
 
-  -- Capture raw cursor position at start of selection (server computes anchor from content)
+  -- Capture context before async operations
   vim.api.nvim_win_set_cursor(0, { start_line, 0 })
   local anchor = get_cursor_position()
   local source_buf = vim.api.nvim_get_current_buf()
   local file = vim.fn.expand("%:p")
 
-  -- Use polling approach so UI stays responsive
-  local done = false
-  local ai_err = nil
-  local ai_result = nil
+  -- Show status message
+  vim.notify("AI thinking...", vim.log.levels.INFO)
 
+  -- Request AI explanation - note creation triggers "note-created" event
+  -- which is handled by init.lua to refresh the display
   notes.explain_region(file, start_line, end_line, true, false, function(err, result)
-    ai_err = err
-    ai_result = result
-    done = true
+    if err then
+      vim.notify("Failed to explain region: " .. (err.message or vim.inspect(err)), vim.log.levels.ERROR)
+      return
+    end
+
+    if not result or not result.explanation then
+      vim.notify("No AI explanation available", vim.log.levels.WARN)
+      return
+    end
+
+    -- Backend guarantees ai.statusDisplay when AI is used
+    local text = string.format("%s %s", result.ai.statusDisplay, result.explanation)
+
+    -- Create note with explanation
+    -- Note: Display refresh happens via "note-created" server push event
+    notes.create(text, {
+      anchor = anchor,
+      source_buf = source_buf,
+    }, function(create_err, _)
+      if create_err then
+        vim.notify("Failed to create note: " .. (create_err.message or "unknown"), vim.log.levels.ERROR)
+        return
+      end
+      -- Fallback: refresh if event client isn't connected
+      -- (normally the "note-created" event handler does this)
+      if not events.is_connected() then
+        M.refresh()
+      end
+    end)
   end)
-
-  -- Poll with status updates until AI responds
-  local elapsed = 0
-  while not done and elapsed < 120000 do
-    local msg = string.format("AI thinking... (%ds)", math.floor(elapsed / 1000))
-    vim.api.nvim_echo({{msg, "Comment"}}, false, {})
-    vim.cmd("redraw")
-    vim.wait(500, function() return done end)
-    elapsed = elapsed + 500
-  end
-  vim.api.nvim_echo({{""}}, false, {})
-
-  if ai_err then
-    vim.notify("Failed to explain region: " .. (ai_err.message or vim.inspect(ai_err)), vim.log.levels.ERROR)
-    return
-  end
-
-  if not ai_result or not ai_result.explanation then
-    vim.notify("No AI explanation available", vim.log.levels.WARN)
-    return
-  end
-
-
-  -- Create note synchronously using coroutine-style wait
-  local create_done = false
-  local create_err = nil
-
-  -- Backend guarantees ai.statusDisplay when AI is used
-  local text = string.format("%s %s", ai_result.ai.statusDisplay, ai_result.explanation)
-
-  notes.create(text, {
-    anchor = anchor,
-    source_buf = source_buf,
-  }, function(err, _)
-    create_err = err
-    create_done = true
-  end)
-
-  vim.wait(5000, function() return create_done end)
-
-  if create_err then
-    vim.notify("Failed to create note: " .. (create_err.message or "unknown"), vim.log.levels.ERROR)
-    return
-  end
-
-  -- Use sync refresh so note displays immediately before returning
-  M.refresh_sync()
 end
 
 -- Explain region using AI with detailed/comprehensive explanation
+-- Display refresh is triggered by server-side "note-created" event (see init.lua)
 function M.explain_region_full()
   -- Exit visual mode first to set '< and '> marks
   local mode = vim.fn.mode()
@@ -835,68 +825,48 @@ function M.explain_region_full()
     return
   end
 
-  -- Capture raw cursor position at start of selection (server computes anchor from content)
+  -- Capture context before async operations
   vim.api.nvim_win_set_cursor(0, { start_line, 0 })
   local anchor = get_cursor_position()
   local source_buf = vim.api.nvim_get_current_buf()
   local file = vim.fn.expand("%:p")
 
-  -- Use polling approach so UI stays responsive
-  local done = false
-  local ai_err = nil
-  local ai_result = nil
+  -- Show status message
+  vim.notify("AI thinking deeply...", vim.log.levels.INFO)
 
+  -- Request detailed AI explanation - note creation triggers "note-created" event
+  -- which is handled by init.lua to refresh the display
   notes.explain_region(file, start_line, end_line, true, true, function(err, result)
-    ai_err = err
-    ai_result = result
-    done = true
+    if err then
+      vim.notify("Failed to explain region: " .. (err.message or vim.inspect(err)), vim.log.levels.ERROR)
+      return
+    end
+
+    if not result or not result.explanation then
+      vim.notify("No AI explanation available", vim.log.levels.WARN)
+      return
+    end
+
+    -- Backend guarantees ai.statusDisplay when AI is used
+    local text = string.format("%s %s", result.ai.statusDisplay, result.explanation)
+
+    -- Create note with explanation
+    -- Note: Display refresh happens via "note-created" server push event
+    notes.create(text, {
+      anchor = anchor,
+      source_buf = source_buf,
+    }, function(create_err, _)
+      if create_err then
+        vim.notify("Failed to create note: " .. (create_err.message or "unknown"), vim.log.levels.ERROR)
+        return
+      end
+      -- Fallback: refresh if event client isn't connected
+      -- (normally the "note-created" event handler does this)
+      if not events.is_connected() then
+        M.refresh()
+      end
+    end)
   end)
-
-  -- Poll with status updates until AI responds
-  local elapsed = 0
-  while not done and elapsed < 120000 do
-    local msg = string.format("AI thinking deeply... (%ds)", math.floor(elapsed / 1000))
-    vim.api.nvim_echo({{msg, "Comment"}}, false, {})
-    vim.cmd("redraw")
-    vim.wait(500, function() return done end)
-    elapsed = elapsed + 500
-  end
-  vim.api.nvim_echo({{""}}, false, {})
-
-  if ai_err then
-    vim.notify("Failed to explain region: " .. (ai_err.message or vim.inspect(ai_err)), vim.log.levels.ERROR)
-    return
-  end
-
-  if not ai_result or not ai_result.explanation then
-    vim.notify("No AI explanation available", vim.log.levels.WARN)
-    return
-  end
-
-  -- Create note synchronously using coroutine-style wait
-  local create_done = false
-  local create_err = nil
-
-  -- Backend guarantees ai.statusDisplay when AI is used
-  local text = string.format("%s %s", ai_result.ai.statusDisplay, ai_result.explanation)
-
-  notes.create(text, {
-    anchor = anchor,
-    source_buf = source_buf,
-  }, function(err, _)
-    create_err = err
-    create_done = true
-  end)
-
-  vim.wait(5000, function() return create_done end)
-
-  if create_err then
-    vim.notify("Failed to create note: " .. (create_err.message or "unknown"), vim.log.levels.ERROR)
-    return
-  end
-
-  -- Use sync refresh so note displays immediately before returning
-  M.refresh_sync()
 end
 
 -- Show project metadata
