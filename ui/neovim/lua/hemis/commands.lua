@@ -768,18 +768,21 @@ function M.explain_region()
   local source_buf = vim.api.nvim_get_current_buf()
   local file = vim.fn.expand("%:p")
 
-  -- Show status message
-  vim.notify("AI thinking...", vim.log.levels.INFO)
+  -- Show persistent status in echo area (stays until next message)
+  vim.api.nvim_echo({ { "AI thinking...", "Comment" } }, false, {})
+  vim.cmd("redraw")
 
   -- Request AI explanation - note creation triggers "note-created" event
   -- which is handled by init.lua to refresh the display
   notes.explain_region(file, start_line, end_line, true, false, function(err, result)
     if err then
+      vim.api.nvim_echo({ { "" } }, false, {})
       vim.notify("Failed to explain region: " .. (err.message or vim.inspect(err)), vim.log.levels.ERROR)
       return
     end
 
     if not result or not result.explanation then
+      vim.api.nvim_echo({ { "" } }, false, {})
       vim.notify("No AI explanation available", vim.log.levels.WARN)
       return
     end
@@ -793,6 +796,8 @@ function M.explain_region()
       anchor = anchor,
       source_buf = source_buf,
     }, function(create_err, _)
+      -- Clear the "AI thinking..." message
+      vim.api.nvim_echo({ { "" } }, false, {})
       if create_err then
         vim.notify("Failed to create note: " .. (create_err.message or "unknown"), vim.log.levels.ERROR)
         return
@@ -831,18 +836,21 @@ function M.explain_region_full()
   local source_buf = vim.api.nvim_get_current_buf()
   local file = vim.fn.expand("%:p")
 
-  -- Show status message
-  vim.notify("AI thinking deeply...", vim.log.levels.INFO)
+  -- Show persistent status in echo area (stays until next message)
+  vim.api.nvim_echo({ { "AI thinking deeply...", "Comment" } }, false, {})
+  vim.cmd("redraw")
 
   -- Request detailed AI explanation - note creation triggers "note-created" event
   -- which is handled by init.lua to refresh the display
   notes.explain_region(file, start_line, end_line, true, true, function(err, result)
     if err then
+      vim.api.nvim_echo({ { "" } }, false, {})
       vim.notify("Failed to explain region: " .. (err.message or vim.inspect(err)), vim.log.levels.ERROR)
       return
     end
 
     if not result or not result.explanation then
+      vim.api.nvim_echo({ { "" } }, false, {})
       vim.notify("No AI explanation available", vim.log.levels.WARN)
       return
     end
@@ -856,6 +864,8 @@ function M.explain_region_full()
       anchor = anchor,
       source_buf = source_buf,
     }, function(create_err, _)
+      -- Clear the "AI thinking deeply..." message
+      vim.api.nvim_echo({ { "" } }, false, {})
       if create_err then
         vim.notify("Failed to create note: " .. (create_err.message or "unknown"), vim.log.levels.ERROR)
         return

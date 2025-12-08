@@ -473,6 +473,230 @@ describe("visual e2e: notes appear as extmarks", function()
 
     env.cleanup()
   end)
+
+  it("VISUAL: note indentation matches column position", function()
+    -- This test verifies that formattedLines have correct indentation
+    -- based on the note's column (matching tree-sitter node alignment)
+    local env = setup_e2e_env()
+    local display = require("hemis.display")
+
+    local connected = false
+    local create_done = false
+    local note_id = nil
+
+    -- Connect and create note at column 4 (inside function body)
+    env.rpc.start(function(ok)
+      if not ok then
+        create_done = true
+        return
+      end
+      connected = true
+
+      -- Create note at line 3, column 4 (indented code inside main())
+      env.rpc.request("notes/create", {
+        file = env.file,
+        line = 3,
+        column = 4,
+        text = "Indented note",
+        projectRoot = env.dir,
+      }, function(err, res)
+        if res then
+          note_id = res.id
+        end
+        create_done = true
+      end)
+    end)
+
+    helpers.wait_for(function() return create_done end, 10000)
+    assert.truthy(connected, "Should connect to backend")
+    assert.is_not_nil(note_id, "Note should have been created")
+
+    -- List notes and check formattedLines
+    local list_done = false
+    local notes = nil
+
+    env.rpc.request("notes/list-for-file", {
+      file = env.file,
+      projectRoot = env.dir,
+    }, function(err, res)
+      if not err then
+        notes = helpers.unwrap_notes(res)
+      end
+      list_done = true
+    end)
+
+    helpers.wait_for(function() return list_done end, 5000)
+    assert.is_not_nil(notes, "Should have received notes list")
+    assert.truthy(#notes > 0, "Notes list should not be empty")
+
+    -- Verify formattedLines have 4-space indent (column 4)
+    local note = notes[1]
+    local formatted = note.formattedLines
+    assert.is_not_nil(formatted, "Note should have formattedLines")
+    assert.truthy(#formatted > 0, "formattedLines should not be empty")
+
+    -- First line should start with 4 spaces + comment prefix
+    local first_line = formatted[1]
+    assert.truthy(string.find(first_line, "^    // "), "INDENT VERIFICATION FAILED: formattedLines should start with 4-space indent, got: '" .. first_line .. "'")
+
+    -- Render and verify extmark contains indented text
+    display.render_notes(env.buf, notes)
+    helpers.wait(100)
+
+    local ns = display.ns_id
+    local marks = vim.api.nvim_buf_get_extmarks(env.buf, ns, 0, -1, { details = true })
+    assert.truthy(#marks > 0, "VISUAL VERIFICATION FAILED: No extmarks found")
+
+    -- Check extmark text includes the indentation
+    local all_text = ""
+    local details = marks[1][4] or {}
+    if details.virt_lines then
+      for _, vline in ipairs(details.virt_lines) do
+        for _, chunk in ipairs(vline) do
+          all_text = all_text .. (chunk[1] or "")
+        end
+      end
+    end
+
+    assert.truthy(string.find(all_text, "    // Indented note", 1, true), "VISUAL VERIFICATION FAILED: Extmark should contain indented text")
+
+    env.cleanup()
+  end)
+
+  it("VISUAL: note at column 0 has no indentation", function()
+    -- This test verifies notes at column 0 have no leading spaces
+    local env = setup_e2e_env()
+    local display = require("hemis.display")
+
+    local connected = false
+    local create_done = false
+    local note_id = nil
+
+    -- Connect and create note at column 0 (top-level)
+    env.rpc.start(function(ok)
+      if not ok then
+        create_done = true
+        return
+      end
+      connected = true
+
+      -- Create note at line 7, column 0 (fn load_config at top level)
+      env.rpc.request("notes/create", {
+        file = env.file,
+        line = 7,
+        column = 0,
+        text = "Top level note",
+        projectRoot = env.dir,
+      }, function(err, res)
+        if res then
+          note_id = res.id
+        end
+        create_done = true
+      end)
+    end)
+
+    helpers.wait_for(function() return create_done end, 10000)
+    assert.truthy(connected, "Should connect to backend")
+    assert.is_not_nil(note_id, "Note should have been created")
+
+    -- List notes and check formattedLines
+    local list_done = false
+    local notes = nil
+
+    env.rpc.request("notes/list-for-file", {
+      file = env.file,
+      projectRoot = env.dir,
+    }, function(err, res)
+      if not err then
+        notes = helpers.unwrap_notes(res)
+      end
+      list_done = true
+    end)
+
+    helpers.wait_for(function() return list_done end, 5000)
+    assert.is_not_nil(notes, "Should have received notes list")
+    assert.truthy(#notes > 0, "Notes list should not be empty")
+
+    -- Verify formattedLines have NO indent (column 0)
+    local note = notes[1]
+    local formatted = note.formattedLines
+    assert.is_not_nil(formatted, "Note should have formattedLines")
+    assert.truthy(#formatted > 0, "formattedLines should not be empty")
+
+    -- First line should start with "// " (no leading spaces)
+    local first_line = formatted[1]
+    assert.truthy(string.find(first_line, "^// "), "INDENT VERIFICATION FAILED: Column 0 note should have no indent, got: '" .. first_line .. "'")
+    assert.falsy(string.find(first_line, "^%s+// "), "INDENT VERIFICATION FAILED: Column 0 note should NOT start with spaces")
+
+    env.cleanup()
+  end)
+
+  it("VISUAL: nested note has deeper indentation", function()
+    -- This test verifies notes at column 8 (nested block) have 8-space indent
+    local env = setup_e2e_env()
+    local display = require("hemis.display")
+
+    local connected = false
+    local create_done = false
+    local note_id = nil
+
+    -- Connect and create note at column 8 (deeply nested)
+    env.rpc.start(function(ok)
+      if not ok then
+        create_done = true
+        return
+      end
+      connected = true
+
+      -- Create note at line 13, column 8 (inside impl Server, inside fn new)
+      env.rpc.request("notes/create", {
+        file = env.file,
+        line = 13,
+        column = 8,
+        text = "Deeply nested note",
+        projectRoot = env.dir,
+      }, function(err, res)
+        if res then
+          note_id = res.id
+        end
+        create_done = true
+      end)
+    end)
+
+    helpers.wait_for(function() return create_done end, 10000)
+    assert.truthy(connected, "Should connect to backend")
+    assert.is_not_nil(note_id, "Note should have been created")
+
+    -- List notes and check formattedLines
+    local list_done = false
+    local notes = nil
+
+    env.rpc.request("notes/list-for-file", {
+      file = env.file,
+      projectRoot = env.dir,
+    }, function(err, res)
+      if not err then
+        notes = helpers.unwrap_notes(res)
+      end
+      list_done = true
+    end)
+
+    helpers.wait_for(function() return list_done end, 5000)
+    assert.is_not_nil(notes, "Should have received notes list")
+    assert.truthy(#notes > 0, "Notes list should not be empty")
+
+    -- Verify formattedLines have 8-space indent (column 8)
+    local note = notes[1]
+    local formatted = note.formattedLines
+    assert.is_not_nil(formatted, "Note should have formattedLines")
+    assert.truthy(#formatted > 0, "formattedLines should not be empty")
+
+    -- First line should start with 8 spaces + comment prefix
+    local first_line = formatted[1]
+    assert.truthy(string.find(first_line, "^        // "), "INDENT VERIFICATION FAILED: formattedLines should start with 8-space indent, got: '" .. first_line .. "'")
+
+    env.cleanup()
+  end)
 end)
 
 -- AI tests (require HEMIS_AI_PROVIDER)

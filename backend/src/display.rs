@@ -120,14 +120,29 @@ pub fn wrap_text(text: &str, width: usize) -> Vec<String> {
 /// Format note text as comment lines
 ///
 /// Returns lines prefixed with the comment syntax for the given language,
-/// wrapped to the specified width.
+/// wrapped to the specified width. Optionally indented to match source code.
 pub fn format_note_lines(
     text: &str,
     lang_or_ext: &str,
     wrap_width: Option<usize>,
     stale: bool,
 ) -> Vec<String> {
-    let prefix = format!("{} ", comment_prefix(lang_or_ext));
+    format_note_lines_with_indent(text, lang_or_ext, wrap_width, stale, 0)
+}
+
+/// Format note text as comment lines with indentation
+///
+/// Returns lines prefixed with indentation + comment syntax for the given language,
+/// wrapped to the specified width.
+pub fn format_note_lines_with_indent(
+    text: &str,
+    lang_or_ext: &str,
+    wrap_width: Option<usize>,
+    stale: bool,
+    indent: usize,
+) -> Vec<String> {
+    let indent_str = " ".repeat(indent);
+    let prefix = format!("{}{} ", indent_str, comment_prefix(lang_or_ext));
     let width = wrap_width.unwrap_or(70);
     let effective_width = width.saturating_sub(prefix.len());
 
@@ -154,6 +169,7 @@ pub fn format_note_lines(
 
 /// Ensure a note has formatted_lines set.
 /// Uses the file extension to determine comment syntax.
+/// Uses the note's column for indentation (to match source code alignment).
 /// Default width of 70 characters if no wrap_width specified.
 pub fn ensure_formatted_lines(note: &mut notes::Note, wrap_width: Option<usize>) {
     if note.formatted_lines.is_some() {
@@ -163,7 +179,15 @@ pub fn ensure_formatted_lines(note: &mut notes::Note, wrap_width: Option<usize>)
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("txt");
-    note.formatted_lines = Some(format_note_lines(&note.text, ext, wrap_width, note.stale));
+    // Use note's column as indentation (column is 0-indexed)
+    let indent = note.column.max(0) as usize;
+    note.formatted_lines = Some(format_note_lines_with_indent(
+        &note.text,
+        ext,
+        wrap_width,
+        note.stale,
+        indent,
+    ));
 }
 
 /// Ensure all notes in a list have formatted_lines set.
@@ -216,6 +240,33 @@ mod tests {
 
         let lines = format_note_lines("Stale note", "python", Some(80), true);
         assert_eq!(lines, vec!["# Stale note [STALE]"]);
+    }
+
+    #[test]
+    fn test_format_note_lines_with_indent() {
+        // No indent (column 0)
+        let lines = format_note_lines_with_indent("Hello", "rust", Some(80), false, 0);
+        assert_eq!(lines, vec!["// Hello"]);
+
+        // 4-space indent (typical function body)
+        let lines = format_note_lines_with_indent("Hello", "rust", Some(80), false, 4);
+        assert_eq!(lines, vec!["    // Hello"]);
+
+        // 8-space indent (nested block)
+        let lines = format_note_lines_with_indent("Hello", "rust", Some(80), false, 8);
+        assert_eq!(lines, vec!["        // Hello"]);
+
+        // With Python (hash comment)
+        let lines = format_note_lines_with_indent("Hello", "python", Some(80), false, 4);
+        assert_eq!(lines, vec!["    # Hello"]);
+
+        // Multiline with indent
+        let lines = format_note_lines_with_indent("Line one\nLine two", "rust", Some(80), false, 4);
+        assert_eq!(lines, vec!["    // Line one", "    // Line two"]);
+
+        // Stale with indent
+        let lines = format_note_lines_with_indent("Stale", "rust", Some(80), true, 4);
+        assert_eq!(lines, vec!["    // Stale [STALE]"]);
     }
 
     #[test]

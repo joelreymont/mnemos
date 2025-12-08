@@ -1354,13 +1354,16 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         }
                         // Compute formatted lines for all notes (always, for UI consistency)
                         // Use explicit language param if provided, otherwise derive from file
+                        // Always include indentation based on note's column position
                         if let Some(lang) = language {
                             for note in &mut notes_list {
-                                note.formatted_lines = Some(display::format_note_lines(
+                                let indent = note.column.max(0) as usize;
+                                note.formatted_lines = Some(display::format_note_lines_with_indent(
                                     &note.text,
                                     lang,
                                     wrap_width,
                                     note.stale,
+                                    indent,
                                 ));
                             }
                         } else {

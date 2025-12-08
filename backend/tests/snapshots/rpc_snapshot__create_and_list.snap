@@ -15,7 +15,7 @@ expression: responses
       "file": "/tmp/test.rs",
       "formattedCreatedAt": "<formatted_ts>",
       "formattedLines": [
-        "// snapshot note"
+        "  // snapshot note"
       ],
       "formattedUpdatedAt": "<formatted_ts>",
       "hoverText": "<hoverText>",
@@ -47,7 +47,7 @@ expression: responses
           "file": "/tmp/test.rs",
           "formattedCreatedAt": "<formatted_ts>",
           "formattedLines": [
-            "// snapshot note"
+            "  // snapshot note"
           ],
           "formattedUpdatedAt": "<formatted_ts>",
           "hoverText": "<hoverText>",

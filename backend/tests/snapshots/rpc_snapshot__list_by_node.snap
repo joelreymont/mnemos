@@ -15,7 +15,7 @@ expression: responses
       "file": "/tmp/test.rs",
       "formattedCreatedAt": "<formatted_ts>",
       "formattedLines": [
-        "// by-node"
+        " // by-node"
       ],
       "formattedUpdatedAt": "<formatted_ts>",
       "hoverText": "<hoverText>",
@@ -48,7 +48,7 @@ expression: responses
         "file": "/tmp/test.rs",
         "formattedCreatedAt": "<formatted_ts>",
         "formattedLines": [
-          "// by-node"
+          " // by-node"
         ],
         "formattedUpdatedAt": "<formatted_ts>",
         "hoverText": "<hoverText>",
