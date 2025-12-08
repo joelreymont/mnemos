@@ -10,7 +10,6 @@
 (require 'cl-lib)
 (require 'project)
 (require 'seq)
-(require 'treesit nil t)
 
 (defgroup hemis nil
   "Hemis – a second brain for your code."
@@ -22,22 +21,6 @@
          (candidate (expand-file-name "target/debug/hemis" root)))
     (when (file-exists-p candidate) candidate))
   "Default path to the Hemis Rust backend binary (if built locally).")
-
-;; Tree-sitter language remaps for rust-ts-mode -> rust
-(when (featurep 'treesit)
-  (when (boundp 'treesit-language-remap-alist)
-    (add-to-list 'treesit-language-remap-alist '(rust-ts-mode . rust)))
-  (when (boundp 'treesit-major-mode-language-alist)
-    (add-to-list 'treesit-major-mode-language-alist '(rust-ts-mode . rust))
-    (add-to-list 'treesit-major-mode-language-alist '(rust-mode . rust)))
-  ;; Treat rust-ts-mode availability as rust availability.
-  (when (fboundp 'treesit-language-available-p)
-    (defun hemis--advice-treesit-language-available (orig lang &rest args)
-      (or (when (eq lang 'rust-ts-mode)
-            (apply orig 'rust args))
-          (apply orig lang args)))
-    (advice-add 'treesit-language-available-p :around
-                #'hemis--advice-treesit-language-available)))
 
 (defcustom hemis-backend hemis--default-backend
   "Path to the Hemis backend binary."
@@ -62,11 +45,6 @@
 ;; Expected protocol version (bump when backend protocol changes)
 (defconst hemis--expected-protocol-version 1
   "Expected protocol version. Backend should match this.")
-
-(defcustom hemis-auto-install-treesit-grammars t
-  "When non-nil, attempt to install required Tree-sitter grammars (e.g., Rust) automatically."
-  :type 'boolean
-  :group 'hemis)
 
 (defcustom hemis-request-timeout 60
   "Timeout (seconds) for JSON-RPC requests to the Hemis backend."
@@ -486,111 +464,6 @@ This disconnects from the backend, unloads the feature, and reloads it."
       (hemis--debug "  result: %S" result))
     result))
 
-(defun hemis--rust-grammar-available-p ()
-  "Return non-nil when the Rust Tree-sitter grammar is available."
-  (and (featurep 'treesit)
-       (fboundp 'treesit-language-available-p)
-       (treesit-language-available-p 'rust)))
-
-(defun hemis--treesit-install-dir ()
-  "Return the directory where grammars are installed or should be installed."
-  (expand-file-name "tree-sitter/" user-emacs-directory))
-
-(defun hemis--ensure-treesit-path ()
-  "Ensure the grammar install directory exists and is on `treesit-extra-load-path`."
-  (when (featurep 'treesit)
-    (let ((dir (hemis--treesit-install-dir)))
-      (unless (file-directory-p dir)
-        (make-directory dir t))
-      (unless (member dir treesit-extra-load-path)
-        (push dir treesit-extra-load-path))
-      dir)))
-
-(defun hemis--find-rust-grammar ()
-  "Return the path to an installed rust grammar library, if any."
-  (when (featurep 'treesit)
-    (let* ((dirs (append treesit-extra-load-path (list (hemis--treesit-install-dir))))
-           (candidates (seq-mapcat
-                        (lambda (dir)
-                          (when (file-directory-p dir)
-                            (directory-files dir t "^libtree-sitter-rust\\..*$")))
-                        dirs)))
-      (car candidates))))
-
-(defun hemis--copy-rust-grammar-alias (src)
-  "Copy rust grammar SRC to rust-ts-mode alias names alongside it."
-  (when (and src (file-exists-p src))
-    (let* ((dir (file-name-directory src))
-           (stem (file-name-sans-extension (file-name-nondirectory src)))
-           (ext  (concat "." (file-name-extension src)))
-           (dest (expand-file-name (concat stem "-ts-mode" ext) dir)))
-      (condition-case err
-          (copy-file src dest t)
-        (error
-         (message "Hemis: failed to copy rust grammar alias (%s): %s" dest err))))))
-
-(defun hemis--ensure-rust-alias ()
-  "Ensure rust grammar has rust-ts-mode alias file present."
-  (let ((src (hemis--find-rust-grammar)))
-    (when src
-      (hemis--copy-rust-grammar-alias src))))
-
-(defun hemis--ensure-rust-grammar (&optional force)
-  "Ensure the Rust Tree-sitter grammar is installed.
-When FORCE is non-nil, attempt installation even if `major-mode` is not Rust."
-  (when (and hemis-auto-install-treesit-grammars
-             (featurep 'treesit)
-             (fboundp 'treesit-install-language-grammar)
-             (or force (memq major-mode '(rust-mode rust-ts-mode))))
-    (unless (hemis--rust-grammar-available-p)
-      (let ((dir (hemis--ensure-treesit-path)))
-        (when dir
-          (add-to-list 'treesit-extra-load-path dir))
-        ;; Prefer rust-ts-mode mapping to rust language.
-        ;; Ensure source entry exists before install.
-        (setq treesit-language-source-alist
-              (assq-delete-all 'rust treesit-language-source-alist))
-        (push '(rust "https://github.com/tree-sitter/tree-sitter-rust")
-              treesit-language-source-alist)
-        (setq treesit-language-source-alist
-              (assq-delete-all 'rust-ts-mode treesit-language-source-alist))
-        (push '(rust-ts-mode "https://github.com/tree-sitter/tree-sitter-rust"
-                             :symbol "tree_sitter_rust")
-              treesit-language-source-alist)
-        (when (boundp 'treesit-major-mode-language-alist)
-          (setq treesit-major-mode-language-alist
-                (assq-delete-all 'rust-ts-mode treesit-major-mode-language-alist))
-          (setq treesit-major-mode-language-alist
-                (assq-delete-all 'rust-mode treesit-major-mode-language-alist))
-          (push '(rust-ts-mode . rust) treesit-major-mode-language-alist)
-          (push '(rust-mode . rust) treesit-major-mode-language-alist))
-        (when (boundp 'treesit-language-remap-alist)
-          (setq treesit-language-remap-alist
-                (assq-delete-all 'rust-ts-mode treesit-language-remap-alist))
-          (push '(rust-ts-mode . rust) treesit-language-remap-alist))
-        (condition-case err
-            (treesit-install-language-grammar 'rust)
-          (error
-           (message "Hemis: failed to install Rust Tree-sitter grammar: %s" err)))
-        (hemis--copy-rust-grammar-alias (hemis--find-rust-grammar))
-        ;; Re-check after installation.
-        (unless (treesit-language-available-p 'rust)
-          (message "Hemis: Rust grammar install did not succeed."))))
-    ;; Ensure alias files exist even if grammar was already present.
-    (hemis--ensure-rust-alias))
-  (hemis--rust-grammar-available-p))
-
-(defun hemis--treesit-available-p ()
-  "Return non-nil when Tree-sitter is available for the current mode."
-  (when (and (featurep 'treesit)
-             (fboundp 'treesit-node-at)
-             (fboundp 'treesit-ready-p)
-             (memq major-mode '(rust-mode rust-ts-mode)))
-    (hemis--ensure-rust-grammar)
-    (treesit-ready-p major-mode)))
-
-;; NOTE: hemis--node-path-at-point removed - server computes nodePath from content
-
 (defun hemis--anchor-position (line col)
   "Return buffer position at LINE and COL.
 Server computes actual anchor position from content when creating notes."
@@ -615,10 +488,26 @@ Server computes anchor position, nodePath, and nodeTextHash from content."
 
 (defun hemis--format-note-texts (texts pos &optional formatted-lines)
   "Format TEXTS as comment lines above POS using server-provided FORMATTED-LINES.
-Backend guarantees formattedLines is always present."
-  (let ((indent (hemis--line-indentation pos)))
-    ;; Backend always provides formattedLines
-    (concat (mapconcat #'identity (or formatted-lines texts) "\n") "\n" indent)))
+Backend guarantees formattedLines is always present.  Falls back to local
+formatting with comment prefix if formatted-lines not provided (e.g., in tests)."
+  (let* ((indent (hemis--line-indentation pos))
+         ;; Use server-provided lines, or format locally with comment prefix
+         (lines (or formatted-lines
+                    (let ((prefix (or comment-start "// ")))
+                      ;; Ensure prefix ends with space
+                      (unless (string-suffix-p " " prefix)
+                        (setq prefix (concat prefix " ")))
+                      ;; Double semicolon for Lisp
+                      (when (string-match-p "^;\\s-*$" prefix)
+                        (setq prefix ";; "))
+                      ;; Split each text into lines and add prefix to each
+                      (apply #'append
+                             (mapcar (lambda (text)
+                                       (mapcar (lambda (line)
+                                                 (concat indent prefix line))
+                                               (split-string text "\n" t)))
+                                     texts))))))
+    (concat (mapconcat #'identity lines "\n") "\n" indent)))
 
 
 ;;; Notes list mode (defined early so hemis-list-notes can use it)
@@ -866,7 +755,7 @@ With prefix arg or INCLUDE-AI non-nil, also run AI analysis."
            (indexed (alist-get 'indexed resp))
            ;; Backend guarantees statusMessage
            (status-msg (alist-get 'statusMessage resp)))
-      (message "Hemis: %s in %s" status-msg root)))))
+      (message "Hemis: %s in %s" status-msg root))))
 
 (defun hemis-index-project-ai (&optional root)
   "Index all files under ROOT and run AI analysis."
@@ -1079,7 +968,12 @@ Sends buffer content so server can compute displayLine positions."
     (hemis--debug "refresh-notes: file=%s buf=%s" (buffer-file-name) (buffer-name))
     (let* ((params (append (hemis--buffer-params t) '((includeStale . t))))
            (notes  (let ((r (hemis--request "notes/list-for-file" params)))
-                     (if (vectorp r) (append r nil) r))))
+                     ;; Backend returns {notes: [...]} wrapper - unwrap it
+                     (when r
+                       (let ((unwrapped (or (plist-get r :notes)
+                                            (alist-get 'notes r)
+                                            (and (listp r) (not (alist-get 'notes r)) r))))
+                         (if (vectorp unwrapped) (append unwrapped nil) unwrapped))))))
       (hemis--debug "refresh-notes: got %d notes" (length notes))
       (hemis--apply-notes notes)
       (when (and notes (null hemis--overlays))
@@ -1251,7 +1145,12 @@ show picker for those. Otherwise show picker for all notes in file."
       (let* ((params (hemis--buffer-params))
              (notes (let ((result (hemis--request "notes/list-for-file"
                                                    (append params '((includeStale . t))))))
-                      (if (vectorp result) (append result nil) result))))
+                      ;; Backend returns {notes: [...]} wrapper - unwrap it
+                      (when result
+                        (let ((unwrapped (or (plist-get result :notes)
+                                             (alist-get 'notes result)
+                                             (and (listp result) (not (alist-get 'notes result)) result))))
+                          (if (vectorp unwrapped) (append unwrapped nil) unwrapped))))))
         (if (null notes)
             (message "No notes in this file")
           (let* ((choices (mapcar (lambda (note)
@@ -1346,7 +1245,12 @@ Returns nil if no note or user cancelled."
   (let* ((params (hemis--buffer-params))
          (notes  (let ((result (hemis--request "notes/list-for-file"
                                                (append params '((includeStale . t))))))
-                   (if (vectorp result) (append result nil) result)))
+                   ;; Backend returns {notes: [...]} wrapper - unwrap it
+                   (when result
+                     (let ((unwrapped (or (plist-get result :notes)
+                                          (alist-get 'notes result)
+                                          (and (listp result) (not (alist-get 'notes result)) result))))
+                       (if (vectorp unwrapped) (append unwrapped nil) unwrapped)))))
          (buf    (get-buffer-create "*Hemis Notes*")))
     (with-current-buffer buf
       (setq buffer-read-only nil)

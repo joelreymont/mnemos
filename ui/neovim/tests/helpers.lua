@@ -145,6 +145,18 @@ function M.wait(ms)
   vim.wait(ms)
 end
 
+-- Unwrap notes list response (backend returns {notes: [...]} wrapper)
+function M.unwrap_notes(result)
+  if result and result.notes then
+    return result.notes
+  end
+  -- If it's already an array, return as-is (for mock/test compatibility)
+  if result and type(result) == "table" and result[1] then
+    return result
+  end
+  return result or {}
+end
+
 -- Wait for a condition with libuv event processing
 -- This is needed for socket callbacks to fire in headless mode
 function M.wait_for(condition_fn, timeout_ms)

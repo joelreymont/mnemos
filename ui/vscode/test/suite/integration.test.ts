@@ -338,11 +338,15 @@ suite('Integration Test Suite', () => {
       text: 'List test note',
     });
 
-    const notes = await client.request<Array<{ id: string; text: string }>>('notes/list-for-file', {
+    // Backend returns {notes: [...]} wrapper
+    const result = await client.request<{ notes: Array<{ id: string; text: string }> } | Array<{ id: string; text: string }>>('notes/list-for-file', {
       file: testFile,
       projectRoot: '/tmp',
       includeStale: true,
     });
+
+    // Unwrap if needed
+    const notes = Array.isArray(result) ? result : result.notes;
 
     assert.ok(Array.isArray(notes), 'Notes should be an array');
     assert.ok(notes.length >= 1, 'Should have at least one note');

@@ -18,6 +18,8 @@ function createMockNote(overrides: Partial<Note> = {}): Note {
     nodePath: ['source_file', 'function_item', 'block'],
     createdAt: '2024-01-01T00:00:00Z',
     updatedAt: '2024-01-01T00:00:00Z',
+    formattedCreatedAt: '2024-01-01 00:00:00',
+    formattedUpdatedAt: '2024-01-01 00:00:00',
     formattedLines: ['// Test note content'],
     hoverText: '**Note** (test1234)\n\nTest note content',
     displayMarker: '[n:test1234]',

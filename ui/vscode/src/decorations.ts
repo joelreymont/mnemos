@@ -27,7 +27,12 @@ export function formatNoteText(note: Note, style: 'full' | 'minimal'): string {
   if (style === 'minimal') {
     return note.displayMarker;
   }
-  return note.formattedLines.join('\n');
+  // Handle undefined or empty formattedLines with fallback to text
+  if (note.formattedLines && note.formattedLines.length > 0) {
+    return note.formattedLines.join('\n');
+  }
+  // Fallback: format note text with comment prefix
+  return `// ${note.text || ''}`;
 }
 
 export function renderNotes(editor: vscode.TextEditor, notes: Note[]): void {

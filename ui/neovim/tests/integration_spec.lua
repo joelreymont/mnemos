@@ -159,7 +159,7 @@ describe("hemis integration", function()
               file = env.file,
               projectRoot = env.dir,
             }, function(err3, res3)
-              list_result = res3
+              list_result = helpers.unwrap_notes(res3)
               done = true
             end)
           end)
@@ -209,7 +209,7 @@ describe("hemis integration", function()
             file = env.file,
             projectRoot = env.dir,
           }, function(err2, notes)
-            result = notes
+            result = helpers.unwrap_notes(notes)
             done = true
           end)
         end)
@@ -868,7 +868,7 @@ describe("hemis integration", function()
             file = env.file,
             projectRoot = env.dir,
           }, function(err2, res2)
-            list_result = res2
+            list_result = helpers.unwrap_notes(res2)
             done = true
           end)
         end)

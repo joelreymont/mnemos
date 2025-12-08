@@ -314,16 +314,18 @@ function M.list_notes()
     local lines = { "Hemis notes for " .. file, "" }
 
     for i, note in ipairs(result) do
-      -- Backend guarantees display_marker and icon_hint are always present
-      local marker = note.display_marker
-      local stale = note.icon_hint == "stale" and " [stale]" or ""
+      -- Backend uses camelCase: displayMarker, iconHint, summary
+      local marker = note.displayMarker or note.display_marker or "[?]"
+      local stale = (note.iconHint or note.icon_hint) == "stale" and " [stale]" or ""
 
       table.insert(lines, string.format("  %d %s L%d,C%d%s", i - 1, marker, note.line or 0, note.column or 0, stale))
 
-      -- Backend guarantees summary is always present
-      local text = note.summary
-      for line in text:gmatch("[^\n]+") do
-        table.insert(lines, "    " .. line)
+      -- Backend returns summary (may be nil in tests)
+      local text = note.summary or note.text or ""
+      if text ~= "" then
+        for line in text:gmatch("[^\n]+") do
+          table.insert(lines, "    " .. line)
+        end
       end
       table.insert(lines, "")
     end

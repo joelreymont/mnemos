@@ -59,7 +59,7 @@ describe("hemis display", function()
     it("marks stale notes with HemisNoteStale highlight", function()
       local display = require("hemis.display")
       local notes = {
-        { id = "1", line = 1, column = 0, text = "Stale note", stale = true },
+        { id = "1", line = 1, column = 0, text = "Stale note", iconHint = "stale" },
       }
 
       display.render_notes(buf, notes)
@@ -186,7 +186,7 @@ describe("hemis display virt_lines details", function()
   it("virt_lines uses HemisNoteStale highlight for stale notes", function()
     local display = require("hemis.display")
     local notes = {
-      { id = "1", line = 1, column = 0, text = "Stale note", stale = true },
+      { id = "1", line = 1, column = 0, text = "Stale note", iconHint = "stale" },
     }
 
     display.render_notes(buf, notes)
@@ -221,14 +221,15 @@ describe("hemis display virt_lines details", function()
     assert.truthy(mark.virt_lines_above, "Should render above the line")
   end)
 
-  it("minimal style uses virt_text at eol with [n:xxxx] format", function()
+  it("minimal style uses virt_text at eol with displayMarker", function()
     local config = require("hemis.config")
     -- Use config.setup to properly initialize, then restore at end
     local original_style = config.get("display_style")
     config.setup({ display_style = "minimal" })
     local display = require("hemis.display")
+    -- Backend provides displayMarker for minimal display
     local notes = {
-      { id = "abcd1234-5678", line = 1, column = 0, text = "Minimal note" },
+      { id = "abcd1234-5678", line = 1, column = 0, text = "Minimal note", displayMarker = "[n:abcd1234]" },
     }
 
     display.render_notes(buf, notes)
@@ -244,29 +245,37 @@ describe("hemis display virt_lines details", function()
     config.setup({ display_style = original_style or "full" })
   end)
 
-  it("multiple notes on same line combine with --- separator", function()
+  it("multiple notes on same line render as separate extmarks", function()
     local display = require("hemis.display")
+    -- Backend provides formattedLines for each note
     local notes = {
-      { id = "1", line = 1, column = 0, text = "First note" },
-      { id = "2", line = 1, column = 5, text = "Second note" },
+      { id = "1", line = 1, column = 0, text = "First note", formattedLines = { "// First note" } },
+      { id = "2", line = 1, column = 5, text = "Second note", formattedLines = { "// Second note" } },
     }
 
     display.render_notes(buf, notes)
     helpers.wait()
 
     local state = helpers.capture_display_state(buf)
-    -- Should be combined into single extmark
-    assert.equals(1, #state.extmarks)
-    -- Combined text should have separator
-    assert.truthy(string.find(state.extmarks[1].text, "First note"))
-    assert.truthy(string.find(state.extmarks[1].text, "Second note"))
-    assert.truthy(string.find(state.extmarks[1].text, "---"))
+    -- Notes render as separate extmarks (backend handles combining if needed)
+    assert.equals(2, #state.extmarks)
+    -- Both notes should be present
+    local all_text = state.extmarks[1].text .. state.extmarks[2].text
+    assert.truthy(string.find(all_text, "First note"))
+    assert.truthy(string.find(all_text, "Second note"))
   end)
 
   it("multiline note renders each line as separate virt_line", function()
     local display = require("hemis.display")
+    -- Backend provides formattedLines with each line pre-formatted
     local notes = {
-      { id = "1", line = 1, column = 0, text = "Line one\nLine two\nLine three" },
+      {
+        id = "1",
+        line = 1,
+        column = 0,
+        text = "Line one\nLine two\nLine three",
+        formattedLines = { "// Line one", "// Line two", "// Line three" },
+      },
     }
 
     display.render_notes(buf, notes)
@@ -274,7 +283,7 @@ describe("hemis display virt_lines details", function()
 
     local state = helpers.capture_display_state(buf)
     local mark = state.extmarks[1]
-    -- Should have multiple virt_lines (plus empty line at end)
+    -- Should have multiple virt_lines (one per formattedLine)
     assert.truthy(#mark.virt_lines >= 3, "Should have at least 3 virt_lines")
     -- Each line should have comment prefix
     assert.truthy(string.find(mark.virt_lines[1][1].text, "Line one"))
@@ -296,8 +305,15 @@ describe("hemis display snapshots", function()
 
   it("snapshot: single note display", function()
     local display = require("hemis.display")
+    -- Backend provides formattedLines with proper indentation
     local notes = {
-      { id = "test-001", line = 2, column = 4, text = "Remember to add error handling" },
+      {
+        id = "test-001",
+        line = 2,
+        column = 4,
+        text = "Remember to add error handling",
+        formattedLines = { "    // Remember to add error handling" },
+      },
     }
 
     display.render_notes(buf, notes)
@@ -309,10 +325,11 @@ describe("hemis display snapshots", function()
 
   it("snapshot: multiple notes display", function()
     local display = require("hemis.display")
+    -- Backend provides formattedLines for each note
     local notes = {
-      { id = "test-001", line = 1, column = 0, text = "Entry point" },
-      { id = "test-002", line = 2, column = 4, text = "Variable declaration", stale = false },
-      { id = "test-003", line = 3, column = 0, text = "End of function", stale = true },
+      { id = "test-001", line = 1, column = 0, text = "Entry point", formattedLines = { "// Entry point" } },
+      { id = "test-002", line = 2, column = 4, text = "Variable declaration", formattedLines = { "    // Variable declaration" } },
+      { id = "test-003", line = 3, column = 0, text = "End of function", iconHint = "stale", formattedLines = { "// End of function" } },
     }
 
     display.render_notes(buf, notes)
@@ -324,8 +341,9 @@ describe("hemis display snapshots", function()
 
   it("snapshot: stale note indicator", function()
     local display = require("hemis.display")
+    -- Backend marks stale notes with iconHint
     local notes = {
-      { id = "stale-001", line = 1, column = 0, text = "This note is stale", stale = true },
+      { id = "stale-001", line = 1, column = 0, text = "This note is stale", iconHint = "stale", formattedLines = { "// This note is stale" } },
     }
 
     display.render_notes(buf, notes)
@@ -337,12 +355,19 @@ describe("hemis display snapshots", function()
 
   it("snapshot: multiline note text", function()
     local display = require("hemis.display")
+    -- Backend provides formattedLines with each line pre-wrapped
     local notes = {
       {
         id = "multi-001",
         line = 1,
         column = 0,
         text = "This is a multiline note:\n- Point one\n- Point two\n- Point three",
+        formattedLines = {
+          "// This is a multiline note:",
+          "// - Point one",
+          "// - Point two",
+          "// - Point three",
+        },
       },
     }
 
@@ -424,9 +449,11 @@ describe("hemis commands", function()
   describe("status", function()
     it("shows note and file counts", function()
       local commands = require("hemis.commands")
+      -- Backend provides statusDisplay for formatted output
       local restore = helpers.mock_rpc({
         ["hemis/status"] = {
           counts = { notes = 5, files = 10, embeddings = 0 },
+          statusDisplay = "Hemis: 5 notes across 10 files",
         },
       })
 

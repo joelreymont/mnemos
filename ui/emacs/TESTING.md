@@ -13,5 +13,4 @@ emacs -Q --batch \
 ```
 
 Notes:
-- Rust/Tree-sitter tests skip automatically if `treesit` or `rust-ts-mode` are unavailable.
 - Unit tests mock the backend JSON-RPC calls; integration tests use the real backend.

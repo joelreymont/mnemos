@@ -20,16 +20,22 @@ end
 setup_highlights()
 
 -- Format note text as virtual lines for display
--- Server always provides formattedLines and icon_hint
+-- Server provides formattedLines and iconHint
 local function format_note_lines(note)
   local lines = {}
 
-  -- Backend guarantees icon_hint and formatted_lines are always present
-  local is_stale = note.icon_hint == "stale"
+  -- Check staleness: iconHint from backend, or stale flag set by render_note
+  local is_stale = (note.iconHint or note.icon_hint) == "stale" or note.stale
   local hl = is_stale and "HemisNoteStale" or "HemisNote"
 
-  -- Backend guarantees formatted_lines is always populated
-  local formatted = note.formatted_lines
+  -- Backend returns formattedLines (camelCase)
+  local formatted = note.formattedLines or note.formatted_lines
+  if not formatted then
+    -- Fallback: wrap note text manually if backend didn't provide formattedLines
+    local text = note.text or ""
+    formatted = { "// " .. text:sub(1, 80) }
+  end
+
   for _, formatted_line in ipairs(formatted) do
     table.insert(lines, { { formatted_line, hl } })
   end
@@ -72,9 +78,10 @@ function M.render_note(bufnr, note, display_line, is_stale)
 
   if style == "minimal" then
     -- Single line indicator at end of line
-    -- Backend guarantees display_marker is always present
-    local marker = note.display_marker
-    local hl = note_with_stale.stale and "HemisNoteStale" or "HemisNoteMarker"
+    -- Backend uses camelCase: displayMarker
+    local marker = note.displayMarker or note.display_marker or "[note]"
+    local is_stale = (note_with_stale.iconHint or note_with_stale.icon_hint) == "stale" or note_with_stale.stale
+    local hl = is_stale and "HemisNoteStale" or "HemisNoteMarker"
     return vim.api.nvim_buf_set_extmark(bufnr, M.ns_id, line, 0, {
       virt_text = { { marker, hl } },
       virt_text_pos = "eol",
@@ -91,10 +98,23 @@ function M.render_note(bufnr, note, display_line, is_stale)
 end
 
 -- Get display position for a note
--- Server computes position and staleness when content is provided,
--- updating the note's line and stale fields directly
+-- Server computes position and staleness when content is provided.
+-- Uses displayLine if server computed it, otherwise falls back to stored line.
+-- Uses computedStale if server computed it, otherwise falls back to stored stale.
 local function get_note_display_position(note)
-  return note.line, note.stale or false
+  -- Server-computed displayLine takes precedence over stored line
+  local display_line = note.displayLine or note.display_line or note.line
+  -- Server-computed staleness takes precedence over stored stale flag
+  local is_stale
+  if note.computedStale ~= nil then
+    is_stale = note.computedStale
+  elseif note.computed_stale ~= nil then
+    is_stale = note.computed_stale
+  else
+    -- Check iconHint for stale indication, then fall back to stale flag
+    is_stale = (note.iconHint or note.icon_hint) == "stale" or note.stale or false
+  end
+  return display_line, is_stale
 end
 
 -- Render all notes for buffer

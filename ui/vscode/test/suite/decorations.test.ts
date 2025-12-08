@@ -21,6 +21,8 @@ suite('Hemis Decorations', () => {
       nodePath: [],
       createdAt: '2024-01-01',
       updatedAt: '2024-01-01',
+      formattedCreatedAt: '2024-01-01 00:00:00',
+      formattedUpdatedAt: '2024-01-01 00:00:00',
       formattedLines: ['// Test note text'],
       hoverText: '**Note** (abcd1234)\n\nTest note text',
       displayMarker: '[n:abcd1234]',

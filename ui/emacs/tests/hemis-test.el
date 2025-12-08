@@ -113,26 +113,6 @@
         (should (= (line-number-at-pos) 1))
         (should (= (current-column) 0))))))
 
-(ert-deftest hemis-node-path-at-point-rust ()
-  (skip-unless (and (fboundp 'rust-ts-mode)
-                    (fboundp 'treesit-node-at)))
-  (with-temp-buffer
-    (insert "fn add(x: i32, y: i32) -> i32 {\n    x + y\n}\n")
-    (set-visited-file-name "/tmp/add.rs" t t)
-    (unless (hemis--ensure-rust-grammar t)
-      (ert-skip "Rust Tree-sitter grammar unavailable"))
-    (rust-ts-mode)
-    (unless (hemis--treesit-available-p)
-      (ert-skip "Rust Tree-sitter not ready"))
-    (goto-char (point-min))
-    (search-forward "add")
-    (let* ((node (treesit-node-at (point)))
-           (node-type (treesit-node-type node))
-           (path (hemis--node-path-at-point)))
-      (should (listp path))
-      (should (stringp (car path)))
-      (should (string= (car path) node-type)))))
-
 (ert-deftest hemis-add-note-sends-content ()
   ;; Server-side tree-sitter: add-note now sends buffer content
   ;; so server can compute nodeTextHash and nodePath
@@ -168,43 +148,11 @@
         (should (equal (cdr (assoc 'text hemis-test-last-params))
                        "line1\nline2\nline3"))))))
 
-(ert-deftest hemis-add-note-anchors-to-node-start ()
-  (skip-unless (and (fboundp 'rust-ts-mode)
-                    (fboundp 'treesit-node-at)))
-  (hemis-test-with-mocked-backend
-    (with-temp-buffer
-      (insert "fn main() {\n    let SCHEMA = 1;\n}\n")
-      (set-visited-file-name "/tmp/schema.rs" t t)
-      (unless (hemis--ensure-rust-grammar t)
-        (ert-skip "Rust Tree-sitter grammar unavailable"))
-      (rust-ts-mode)
-      (unless (hemis--treesit-available-p)
-        (ert-skip "Rust Tree-sitter not ready"))
-      ;; Place point inside the symbol to ensure we anchor to its start.
-      (goto-char (point-min))
-      (search-forward "SCH")
-      (backward-char 1)
-      (let* ((node (treesit-node-at (point)))
-             (start (treesit-node-start node)))
-        (hemis-add-note "anchor test")
-        (let ((line (cdr (assoc 'line hemis-test-last-params)))
-              (col  (cdr (assoc 'column hemis-test-last-params))))
-          (save-excursion
-            (goto-char start)
-            (should (= line (line-number-at-pos)))
-            (should (= col (current-column)))))))))
-
-(ert-deftest hemis-apply-notes-reanchors-marker ()
-  (skip-unless (and (fboundp 'rust-ts-mode)
-                    (fboundp 'treesit-node-at)))
+(ert-deftest hemis-apply-notes-reanchors-to-line-start ()
+  "Stickies move to the token start."
   (with-temp-buffer
     (insert "fn main() {\n    let SCHEMA = 1;\n}\n")
     (set-visited-file-name "/tmp/schema.rs" t t)
-    (unless (hemis--ensure-rust-grammar t)
-      (ert-skip "Rust Tree-sitter grammar unavailable"))
-    (rust-ts-mode)
-    (unless (hemis--treesit-available-p)
-      (ert-skip "Rust Tree-sitter not ready"))
     ;; Simulate backend returning a note placed mid-identifier.
     (hemis--apply-notes
      (list '((id . "1") (file . "/tmp/schema.rs") (line . 2) (column . 11) (summary . "mid"))))
@@ -213,27 +161,8 @@
                              hemis--overlays)))
       (should marker)
       (goto-char (overlay-start marker))
-      ;; Now placed at line start (comment block inserted above node line).
       (should (= (line-number-at-pos) 2))
       (should (= (current-column) 0)))))
-
-(ert-deftest hemis-apply-notes-reanchors-without-treesit ()
-  "Even without Tree-sitter, stickies move to the token start."
-  (let ((hemis-auto-install-treesit-grammars nil))
-    (cl-letf (((symbol-function 'hemis--treesit-available-p) (lambda () nil)))
-      (with-temp-buffer
-        (insert "fn main() {\n    let SCHEMA = 1;\n}\n")
-        (set-visited-file-name "/tmp/schema.rs" t t)
-        ;; Simulate backend returning a note placed mid-identifier.
-        (hemis--apply-notes
-         (list '((id . "1") (file . "/tmp/schema.rs") (line . 2) (column . 11) (summary . "mid"))))
-        (should hemis--overlays)
-        (let* ((marker (seq-find (lambda (ov) (overlay-get ov 'hemis-note-marker))
-                                 hemis--overlays)))
-          (should marker)
-          (goto-char (overlay-start marker))
-          (should (= (line-number-at-pos) 2))
-          (should (= (current-column) 0)))))))
 
 (ert-deftest hemis-view-note-uses-markdown-mode-when-available ()
   (hemis-test-with-mocked-backend
@@ -270,7 +199,7 @@
         (should (string-match-p "line" before))))))
 
 (ert-deftest hemis-index-rust-integration ()
-  "Test note CRUD, overlays, and tree-sitter features when available."
+  "Test note CRUD and overlays."
   (let ((rust-content "fn main() {\n    println!(\"hello\");\n}\n\nfn helper() {\n    let x = 1;\n}\n"))
     (hemis-test-with-backend
       (let ((test-file (expand-file-name "test.rs" test-dir)))
@@ -280,21 +209,8 @@
           (insert rust-content)
           (set-visited-file-name test-file t t)
           (setq comment-start "// ")
-          (let ((hemis--project-root-override test-dir)
-                (ts-available (and (fboundp 'rust-ts-mode)
-                                   (hemis--ensure-rust-grammar t))))
-            ;; Enable tree-sitter mode if available
-            (when ts-available
-              (rust-ts-mode)
-              (setq ts-available (hemis--treesit-available-p)))
-            ;; Verify nodePath at point when tree-sitter available
-            (when ts-available
-              (goto-char (point-min))
-              (search-forward "fn main")
-              (let ((local-path (hemis--node-path-at-point)))
-                (should (sequencep local-path))
-                (should (stringp (elt local-path 0)))))
-            ;; Basic note CRUD (always runs)
+          (let ((hemis--project-root-override test-dir))
+            ;; Basic note CRUD
             (goto-char (point-min))
             (search-forward "println")
             (let* ((created (hemis-add-note "integration note"))
@@ -303,17 +219,6 @@
                    (fetched (hemis-get-note cid)))
               (should (stringp cid))
               (should (string= cid (hemis-test--note-id fetched)))
-              ;; nodePath round-trip when tree-sitter available
-              (when ts-available
-                (let ((created-path (or (alist-get 'nodePath created)
-                                        (alist-get "nodePath" created nil nil #'equal)
-                                        (and (hash-table-p created)
-                                             (gethash "nodePath" created))))
-                      (fetched-path (or (alist-get 'nodePath fetched)
-                                        (alist-get "nodePath" fetched nil nil #'equal)
-                                        (and (hash-table-p fetched)
-                                             (gethash "nodePath" fetched)))))
-                  (should (equal created-path fetched-path))))
               ;; Verify overlays with comment prefix and note text
               (hemis-refresh-notes)
               (should (>= (length hemis--overlays) 2))
@@ -333,19 +238,7 @@
                 (should (member "integration note" all-texts))
                 (should (member "second note" all-texts))
                 ;; Face is applied to overlay text
-                (should (get-text-property 0 'face before)))
-              ;; Tree-sitter specific: verify notes have nodePath stored
-              (when ts-available
-                (let* ((notes (hemis--request "notes/list-for-file"
-                                              `((file . ,test-file)
-                                                (projectRoot . ,test-dir))))
-                       (first-note (seq-first notes))
-                       (node-path (or (alist-get 'nodePath first-note)
-                                      (plist-get first-note :nodePath))))
-                  (should (sequencep notes))
-                  (should (>= (length notes) 2))
-                  (should (sequencep node-path))
-                  (should (stringp (elt node-path 0))))))))))))
+                (should (get-text-property 0 'face before))))))))))
 
 (ert-deftest hemis-list-notes-integration ()
   "Test hemis-list-notes with real backend returns notes in buffer."
@@ -359,9 +252,6 @@
           (insert rust-content)
           (set-visited-file-name test-file t t)
           (setq comment-start "// ")
-          ;; Try tree-sitter mode if available
-          (when (and (fboundp 'rust-ts-mode) (hemis--ensure-rust-grammar t))
-            (rust-ts-mode))
           (let ((hemis--project-root-override test-dir))
             (goto-char (point-min))
             ;; Create a note so list-notes has something to show
@@ -522,9 +412,6 @@
           (insert rust-content)
           (set-visited-file-name test-file t t)
           (setq comment-start "// ")
-          ;; Try tree-sitter mode if available
-          (when (and (fboundp 'rust-ts-mode) (hemis--ensure-rust-grammar t))
-            (rust-ts-mode))
           (let ((hemis--project-root-override test-dir))
             ;; Go to a specific line and create a note
             (goto-char (point-min))
@@ -560,9 +447,6 @@
                 (insert rust-content)
                 (set-visited-file-name test-file t t)
                 (setq comment-start "// ")
-                ;; Try tree-sitter mode if available
-                (when (and (fboundp 'rust-ts-mode) (hemis--ensure-rust-grammar t))
-                  (rust-ts-mode))
                 (let ((hemis--project-root-override test-dir))
                   (goto-char (point-min))
                   (hemis-add-note "window test note")
@@ -657,9 +541,11 @@
     (with-temp-buffer
       (prog-mode)
       (set-visited-file-name "/tmp/test.rs" t t)
-      (hemis-reset-keymaps-and-enable)
+      ;; Ensure keymaps are set up (don't nil them - mode captures at definition)
+      (hemis--ensure-notes-mode-keymap)
       (hemis-notes-mode 1)
-      (should (local-key-binding (kbd "C-c h a"))))))
+      (should (keymapp hemis-notes-mode-map))
+      (should (lookup-key hemis-notes-mode-map (kbd "C-c h a"))))))
 
 (ert-deftest hemis-notes-list-keymap-reloads ()
   (let ((hemis-notes-list-mode-map nil))
@@ -698,6 +584,7 @@
                    ("notes/backlinks"
                     (should (equal (cdr (assoc 'id params)) "target-note"))
                     (list '((id . "linking-note-id")
+                            (shortId . "linking-")
                             (file . "/tmp/linker.rs")
                             (line . 5)
                             (column . 0)
@@ -975,11 +862,11 @@ Returns list of plists with :line :before-string :face :count :texts."
         (erase-buffer)
         (insert "test source\n")
         (add-text-properties (point-min) (point-max)
-                             '(hemis-note ((id . "test-note-id") (text . "Original note text\nLine two"))))
+                             '(hemis-note ((id . "test-note-id") (shortId . "test1234") (text . "Original note text\nLine two"))))
         (goto-char (point-min))
         (hemis-edit-note-buffer)
         ;; Should have opened an edit buffer
-        (let ((edit-buf (get-buffer "*Hemis Edit: test-not*")))
+        (let ((edit-buf (get-buffer "*Hemis Edit: test1234*")))
           (should edit-buf)
           (with-current-buffer edit-buf
             ;; Buffer should contain the note text
