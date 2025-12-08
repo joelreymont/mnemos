@@ -42,12 +42,10 @@ pub struct Note {
     pub formatted_lines: Option<Vec<String>>,
     pub created_at: i64,
     pub updated_at: i64,
-    /// Human-readable formatted created_at timestamp (YYYY-MM-DD HH:MM:SS)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub formatted_created_at: Option<String>,
-    /// Human-readable formatted updated_at timestamp (YYYY-MM-DD HH:MM:SS)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub formatted_updated_at: Option<String>,
+    /// Human-readable formatted created_at timestamp (YYYY-MM-DD HH:MM:SS) - always present
+    pub formatted_created_at: String,
+    /// Human-readable formatted updated_at timestamp (YYYY-MM-DD HH:MM:SS) - always present
+    pub formatted_updated_at: String,
     /// Minimal display marker like "[n:abc123]" - always present
     pub display_marker: String,
     /// Ready-to-display hover text (markdown) - always present
@@ -230,8 +228,8 @@ pub fn create(conn: &Connection, params: CreateNoteParams<'_>) -> Result<Note> {
         formatted_lines: None,
         created_at: ts,
         updated_at: ts,
-        formatted_created_at: Some(formatted_ts.clone()),
-        formatted_updated_at: Some(formatted_ts),
+        formatted_created_at: formatted_ts.clone(),
+        formatted_updated_at: formatted_ts,
         display_marker: df.display_marker,
         hover_text: df.hover_text,
         icon_hint: df.icon_hint,
@@ -274,8 +272,8 @@ fn map_note(row: &rusqlite::Row<'_>, stale: bool) -> Result<Note> {
         formatted_lines: None,
         created_at,
         updated_at,
-        formatted_created_at: Some(format_timestamp(created_at)),
-        formatted_updated_at: Some(format_timestamp(updated_at)),
+        formatted_created_at: format_timestamp(created_at),
+        formatted_updated_at: format_timestamp(updated_at),
         display_marker: df.display_marker,
         hover_text: df.hover_text,
         icon_hint: df.icon_hint,
@@ -434,7 +432,7 @@ pub fn update(
     note.tags = new_tags;
     note.summary = summary.clone();
     note.updated_at = now;
-    note.formatted_updated_at = Some(format_timestamp(now));
+    note.formatted_updated_at = format_timestamp(now);
     // Recompute display fields after text/summary change
     let df = compute_display_fields(&note.short_id, &summary, &new_text, &note.file, note.line, note.stale);
     note.hover_text = df.hover_text;
@@ -570,7 +568,7 @@ pub fn reattach(
     note.node_text_hash = node_text_hash;
     note.stale = false;
     note.updated_at = now;
-    note.formatted_updated_at = Some(format_timestamp(now));
+    note.formatted_updated_at = format_timestamp(now);
     // Recompute display fields (no longer stale after reattach)
     let df = compute_display_fields(&note.short_id, &note.summary, &note.text, &note.file, note.line, false);
     note.hover_text = df.hover_text;

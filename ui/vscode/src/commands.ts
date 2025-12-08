@@ -539,9 +539,8 @@ export async function viewNoteCommand(): Promise<void> {
     `# Note`,
     ``,
     `**File:** ${note.file}:${note.line}`,
-    // Use backend formattedCreatedAt/formattedUpdatedAt if available
-    `**Created:** ${note.formattedCreatedAt || new Date(Number(note.createdAt) * 1000).toLocaleString()}`,
-    `**Updated:** ${note.formattedUpdatedAt || new Date(Number(note.updatedAt) * 1000).toLocaleString()}`,
+    `**Created:** ${note.formattedCreatedAt}`,
+    `**Updated:** ${note.formattedUpdatedAt}`,
     note.stale ? `**Status:** STALE` : '',
     ``,
     `---`,
@@ -756,18 +755,7 @@ export async function projectMetaCommand(): Promise<void> {
     }
 
     lines.push('');
-
-    const analysisStatus = meta.analysisStatusDisplay || (() => {
-      if (meta.analyzed) {
-        return meta.analysisStale ? 'Stale (commit changed)' : 'Up to date';
-      } else if (meta.hasAnalysisFile) {
-        return 'Has file but not tracked';
-      } else {
-        return 'Not analyzed';
-      }
-    })();
-
-    lines.push(`**AI Analysis:** ${analysisStatus}`);
+    lines.push(`**AI Analysis:** ${meta.analysisStatusDisplay}`);
     if (meta.analysisProvider) {
       lines.push(`  - Provider: ${meta.analysisProvider}`);
     }

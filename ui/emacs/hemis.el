@@ -903,16 +903,7 @@ With prefix arg or INCLUDE-AI non-nil, also run AI analysis."
                                                (alist-get 'indexedAt resp))))))
         (insert (format "  Last indexed: %s\n" ts)))
       (insert "\n")
-      (insert (format "AI Analysis: %s\n"
-                      (or (alist-get 'analysisStatusDisplay resp)
-                          (cond
-                           ((alist-get 'analyzed resp)
-                            (if (alist-get 'analysisStale resp)
-                                "Stale (commit changed)"
-                              "Up to date"))
-                           ((alist-get 'hasAnalysisFile resp)
-                            "Has file but not tracked")
-                           (t "Not analyzed")))))
+      (insert (format "AI Analysis: %s\n" (alist-get 'analysisStatusDisplay resp)))
       (when (alist-get 'analysisProvider resp)
         (insert (format "  Provider: %s\n" (alist-get 'analysisProvider resp))))
       (insert "\n")

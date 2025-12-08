@@ -1,5 +1,5 @@
 use git::GitInfo;
-use notes::{create, get, list_by_node, list_for_file, NoteFilters};
+use notes::{create, get, list_by_node, list_for_file, CreateNoteParams, NoteFilters};
 use storage::connect;
 use tempfile::NamedTempFile;
 
@@ -14,15 +14,17 @@ fn create_and_filter_stale() {
     };
     let note = create(
         &conn,
-        "/tmp/test.rs",
-        "/tmp",
-        1,
-        0,
-        Some(serde_json::json!(["fn"])),
-        serde_json::json!([]),
-        "hello",
-        Some(git),
-        None, // node_text_hash
+        CreateNoteParams {
+            file: "/tmp/test.rs",
+            project_root: "/tmp",
+            line: 1,
+            column: 0,
+            node_path: Some(serde_json::json!(["fn"])),
+            tags: serde_json::json!([]),
+            text: "hello",
+            git: Some(git),
+            node_text_hash: None,
+        },
     )
     .unwrap();
     let filters = NoteFilters {

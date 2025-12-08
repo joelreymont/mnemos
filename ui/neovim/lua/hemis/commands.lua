@@ -892,17 +892,7 @@ function M.project_meta()
       table.insert(lines, string.format("  Last indexed: %s", os.date("%Y-%m-%d %H:%M:%S", result.indexedAt)))
     end
     table.insert(lines, "")
-    local analysis_status = result.analysisStatusDisplay
-    if not analysis_status then
-      if result.analyzed then
-        analysis_status = result.analysisStale and "Stale (commit changed)" or "Up to date"
-      elseif result.hasAnalysisFile then
-        analysis_status = "Has file but not tracked"
-      else
-        analysis_status = "Not analyzed"
-      end
-    end
-    table.insert(lines, string.format("AI Analysis: %s", analysis_status))
+    table.insert(lines, string.format("AI Analysis: %s", result.analysisStatusDisplay))
     if result.analysisProvider then
       table.insert(lines, string.format("  Provider: %s", result.analysisProvider))
     end

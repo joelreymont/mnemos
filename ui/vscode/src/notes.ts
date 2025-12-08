@@ -17,8 +17,8 @@ export interface Note {
   displayLine?: number; // Server-computed display line (may differ from stored line)
   createdAt: string;
   updatedAt: string;
-  formattedCreatedAt?: string; // Server-computed human-readable timestamp
-  formattedUpdatedAt?: string; // Server-computed human-readable timestamp
+  formattedCreatedAt: string; // Server-computed human-readable timestamp (guaranteed)
+  formattedUpdatedAt: string; // Server-computed human-readable timestamp (guaranteed)
   hoverText: string; // Server-computed ready-to-display hover content (markdown, guaranteed)
   displayMarker: string; // Server-computed minimal marker like "[n:abc123]" (guaranteed)
   iconHint: 'fresh' | 'stale'; // Server-computed icon hint for color selection (guaranteed)
