@@ -958,3 +958,429 @@ describe("hemis display integration", function()
     assert.equals(0, #state.extmarks)
   end)
 end)
+
+-- Full demo workflow tests (mirrors neovim.demo)
+-- These test the complete user experience with real backend
+describe("demo workflow", function()
+  -- Skip if no backend
+  if not vim.g.hemis_test_backend then
+    return
+  end
+
+  -- Demo file with meaningful code for position/stale testing
+  local DEMO_CODE = [[fn main() {
+    let config = load_config();
+    let server = Server::new(config);
+    server.start();
+}
+
+fn load_config() -> Config {
+    Config::default()
+}
+
+impl Server {
+    fn new(config: Config) -> Self {
+        Server { config }
+    }
+}
+]]
+
+  local function get_demo_env()
+    local test_dir = vim.fn.tempname() .. "_hemis_demo_" .. math.random(10000)
+    local test_file = test_dir .. "/app.rs"
+    vim.fn.mkdir(test_dir, "p")
+
+    local f = io.open(test_file, "w")
+    if f then
+      f:write(DEMO_CODE)
+      f:close()
+    end
+
+    local rpc = require("hemis.rpc")
+    rpc.stop()
+
+    local config = require("hemis.config")
+    config.setup({
+      backend = vim.g.hemis_test_backend,
+      hemis_dir = test_dir,
+      auto_refresh = false,
+      keymaps = false,
+    })
+
+    vim.cmd("edit " .. test_file)
+    local buf = vim.api.nvim_get_current_buf()
+
+    return {
+      dir = test_dir,
+      file = test_file,
+      buf = buf,
+      rpc = rpc,
+      cleanup = function()
+        rpc.stop()
+        pcall(vim.api.nvim_buf_delete, buf, { force = true })
+        os.remove(test_dir .. "/hemis.lock")
+        vim.fn.delete(test_dir, "rf")
+      end,
+    }
+  end
+
+  after_each(function()
+    helpers.cleanup()
+  end)
+
+  describe("position tracking", function()
+    it("note line updates when lines inserted above", function()
+      local env = get_demo_env()
+      local done = false
+      local connect_ok = false
+      local note_id = nil
+      local original_line = 7  -- "fn load_config" line
+      local line_after = nil
+
+      env.rpc.start(function(ok)
+        if not ok then done = true return end
+        connect_ok = true
+
+        -- Create note at line 7 (fn load_config) - MUST pass content for tree-sitter anchor
+        env.rpc.request("notes/create", {
+          file = env.file,
+          line = original_line,
+          column = 0,
+          text = "Note on load_config function",
+          projectRoot = env.dir,
+          content = DEMO_CODE,  -- Required for position tracking!
+        }, function(err, res)
+          if not res then done = true return end
+          note_id = res.id
+
+          -- Insert 2 comment lines at top of file
+          local new_content = "// Comment 1\n// Comment 2\n" .. DEMO_CODE
+
+          -- List with new content to get updated line position
+          env.rpc.request("notes/list-for-file", {
+            file = env.file,
+            projectRoot = env.dir,
+            content = new_content,  -- Required for position computation!
+          }, function(err2, notes_wrapped)
+            local notes = helpers.unwrap_notes(notes_wrapped)
+            if notes and #notes > 0 then
+              line_after = notes[1].line
+            end
+            done = true
+          end)
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 10000)
+      env.cleanup()
+
+      assert.truthy(connect_ok, "Backend connection failed")
+      assert.is_not_nil(note_id, "Note should be created")
+      assert.is_not_nil(line_after, "Should have line after")
+      -- Original line 7 + 2 inserted = 9
+      assert.equals(9, line_after, "Note should move to line 9 after inserting 2 lines above")
+    end)
+  end)
+
+  describe("stale detection", function()
+    it("marks note stale when anchor code changes", function()
+      local env = get_demo_env()
+      local done = false
+      local connect_ok = false
+      local stale_before = nil
+      local stale_after = nil
+
+      env.rpc.start(function(ok)
+        if not ok then done = true return end
+        connect_ok = true
+
+        -- Create note at "fn new" line (line 12) with content for anchor
+        env.rpc.request("notes/create", {
+          file = env.file,
+          line = 12,
+          column = 0,
+          text = "Note on new function",
+          projectRoot = env.dir,
+          content = DEMO_CODE,  -- Required for stale detection!
+        }, function(err, res)
+          if not res then done = true return end
+
+          -- Check initial staleness (with original content)
+          env.rpc.request("notes/list-for-file", {
+            file = env.file,
+            projectRoot = env.dir,
+            content = DEMO_CODE,
+          }, function(err2, notes_before_wrapped)
+            local notes_before = helpers.unwrap_notes(notes_before_wrapped)
+            if notes_before and #notes_before > 0 then
+              stale_before = notes_before[1].stale
+            end
+
+            -- Change "fn new" to "fn create" (modifies anchor code)
+            local modified_content = DEMO_CODE:gsub("fn new", "fn create")
+
+            -- Check staleness with modified content
+            env.rpc.request("notes/list-for-file", {
+              file = env.file,
+              projectRoot = env.dir,
+              content = modified_content,
+            }, function(err3, notes_after_wrapped)
+              local notes_after = helpers.unwrap_notes(notes_after_wrapped)
+              if notes_after and #notes_after > 0 then
+                stale_after = notes_after[1].stale
+              end
+              done = true
+            end)
+          end)
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 10000)
+      env.cleanup()
+
+      assert.truthy(connect_ok)
+      assert.is_false(stale_before, "Note should be fresh initially")
+      assert.is_true(stale_after, "Note should be stale after anchor changed")
+    end)
+
+    it("displays stale note with HemisNoteStale highlight", function()
+      local env = get_demo_env()
+      local display = require("hemis.display")
+      local done = false
+      local connect_ok = false
+
+      env.rpc.start(function(ok)
+        if not ok then done = true return end
+        connect_ok = true
+
+        -- Create note at fn new (line 12) with content
+        env.rpc.request("notes/create", {
+          file = env.file,
+          line = 12,
+          column = 0,
+          text = "Stale display test",
+          projectRoot = env.dir,
+          content = DEMO_CODE,
+        }, function(err, res)
+          if not res then done = true return end
+
+          -- Make stale by changing anchor code
+          local modified_content = DEMO_CODE:gsub("fn new", "fn create")
+
+          -- List with modified content to get stale note
+          env.rpc.request("notes/list-for-file", {
+            file = env.file,
+            projectRoot = env.dir,
+            content = modified_content,
+          }, function(err2, notes_wrapped)
+            local notes = helpers.unwrap_notes(notes_wrapped)
+            if notes then
+              display.render_notes(env.buf, notes)
+              helpers.wait(50)
+            end
+            done = true
+          end)
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 10000)
+
+      local state = helpers.capture_display_state(env.buf)
+      env.cleanup()
+
+      assert.truthy(connect_ok)
+      assert.truthy(#state.extmarks > 0, "Should have extmark")
+
+      -- Check for stale highlight
+      local has_stale_hl = false
+      for _, mark in ipairs(state.extmarks) do
+        for _, hl in ipairs(mark.hl_groups or {}) do
+          if hl:find("Stale") then
+            has_stale_hl = true
+            break
+          end
+        end
+      end
+      assert.truthy(has_stale_hl, "Stale note should use HemisNoteStale highlight")
+    end)
+
+    it("reattach clears stale status", function()
+      local env = get_demo_env()
+      local done = false
+      local connect_ok = false
+      local note_id = nil
+      local stale_after_reattach = nil
+
+      env.rpc.start(function(ok)
+        if not ok then done = true return end
+        connect_ok = true
+
+        -- Create note at fn new (line 12) with content
+        env.rpc.request("notes/create", {
+          file = env.file,
+          line = 12,
+          column = 0,
+          text = "Reattach test",
+          projectRoot = env.dir,
+          content = DEMO_CODE,
+        }, function(err, res)
+          if not res then done = true return end
+          note_id = res.id
+
+          -- Change anchor code (makes note stale)
+          local modified_content = DEMO_CODE:gsub("fn new", "fn create")
+
+          -- Reattach note to new code (with new content)
+          env.rpc.request("notes/reattach", {
+            id = note_id,
+            file = env.file,
+            line = 12,
+            content = modified_content,
+            projectRoot = env.dir,
+          }, function(err2, res2)
+            -- Check staleness after reattach
+            env.rpc.request("notes/list-for-file", {
+              file = env.file,
+              projectRoot = env.dir,
+              content = modified_content,
+            }, function(err3, notes_wrapped)
+              local notes = helpers.unwrap_notes(notes_wrapped)
+              if notes and #notes > 0 then
+                stale_after_reattach = notes[1].stale
+              end
+              done = true
+            end)
+          end)
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 10000)
+      env.cleanup()
+
+      assert.truthy(connect_ok)
+      assert.is_not_nil(note_id)
+      assert.is_false(stale_after_reattach, "Note should be fresh after reattach")
+    end)
+  end)
+
+  describe("multiline notes", function()
+    it("creates and displays multiline note", function()
+      local env = get_demo_env()
+      local display = require("hemis.display")
+      local done = false
+      local connect_ok = false
+      local multiline_text = "Config improvements:\n- Add validation\n- Support env vars"
+
+      env.rpc.start(function(ok)
+        if not ok then done = true return end
+        connect_ok = true
+
+        env.rpc.request("notes/create", {
+          file = env.file,
+          line = 7,
+          column = 0,
+          text = multiline_text,
+          projectRoot = env.dir,
+          content = DEMO_CODE,
+        }, function(err, res)
+          if not res then done = true return end
+
+          env.rpc.request("notes/list-for-file", {
+            file = env.file,
+            projectRoot = env.dir,
+            content = DEMO_CODE,
+          }, function(err2, notes_wrapped)
+            local notes = helpers.unwrap_notes(notes_wrapped)
+            if notes then
+              display.render_notes(env.buf, notes)
+              helpers.wait(50)
+            end
+            done = true
+          end)
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 10000)
+
+      local state = helpers.capture_display_state(env.buf)
+      env.cleanup()
+
+      assert.truthy(connect_ok)
+      assert.truthy(#state.extmarks > 0, "Should have extmark")
+
+      -- Verify multiline content
+      local text = state.extmarks[1].text
+      assert.truthy(text:find("Config improvements"), "Should show first line")
+      assert.truthy(text:find("Add validation"), "Should show second line")
+      assert.truthy(text:find("Support env vars"), "Should show third line")
+    end)
+  end)
+
+  describe("full create-display-delete cycle", function()
+    it("note appears after create and disappears after delete", function()
+      local env = get_demo_env()
+      local display = require("hemis.display")
+      local done = false
+      local connect_ok = false
+      local note_id = nil
+      local extmarks_after_create = 0
+      local extmarks_after_delete = 0
+
+      env.rpc.start(function(ok)
+        if not ok then done = true return end
+        connect_ok = true
+
+        -- Create note
+        env.rpc.request("notes/create", {
+          file = env.file,
+          line = 5,
+          column = 0,
+          text = "Lifecycle test note",
+          projectRoot = env.dir,
+          content = DEMO_CODE,
+        }, function(err, res)
+          if not res then done = true return end
+          note_id = res.id
+
+          -- List and render
+          env.rpc.request("notes/list-for-file", {
+            file = env.file,
+            projectRoot = env.dir,
+            content = DEMO_CODE,
+          }, function(err2, notes_wrapped)
+            local notes = helpers.unwrap_notes(notes_wrapped)
+            display.render_notes(env.buf, notes or {})
+            helpers.wait(50)
+            extmarks_after_create = #helpers.capture_display_state(env.buf).extmarks
+
+            -- Delete note
+            env.rpc.request("notes/delete", {
+              id = note_id,
+              projectRoot = env.dir,
+            }, function(err3, res3)
+              -- List and render again
+              env.rpc.request("notes/list-for-file", {
+                file = env.file,
+                projectRoot = env.dir,
+                content = DEMO_CODE,
+              }, function(err4, notes2_wrapped)
+                local notes2 = helpers.unwrap_notes(notes2_wrapped)
+                display.render_notes(env.buf, notes2 or {})
+                helpers.wait(50)
+                extmarks_after_delete = #helpers.capture_display_state(env.buf).extmarks
+                done = true
+              end)
+            end)
+          end)
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 10000)
+      env.cleanup()
+
+      assert.truthy(connect_ok)
+      assert.equals(1, extmarks_after_create, "Should have 1 extmark after create")
+      assert.equals(0, extmarks_after_delete, "Should have 0 extmarks after delete")
+    end)
+  end)
+end)
