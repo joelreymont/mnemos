@@ -12,7 +12,7 @@ M.buffer_notes = {}
 -- Selected note state (global, persists across buffers)
 M.selected_note = nil
 
--- Refresh notes display
+-- Refresh notes display (async)
 function M.refresh()
   notes.list_for_buffer(function(err, result)
     if err then
@@ -24,6 +24,38 @@ function M.refresh()
     display.render_notes(nil, M.buffer_notes)
     display.cache_notes(nil, M.buffer_notes)
   end)
+end
+
+-- Synchronous refresh - waits for notes to be fetched and rendered
+-- Use after operations that need immediate display (e.g., explain_region)
+function M.refresh_sync(timeout_ms)
+  timeout_ms = timeout_ms or 5000
+  local done = false
+  local refresh_err = nil
+
+  notes.list_for_buffer(function(err, result)
+    if err then
+      refresh_err = err
+    else
+      M.buffer_notes = result or {}
+      display.render_notes(nil, M.buffer_notes)
+      display.cache_notes(nil, M.buffer_notes)
+    end
+    done = true
+  end)
+
+  -- Wait with libuv event processing to ensure socket callbacks fire
+  local uv = vim.uv or vim.loop
+  local start = uv.now()
+  while not done and (uv.now() - start) < timeout_ms do
+    -- Process libuv events (socket reads) then vim scheduled callbacks
+    uv.run("nowait")
+    vim.wait(50, function() return done end, 10)
+  end
+
+  if refresh_err then
+    vim.notify("Failed to fetch notes: " .. (refresh_err.message or "unknown"), vim.log.levels.ERROR)
+  end
 end
 
 -- Get raw cursor position (server handles anchor adjustment)
@@ -781,7 +813,8 @@ function M.explain_region()
     return
   end
 
-  M.refresh()
+  -- Use sync refresh so note displays immediately before returning
+  M.refresh_sync()
 end
 
 -- Explain region using AI with detailed/comprehensive explanation
@@ -862,7 +895,8 @@ function M.explain_region_full()
     return
   end
 
-  M.refresh()
+  -- Use sync refresh so note displays immediately before returning
+  M.refresh_sync()
 end
 
 -- Show project metadata
