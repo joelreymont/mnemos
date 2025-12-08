@@ -1215,4 +1215,130 @@ Handles :json-false which is truthy in Emacs."
                    (notes (hemis-test--unwrap-notes result)))
               (should (= 0 (length notes))))))))))
 
+;;; Visual e2e tests - verify overlays render correctly with real backend
+
+(defun hemis-test--count-note-overlays ()
+  "Count hemis note overlays in current buffer."
+  (length (seq-filter (lambda (ov) (overlay-get ov 'hemis-note-marker))
+                      hemis--overlays)))
+
+(defun hemis-test--overlay-at-line (line)
+  "Find hemis note overlay at LINE (1-indexed)."
+  (save-excursion
+    (goto-char (point-min))
+    (forward-line (1- line))
+    (let ((pos (line-beginning-position)))
+      (seq-find (lambda (ov)
+                  (and (overlay-get ov 'hemis-note-marker)
+                       (= (overlay-start ov) pos)))
+                hemis--overlays))))
+
+(ert-deftest hemis-visual-create-shows-overlay ()
+  "Test that creating a note shows an overlay in the buffer."
+  (hemis-test-with-backend
+    (let ((test-file (expand-file-name "visual-create.rs" test-dir)))
+      (with-temp-file test-file
+        (insert hemis-test-demo-code))
+      (with-temp-buffer
+        (insert hemis-test-demo-code)
+        (set-visited-file-name test-file t t)
+        (setq comment-start "// ")
+        (hemis-notes-mode 1)
+        (let ((hemis--project-root-override test-dir))
+          ;; Initially no overlays
+          (hemis--clear-note-overlays)
+          (should (= 0 (hemis-test--count-note-overlays)))
+
+          ;; Create note at line 7
+          (goto-char (point-min))
+          (forward-line 6)
+          (hemis-add-note "Visual create test")
+
+          ;; Should have overlay after create
+          (should (>= (hemis-test--count-note-overlays) 1))
+          (should (hemis-test--overlay-at-line 7)))))))
+
+(ert-deftest hemis-visual-delete-removes-overlay ()
+  "Test that deleting a note removes the overlay."
+  (hemis-test-with-backend
+    (let ((test-file (expand-file-name "visual-delete.rs" test-dir)))
+      (with-temp-file test-file
+        (insert hemis-test-demo-code))
+      (with-temp-buffer
+        (insert hemis-test-demo-code)
+        (set-visited-file-name test-file t t)
+        (setq comment-start "// ")
+        (hemis-notes-mode 1)
+        (let ((hemis--project-root-override test-dir))
+          ;; Create note
+          (goto-char (point-min))
+          (forward-line 6)
+          (let* ((created (hemis-add-note "Visual delete test"))
+                 (note-id (hemis-test--note-id created)))
+
+            ;; Should have overlay
+            (should (>= (hemis-test--count-note-overlays) 1))
+
+            ;; Delete note
+            (hemis--request "notes/delete" `((id . ,note-id)))
+            (hemis-refresh-notes)
+
+            ;; Should have no overlays
+            (should (= 0 (hemis-test--count-note-overlays)))))))))
+
+(ert-deftest hemis-visual-position-tracking ()
+  "Test that overlay position updates when lines inserted above."
+  (hemis-test-with-backend
+    (let ((test-file (expand-file-name "visual-position.rs" test-dir)))
+      (with-temp-file test-file
+        (insert hemis-test-demo-code))
+      (with-temp-buffer
+        (insert hemis-test-demo-code)
+        (set-visited-file-name test-file t t)
+        (setq comment-start "// ")
+        (hemis-notes-mode 1)
+        (let ((hemis--project-root-override test-dir))
+          ;; Create note at line 7
+          (goto-char (point-min))
+          (forward-line 6)
+          (hemis-add-note "Visual position test")
+
+          ;; Initially at line 7
+          (should (hemis-test--overlay-at-line 7))
+
+          ;; Insert 2 lines at top
+          (goto-char (point-min))
+          (insert "// Comment 1\n// Comment 2\n")
+
+          ;; Refresh to get updated positions
+          (hemis-refresh-notes)
+
+          ;; Overlay should now be at line 9 (7 + 2)
+          (should (hemis-test--overlay-at-line 9)))))))
+
+(ert-deftest hemis-visual-multiline-overlay ()
+  "Test that multiline notes create overlay with all content."
+  (hemis-test-with-backend
+    (let ((test-file (expand-file-name "visual-multiline.rs" test-dir)))
+      (with-temp-file test-file
+        (insert hemis-test-demo-code))
+      (with-temp-buffer
+        (insert hemis-test-demo-code)
+        (set-visited-file-name test-file t t)
+        (setq comment-start "// ")
+        (hemis-notes-mode 1)
+        (let ((hemis--project-root-override test-dir))
+          ;; Create multiline note
+          (goto-char (point-min))
+          (forward-line 6)
+          (hemis-add-note "Line 1\nLine 2\nLine 3")
+
+          ;; Should have overlay
+          (let ((ov (hemis-test--overlay-at-line 7)))
+            (should ov)
+            ;; Check overlay has display content
+            (let ((display (overlay-get ov 'before-string)))
+              (should (stringp display))
+              (should (> (length display) 0)))))))))
+
 (provide 'hemis-test)
