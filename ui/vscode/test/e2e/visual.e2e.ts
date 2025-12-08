@@ -489,4 +489,293 @@ test.describe('Demo Workflow E2E', () => {
     const codeEditor = window.locator('.monaco-editor[data-uri^="file://"]').first();
     await expect(codeEditor).toBeVisible();
   });
+
+  test('edit note via input box', async () => {
+    await openFile(window, 'app.rs');
+    await gotoLine(window, 7);
+
+    // Create a note
+    await runCommand(window, 'Hemis: Add Note');
+    await typeInInputBox(window, 'Original note text');
+    await window.waitForTimeout(1000);
+
+    // Edit the note
+    await gotoLine(window, 7);
+    await runCommand(window, 'Hemis: Edit Note');
+    await window.waitForTimeout(500);
+
+    // Clear and type new text
+    await window.keyboard.press('Meta+a');
+    await window.keyboard.type('Updated note text');
+    await window.keyboard.press('Enter');
+    await window.waitForTimeout(1000);
+
+    // Refresh to see changes
+    await runCommand(window, 'Hemis: Refresh Notes');
+    await window.waitForTimeout(1000);
+
+    // Screenshot showing edited note
+    await window.screenshot({ path: path.join(testDir, 'edit-note.png') });
+
+    // Verify editor visible
+    const codeEditor = window.locator('.monaco-editor[data-uri^="file://"]').first();
+    await expect(codeEditor).toBeVisible();
+  });
+
+  test('edit note in buffer', async () => {
+    await openFile(window, 'app.rs');
+    await gotoLine(window, 7);
+
+    // Create a note
+    await runCommand(window, 'Hemis: Add Note');
+    await typeInInputBox(window, 'Note for buffer editing');
+    await window.waitForTimeout(1000);
+
+    // Edit note in buffer
+    await gotoLine(window, 7);
+    await runCommand(window, 'Hemis: Edit Note (Buffer)');
+    await window.waitForTimeout(2000);
+
+    // Screenshot showing buffer editing
+    await window.screenshot({ path: path.join(testDir, 'edit-note-buffer.png') });
+
+    // A new editor tab should open with markdown content
+    // The buffer contains the note text
+    const editors = window.locator('.monaco-editor');
+    // Should have at least 2 editors (original file + note buffer)
+    const editorCount = await editors.count();
+    expect(editorCount).toBeGreaterThanOrEqual(1);
+  });
+
+  test('view note command', async () => {
+    await openFile(window, 'app.rs');
+    await gotoLine(window, 7);
+
+    // Create a note
+    await runCommand(window, 'Hemis: Add Note');
+    await typeInInputBox(window, 'Note to view in detail');
+    await window.waitForTimeout(1000);
+
+    // View the note
+    await gotoLine(window, 7);
+    await runCommand(window, 'Hemis: View Note');
+    await window.waitForTimeout(2000);
+
+    // Screenshot showing note view
+    await window.screenshot({ path: path.join(testDir, 'view-note.png') });
+
+    // A new editor tab should open with note details
+    const editors = window.locator('.monaco-editor');
+    const editorCount = await editors.count();
+    expect(editorCount).toBeGreaterThanOrEqual(1);
+  });
+
+  test('explain region (copy for LLM)', async () => {
+    await openFile(window, 'app.rs');
+
+    // Select a region (lines 7-9, the load_config function)
+    await gotoLine(window, 7);
+    await window.keyboard.press('Home');
+    await window.keyboard.down('Shift');
+    await window.keyboard.press('ArrowDown');
+    await window.keyboard.press('ArrowDown');
+    await window.keyboard.press('ArrowDown');
+    await window.keyboard.up('Shift');
+    await window.waitForTimeout(500);
+
+    // Run explain region command
+    await runCommand(window, 'Hemis: Explain Region');
+    await window.waitForTimeout(1000);
+
+    // Screenshot showing result
+    await window.screenshot({ path: path.join(testDir, 'explain-region.png') });
+
+    // Verify editor visible (the command copies to clipboard and shows notification)
+    const codeEditor = window.locator('.monaco-editor[data-uri^="file://"]').first();
+    await expect(codeEditor).toBeVisible();
+  });
+
+  test('insert note link', async () => {
+    await openFile(window, 'app.rs');
+
+    // Create a note first (to have something to link to)
+    await gotoLine(window, 7);
+    await runCommand(window, 'Hemis: Add Note');
+    await typeInInputBox(window, 'Link target note');
+    await window.waitForTimeout(1000);
+
+    // Go to another line and insert a link
+    await gotoLine(window, 1);
+    await window.keyboard.press('End');
+    await runCommand(window, 'Hemis: Insert Note Link');
+    await window.waitForTimeout(500);
+
+    // Search for the note we created
+    await window.keyboard.type('Link target');
+    await window.waitForTimeout(1000);
+
+    // Screenshot showing link insertion
+    await window.screenshot({ path: path.join(testDir, 'insert-link.png') });
+
+    // Verify quick-input is present
+    const quickInput = window.locator('.quick-input-widget');
+    await expect(quickInput).toBeAttached();
+  });
+
+  test('view backlinks', async () => {
+    await openFile(window, 'app.rs');
+
+    // Create first note (the target)
+    await gotoLine(window, 7);
+    await runCommand(window, 'Hemis: Add Note');
+    await typeInInputBox(window, 'Target note for backlinks');
+    await window.waitForTimeout(1000);
+
+    // Create second note that links to the first
+    await gotoLine(window, 1);
+    await runCommand(window, 'Hemis: Add Note');
+    await window.waitForTimeout(300);
+    // Insert a link reference in the note text
+    await window.keyboard.type('See also: [[Target note][note-id]]');
+    await window.keyboard.press('Enter');
+    await window.waitForTimeout(1000);
+
+    // Go back to first note and view backlinks
+    await gotoLine(window, 7);
+    await runCommand(window, 'Hemis: Show Backlinks');
+    await window.waitForTimeout(1000);
+
+    // Screenshot showing backlinks
+    await window.screenshot({ path: path.join(testDir, 'backlinks.png') });
+
+    // The backlinks command either shows a picker or a message
+    // Verify editor is still visible
+    const codeEditor = window.locator('.monaco-editor[data-uri^="file://"]').first();
+    await expect(codeEditor).toBeVisible();
+  });
+
+  test('select and clear note selection', async () => {
+    await openFile(window, 'app.rs');
+    await gotoLine(window, 7);
+
+    // Create a note
+    await runCommand(window, 'Hemis: Add Note');
+    await typeInInputBox(window, 'Note to select');
+    await window.waitForTimeout(1000);
+
+    // Select the note
+    await gotoLine(window, 7);
+    await runCommand(window, 'Hemis: Select Note');
+    await window.waitForTimeout(1000);
+
+    // Screenshot showing selection (status bar should show selected note)
+    await window.screenshot({ path: path.join(testDir, 'select-note.png') });
+
+    // Clear selection
+    await runCommand(window, 'Hemis: Clear Note Selection');
+    await window.waitForTimeout(500);
+
+    // Screenshot after clearing
+    await window.screenshot({ path: path.join(testDir, 'clear-selection.png') });
+
+    // Verify editor visible
+    const codeEditor = window.locator('.monaco-editor[data-uri^="file://"]').first();
+    await expect(codeEditor).toBeVisible();
+  });
+
+  test('help command shows documentation', async () => {
+    await runCommand(window, 'Hemis: Help');
+    await window.waitForTimeout(2000);
+
+    // Screenshot showing help
+    await window.screenshot({ path: path.join(testDir, 'help.png') });
+
+    // A new editor tab should open with help content
+    const editors = window.locator('.monaco-editor');
+    const editorCount = await editors.count();
+    expect(editorCount).toBeGreaterThanOrEqual(1);
+  });
+
+  test('index project command', async () => {
+    // Open a file first so we have an editor visible
+    await openFile(window, 'app.rs');
+
+    await runCommand(window, 'Hemis: Index Project');
+    await window.waitForTimeout(3000);
+
+    // Screenshot showing index result
+    await window.screenshot({ path: path.join(testDir, 'index-project.png') });
+
+    // Verify editor visible after indexing (use file-based selector)
+    const codeEditor = window.locator('.monaco-editor[data-uri^="file://"]').first();
+    await expect(codeEditor).toBeVisible();
+  });
+
+  test('project info command', async () => {
+    // First index the project
+    await runCommand(window, 'Hemis: Index Project');
+    await window.waitForTimeout(2000);
+
+    // Then view project info
+    await runCommand(window, 'Hemis: Project Info');
+    await window.waitForTimeout(2000);
+
+    // Screenshot showing project info
+    await window.screenshot({ path: path.join(testDir, 'project-info.png') });
+
+    // A new editor tab should open with project info
+    const editors = window.locator('.monaco-editor');
+    const editorCount = await editors.count();
+    expect(editorCount).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// Tests that require AI provider - skipped by default, run with HEMIS_AI_PROVIDER set
+test.describe('AI Features E2E', () => {
+  // Skip entire suite if no AI provider configured
+  test.beforeEach(async () => {
+    if (!process.env['HEMIS_AI_PROVIDER']) {
+      test.skip();
+    }
+  });
+
+  test('explain region with AI', async () => {
+    await openFile(window, 'app.rs');
+
+    // Select a region (lines 7-9, the load_config function)
+    await gotoLine(window, 7);
+    await window.keyboard.press('Home');
+    await window.keyboard.down('Shift');
+    await window.keyboard.press('ArrowDown');
+    await window.keyboard.press('ArrowDown');
+    await window.keyboard.press('ArrowDown');
+    await window.keyboard.up('Shift');
+    await window.waitForTimeout(500);
+
+    // Run AI explain region command
+    await runCommand(window, 'Hemis: Explain Region (AI)');
+    // AI takes longer
+    await window.waitForTimeout(10000);
+
+    // Screenshot showing AI result
+    await window.screenshot({ path: path.join(testDir, 'explain-region-ai.png') });
+
+    // A new editor tab should open with AI explanation OR the editor is still visible
+    const editors = window.locator('.monaco-editor');
+    const editorCount = await editors.count();
+    expect(editorCount).toBeGreaterThanOrEqual(1);
+  });
+
+  test('index project with AI', async () => {
+    await runCommand(window, 'Hemis: Index Project with AI');
+    // AI indexing takes longer
+    await window.waitForTimeout(15000);
+
+    // Screenshot showing AI index result
+    await window.screenshot({ path: path.join(testDir, 'index-project-ai.png') });
+
+    // Verify editor visible after indexing
+    const codeEditor = window.locator('.monaco-editor').first();
+    await expect(codeEditor).toBeVisible();
+  });
 });

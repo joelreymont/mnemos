@@ -767,11 +767,11 @@ mod tests {
         true
     }
 
-    // Property: summarize output is bounded
+    // Property: summarize output is bounded (by character count, not bytes)
     #[quickcheck]
     fn prop_summarize_bounded_length(input: String) -> bool {
         let summary = summarize(&input);
-        summary.len() <= 60 + 3 // max 60 chars + "..."
+        summary.chars().count() <= 60 // max 60 chars (or 57 + "...")
     }
 
     // Property: extract_links never panics

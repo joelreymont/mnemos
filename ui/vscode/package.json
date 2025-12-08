@@ -87,6 +87,18 @@
         "title": "Hemis: Explain Region (Copy for LLM)"
       },
       {
+        "command": "hemis.explainRegionAI",
+        "title": "Hemis: Explain Region (AI)"
+      },
+      {
+        "command": "hemis.indexProjectAI",
+        "title": "Hemis: Index Project with AI"
+      },
+      {
+        "command": "hemis.projectMeta",
+        "title": "Hemis: Project Info"
+      },
+      {
         "command": "hemis.selectNote",
         "title": "Hemis: Select Note"
       },
