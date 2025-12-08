@@ -993,4 +993,226 @@ Returns list of plists with :line :before-string :face :count :texts."
   (should (eq (lookup-key hemis-notes-list-mode-map (kbd "d"))
               'hemis-delete-note-at-point)))
 
+;;; Demo Workflow Tests (mirrors neovim.demo)
+;;; These test position tracking and stale detection with real backend
+
+(defconst hemis-test-demo-code
+  "fn main() {
+    let config = load_config();
+    let server = Server::new(config);
+    server.start();
+}
+
+fn load_config() -> Config {
+    Config::default()
+}
+
+impl Server {
+    fn new(config: Config) -> Self {
+        Server { config }
+    }
+}
+"
+  "Demo code for position/stale testing.")
+
+(defun hemis-test--unwrap-notes (result)
+  "Unwrap notes from backend response RESULT.
+Backend returns plist with :notes key containing a vector."
+  (let ((notes (or (plist-get result :notes)
+                   (and (listp result) (assoc 'notes result)
+                        (cdr (assoc 'notes result)))
+                   (and (listp result) result))))
+    ;; Convert vector to list if needed (backend returns vector)
+    (if (vectorp notes)
+        (append notes nil)
+      notes)))
+
+(defun hemis-test--note-line (note)
+  "Get line from NOTE."
+  (or (alist-get 'line note)
+      (plist-get note :line)
+      (cdr (assoc "line" note))))
+
+(defun hemis-test--note-stale (note)
+  "Get stale status from NOTE.
+Returns t if stale, nil if not stale.
+Handles :json-false which is truthy in Emacs."
+  (let ((stale (or (alist-get 'stale note)
+                   (plist-get note :stale)
+                   (cdr (assoc "stale" note)))))
+    ;; Convert :json-false to nil (JSON false is truthy in Emacs)
+    (and stale (not (eq stale :json-false)))))
+
+(ert-deftest hemis-demo-position-tracking ()
+  "Test that note line updates when lines inserted above."
+  (hemis-test-with-backend
+    (let ((test-file (expand-file-name "position-test.rs" test-dir)))
+      (with-temp-file test-file
+        (insert hemis-test-demo-code))
+      (with-temp-buffer
+        (insert hemis-test-demo-code)
+        (set-visited-file-name test-file t t)
+        (setq comment-start "// ")
+        (let ((hemis--project-root-override test-dir))
+          ;; Create note at line 7 (fn load_config) - content sent automatically
+          (goto-char (point-min))
+          (forward-line 6)  ; Move to line 7
+          (let* ((created (hemis-add-note "Position tracking test"))
+                 (note-id (hemis-test--note-id created))
+                 (hash (or (alist-get 'nodeTextHash created)
+                          (plist-get created :nodeTextHash))))
+            (should (stringp note-id))
+            (should (stringp hash))  ; nodeTextHash computed for position tracking
+
+            ;; Insert 2 comment lines at top
+            (let ((new-content (concat "// Comment 1\n// Comment 2\n" hemis-test-demo-code)))
+              ;; List notes with modified content
+              (let* ((result (hemis--request "notes/list-for-file"
+                                            `((file . ,test-file)
+                                              (projectRoot . ,test-dir)
+                                              (content . ,new-content))))
+                     (notes (hemis-test--unwrap-notes result))
+                     (note (car notes))
+                     (new-line (hemis-test--note-line note)))
+                ;; Original line 7 + 2 inserted = 9
+                (should (= 9 new-line))))))))))
+
+(ert-deftest hemis-demo-stale-detection ()
+  "Test that note is marked stale when anchor code changes."
+  (hemis-test-with-backend
+    (let ((test-file (expand-file-name "stale-test.rs" test-dir)))
+      (with-temp-file test-file
+        (insert hemis-test-demo-code))
+      (with-temp-buffer
+        (insert hemis-test-demo-code)
+        (set-visited-file-name test-file t t)
+        (setq comment-start "// ")
+        (let ((hemis--project-root-override test-dir))
+          ;; Create note at line 12 (fn new)
+          (goto-char (point-min))
+          (forward-line 11)  ; Move to line 12
+          (let* ((created (hemis-add-note "Stale detection test"))
+                 (note-id (hemis-test--note-id created)))
+            (should (stringp note-id))
+
+            ;; Check initial staleness (with original content)
+            (let* ((result (hemis--request "notes/list-for-file"
+                                          `((file . ,test-file)
+                                            (projectRoot . ,test-dir)
+                                            (content . ,hemis-test-demo-code))))
+                   (notes (hemis-test--unwrap-notes result))
+                   (note (car notes))
+                   (stale-before (hemis-test--note-stale note)))
+              (should-not stale-before)  ; Note should be fresh initially
+
+              ;; Change "fn new" to "fn create" (modifies anchor code)
+              (let* ((modified-content (replace-regexp-in-string "fn new" "fn create"
+                                                                  hemis-test-demo-code))
+                     (result2 (hemis--request "notes/list-for-file"
+                                             `((file . ,test-file)
+                                               (projectRoot . ,test-dir)
+                                               (content . ,modified-content))))
+                     (notes2 (hemis-test--unwrap-notes result2))
+                     (note2 (car notes2))
+                     (stale-after (hemis-test--note-stale note2)))
+                (should stale-after)))))))))  ; Note should be stale after anchor changed
+
+(ert-deftest hemis-demo-reattach-clears-stale ()
+  "Test that reattach clears stale status."
+  (hemis-test-with-backend
+    (let ((test-file (expand-file-name "reattach-test.rs" test-dir)))
+      (with-temp-file test-file
+        (insert hemis-test-demo-code))
+      (with-temp-buffer
+        (insert hemis-test-demo-code)
+        (set-visited-file-name test-file t t)
+        (setq comment-start "// ")
+        (let ((hemis--project-root-override test-dir))
+          ;; Create note at line 12 (fn new)
+          (goto-char (point-min))
+          (forward-line 11)
+          (let* ((created (hemis-add-note "Reattach test"))
+                 (note-id (hemis-test--note-id created))
+                 (modified-content (replace-regexp-in-string "fn new" "fn create"
+                                                             hemis-test-demo-code)))
+            (should (stringp note-id))
+
+            ;; Reattach note to new code
+            (hemis--request "notes/reattach"
+                           `((id . ,note-id)
+                             (file . ,test-file)
+                             (line . 12)
+                             (content . ,modified-content)
+                             (projectRoot . ,test-dir)))
+
+            ;; Check staleness after reattach
+            (let* ((result (hemis--request "notes/list-for-file"
+                                          `((file . ,test-file)
+                                            (projectRoot . ,test-dir)
+                                            (content . ,modified-content))))
+                   (notes (hemis-test--unwrap-notes result))
+                   (note (car notes))
+                   (stale-after (hemis-test--note-stale note)))
+              (should-not stale-after))))))))  ; Note should be fresh after reattach
+
+(ert-deftest hemis-demo-multiline-notes ()
+  "Test that multiline notes are created with formattedLines."
+  (hemis-test-with-backend
+    (let ((test-file (expand-file-name "multiline-test.rs" test-dir)))
+      (with-temp-file test-file
+        (insert hemis-test-demo-code))
+      (with-temp-buffer
+        (insert hemis-test-demo-code)
+        (set-visited-file-name test-file t t)
+        (setq comment-start "// ")
+        (let ((hemis--project-root-override test-dir)
+              (multiline-text "Config improvements:\n- Add validation\n- Support env vars"))
+          (goto-char (point-min))
+          (forward-line 6)
+          (let* ((created (hemis-add-note multiline-text))
+                 (text (or (alist-get 'text created)
+                          (plist-get created :text)))
+                 (formatted-lines (or (alist-get 'formattedLines created)
+                                     (plist-get created :formattedLines))))
+            (should (equal text multiline-text))
+            (should formatted-lines)
+            (should (>= (length formatted-lines) 3))))))))
+
+(ert-deftest hemis-demo-create-delete-cycle ()
+  "Test full create-display-delete cycle."
+  (hemis-test-with-backend
+    (let ((test-file (expand-file-name "lifecycle-test.rs" test-dir)))
+      (with-temp-file test-file
+        (insert hemis-test-demo-code))
+      (with-temp-buffer
+        (insert hemis-test-demo-code)
+        (set-visited-file-name test-file t t)
+        (setq comment-start "// ")
+        (let ((hemis--project-root-override test-dir))
+          ;; Create note
+          (goto-char (point-min))
+          (forward-line 4)
+          (let* ((created (hemis-add-note "Lifecycle test note"))
+                 (note-id (hemis-test--note-id created)))
+            (should (stringp note-id))
+
+            ;; List notes - should have one
+            (let* ((result (hemis--request "notes/list-for-file"
+                                          `((file . ,test-file)
+                                            (projectRoot . ,test-dir)
+                                            (content . ,hemis-test-demo-code))))
+                   (notes (hemis-test--unwrap-notes result)))
+              (should (= 1 (length notes))))
+
+            ;; Delete note
+            (hemis--request "notes/delete" `((id . ,note-id)))
+
+            ;; List notes - should have none
+            (let* ((result (hemis--request "notes/list-for-file"
+                                          `((file . ,test-file)
+                                            (projectRoot . ,test-dir)
+                                            (content . ,hemis-test-demo-code))))
+                   (notes (hemis-test--unwrap-notes result)))
+              (should (= 0 (length notes))))))))))
+
 (provide 'hemis-test)
