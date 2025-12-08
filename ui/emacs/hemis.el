@@ -864,21 +864,9 @@ With prefix arg or INCLUDE-AI non-nil, also run AI analysis."
                 (setq params (append params '((includeAI . t))))))
            (resp (hemis--request "hemis/index-project" params))
            (indexed (alist-get 'indexed resp))
-           (status-msg (alist-get 'statusMessage resp))
-           (ai-info (alist-get 'ai resp)))
-      (if status-msg
-          (message "Hemis: %s in %s" status-msg root)
-        (if ai-info
-            (let ((analyzed (alist-get 'analyzed ai-info))
-                  (provider (alist-get 'provider ai-info))
-                  (error-msg (alist-get 'error ai-info)))
-              (if analyzed
-                  (message "Hemis: indexed %s files, analyzed with %s in %s"
-                           (or indexed "?") provider root)
-                (message "Hemis: indexed %s files (AI analysis failed: %s)"
-                         (or indexed "?") error-msg)))
-          (message "Hemis: indexed %s files in %s"
-                   (or indexed "?") root))))))
+           ;; Backend guarantees statusMessage
+           (status-msg (alist-get 'statusMessage resp)))
+      (message "Hemis: %s in %s" status-msg root)))))
 
 (defun hemis-index-project-ai (&optional root)
   "Index all files under ROOT and run AI analysis."
@@ -1067,20 +1055,9 @@ With prefix arg or USE-AI non-nil, use AI to explain."
       (setq buffer-read-only nil)
       (erase-buffer)
       (insert (format "Explanation for %s:%d-%d\n" file start-line end-line))
+      ;; Backend guarantees statusDisplay when AI is used
       (when ai-info
-        (let ((status-display (alist-get 'statusDisplay ai-info))
-              (provider (alist-get 'provider ai-info))
-              (error-msg (alist-get 'error ai-info))
-              (had-context (alist-get 'hadContext ai-info)))
-          (cond
-           (status-display
-            (insert (format "%s\n" status-display)))
-           (provider
-            (insert (format "[AI: %s%s]\n"
-                            provider
-                            (if had-context " + project context" ""))))
-           (error-msg
-            (insert (format "[AI error: %s]\n" error-msg))))))
+        (insert (format "%s\n" (alist-get 'statusDisplay ai-info))))
       (insert "\n")
       (if explanation
           (insert explanation)

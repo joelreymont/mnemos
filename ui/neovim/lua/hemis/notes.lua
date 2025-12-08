@@ -159,18 +159,8 @@ function M.index_project(include_ai, callback)
       callback(err, result)
     end
     if not err and result then
-      local msg = result.statusMessage
-      if not msg then
-        msg = string.format("Project indexed: %d files", result.indexed or 0)
-        if result.ai then
-          if result.ai.analyzed then
-            msg = msg .. string.format(", AI analyzed with %s", result.ai.provider or "?")
-          elseif result.ai.error then
-            msg = msg .. string.format(" (AI failed: %s)", result.ai.error)
-          end
-        end
-      end
-      vim.notify(msg, vim.log.levels.INFO)
+      -- Backend guarantees statusMessage
+      vim.notify(result.statusMessage, vim.log.levels.INFO)
     end
   end)
 end

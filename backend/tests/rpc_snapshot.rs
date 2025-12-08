@@ -626,7 +626,7 @@ fn snapshot_status_returns_counts() -> anyhow::Result<()> {
         .map(|mut v: Value| {
             if let Some(result) = v.get_mut("result") {
                 if let Some(map) = result.as_object_mut() {
-                    for key in ["projectRoot", "file"] {
+                    for key in ["projectRoot", "file", "statusDisplay"] {
                         if let Some(Value::String(val)) = map.get_mut(key) {
                             *val = val.replace(&root_prefix, "/tmp");
                         }

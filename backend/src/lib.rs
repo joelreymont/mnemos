@@ -1078,10 +1078,13 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
             match storage::counts(db, proj) {
                 Ok(c) => {
-                    // Build a human-readable status display
+                    // Build a human-readable status display with all info
                     let status_display = format!(
-                        "{} notes, {} files, {} edges",
-                        c.notes, c.files, c.edges
+                        "Hemis Status: OK\nProject: {}\nNotes: {}\nFiles: {}\nEmbeddings: {}",
+                        proj.unwrap_or("None"),
+                        c.notes,
+                        c.files,
+                        c.embeddings
                     );
                     Response::result(
                         id,

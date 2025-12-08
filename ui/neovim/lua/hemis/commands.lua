@@ -475,18 +475,8 @@ function M.status()
       return
     end
 
-    -- Use statusDisplay from backend if available
-    local msg = result.statusDisplay or result.status_display
-    if not msg then
-      local counts = result.counts or {}
-      msg = string.format(
-        "Hemis: %d notes, %d files, %d embeddings",
-        counts.notes or 0,
-        counts.files or 0,
-        counts.embeddings or 0
-      )
-    end
-    vim.notify(msg, vim.log.levels.INFO)
+    -- Backend guarantees statusDisplay
+    vim.notify(result.statusDisplay, vim.log.levels.INFO)
   end)
 end
 
@@ -771,8 +761,8 @@ function M.explain_region()
   local create_done = false
   local create_err = nil
 
-  local status_prefix = (ai_result.ai and ai_result.ai.statusDisplay) or ("[" .. (ai_result.ai and ai_result.ai.provider or "AI") .. "]")
-  local text = string.format("%s %s", status_prefix, ai_result.explanation)
+  -- Backend guarantees ai.statusDisplay when AI is used
+  local text = string.format("%s %s", ai_result.ai.statusDisplay, ai_result.explanation)
 
   notes.create(text, {
     anchor = anchor,
@@ -852,8 +842,8 @@ function M.explain_region_full()
   local create_done = false
   local create_err = nil
 
-  local status_prefix = (ai_result.ai and ai_result.ai.statusDisplay) or ("[" .. (ai_result.ai and ai_result.ai.provider or "AI") .. " detailed]")
-  local text = string.format("%s %s", status_prefix, ai_result.explanation)
+  -- Backend guarantees ai.statusDisplay when AI is used
+  local text = string.format("%s %s", ai_result.ai.statusDisplay, ai_result.explanation)
 
   notes.create(text, {
     anchor = anchor,

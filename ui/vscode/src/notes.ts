@@ -117,7 +117,7 @@ export interface Status {
     edges: number;
     embeddings: number;
   };
-  statusDisplay?: string; // Server-computed formatted status string
+  statusDisplay: string; // Server-computed formatted status string (guaranteed)
 }
 
 export async function getStatus(): Promise<Status> {
@@ -176,7 +176,7 @@ export interface IndexProjectResult {
   indexed: number;
   skipped: number;
   projectRoot: string;
-  statusMessage?: string; // Server-computed status message (e.g., "Project indexed: 42 files, analyzed with claude")
+  statusMessage: string; // Server-computed status message (guaranteed)
   ai?: {
     analyzed?: boolean;
     provider?: string;

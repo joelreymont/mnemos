@@ -456,16 +456,7 @@ export async function insertLinkCommand(): Promise<void> {
 export async function statusCommand(): Promise<void> {
   try {
     const status = await getStatus();
-    // Use backend statusDisplay if available, otherwise build locally
-    const message = status.statusDisplay || [
-      `Hemis Status: ${status.ok ? 'OK' : 'Error'}`,
-      `Project: ${status.projectRoot || 'None'}`,
-      `Notes: ${status.counts.notes}`,
-      `Files: ${status.counts.files}`,
-      `Embeddings: ${status.counts.embeddings}`,
-    ].join('\n');
-
-    vscode.window.showInformationMessage(message, { modal: true });
+    vscode.window.showInformationMessage(status.statusDisplay, { modal: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     vscode.window.showErrorMessage(`Failed to get status: ${message}`);
@@ -712,18 +703,8 @@ export async function indexProjectAICommand(): Promise<void> {
     async () => {
       try {
         const result = await indexProjectWithAI(projectRoot, true);
-        const msg = result.statusMessage || (() => {
-          let m = `Indexed ${result.indexed} files`;
-          if (result.ai) {
-            if (result.ai.analyzed) {
-              m += `, analyzed with ${result.ai.provider}`;
-            } else if (result.ai.error) {
-              m += ` (AI failed: ${result.ai.error})`;
-            }
-          }
-          return m;
-        })();
-        vscode.window.showInformationMessage(msg);
+        // Backend guarantees statusMessage
+        vscode.window.showInformationMessage(result.statusMessage);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         vscode.window.showErrorMessage(`Failed to index project: ${message}`);
