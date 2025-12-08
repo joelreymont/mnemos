@@ -619,3 +619,281 @@ suite('Integration Test Suite', () => {
     }
   });
 });
+
+// Demo workflow tests (mirrors neovim.demo)
+// These test position tracking and stale detection with real backend
+suite('Demo Workflow Tests', () => {
+  const backend = findBackend();
+  let testDir: string;
+  let client: TestRpcClient;
+
+  // Demo code for position/stale testing
+  const DEMO_CODE = `fn main() {
+    let config = load_config();
+    let server = Server::new(config);
+    server.start();
+}
+
+fn load_config() -> Config {
+    Config::default()
+}
+
+impl Server {
+    fn new(config: Config) -> Self {
+        Server { config }
+    }
+}
+`;
+
+  // Helper to unwrap notes from {notes: [...]} wrapper
+  function unwrapNotes(result: { notes?: Array<object> } | Array<object>): Array<object> {
+    if (Array.isArray(result)) {
+      return result;
+    }
+    return result.notes || [];
+  }
+
+  setup(async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    testDir = createTestDir();
+    client = new TestRpcClient(testDir, backend);
+  });
+
+  teardown(async () => {
+    if (client) {
+      await client.shutdown();
+    }
+    if (testDir) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      cleanupTestDir(testDir);
+    }
+  });
+
+  test('Position tracking: note line updates when lines inserted above', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    await client.start();
+
+    // Create test file
+    const testFile = path.join(testDir, 'position-test.rs');
+    fs.writeFileSync(testFile, DEMO_CODE);
+
+    // Create note at line 7 (fn load_config) - MUST pass content for tree-sitter anchor
+    const created = await client.request<{ id: string; nodeTextHash?: string }>('notes/create', {
+      file: testFile,
+      projectRoot: testDir,
+      line: 7,
+      column: 0,
+      text: 'Note on load_config function',
+      content: DEMO_CODE,  // Required for position tracking!
+    });
+
+    assert.ok(created.id, 'Note should be created');
+    assert.ok(created.nodeTextHash, 'Note should have nodeTextHash for position tracking');
+
+    // Insert 2 comment lines at top
+    const newContent = '// Comment 1\n// Comment 2\n' + DEMO_CODE;
+
+    // List with new content to get updated line position
+    const result = await client.request<{ notes: Array<{ line: number }> }>('notes/list-for-file', {
+      file: testFile,
+      projectRoot: testDir,
+      content: newContent,  // Required for position computation!
+    });
+
+    const notes = unwrapNotes(result) as Array<{ line: number }>;
+    assert.ok(notes.length >= 1, 'Should have at least one note');
+    // Original line 7 + 2 inserted = 9
+    assert.strictEqual(notes[0].line, 9, 'Note should move to line 9 after inserting 2 lines above');
+  });
+
+  test('Stale detection: marks note stale when anchor code changes', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    await client.start();
+
+    // Create test file
+    const testFile = path.join(testDir, 'stale-test.rs');
+    fs.writeFileSync(testFile, DEMO_CODE);
+
+    // Create note at line 12 (fn new) with content for anchor
+    const created = await client.request<{ id: string }>('notes/create', {
+      file: testFile,
+      projectRoot: testDir,
+      line: 12,
+      column: 0,
+      text: 'Note on new function',
+      content: DEMO_CODE,  // Required for stale detection!
+    });
+
+    assert.ok(created.id, 'Note should be created');
+
+    // Check initial staleness (with original content)
+    const initialResult = await client.request<{ notes: Array<{ stale: boolean }> }>('notes/list-for-file', {
+      file: testFile,
+      projectRoot: testDir,
+      content: DEMO_CODE,
+    });
+
+    const initialNotes = unwrapNotes(initialResult) as Array<{ stale: boolean }>;
+    assert.strictEqual(initialNotes[0].stale, false, 'Note should be fresh initially');
+
+    // Change "fn new" to "fn create" (modifies anchor code)
+    const modifiedContent = DEMO_CODE.replace('fn new', 'fn create');
+
+    // Check staleness with modified content
+    const staleResult = await client.request<{ notes: Array<{ stale: boolean }> }>('notes/list-for-file', {
+      file: testFile,
+      projectRoot: testDir,
+      content: modifiedContent,
+    });
+
+    const staleNotes = unwrapNotes(staleResult) as Array<{ stale: boolean }>;
+    assert.strictEqual(staleNotes[0].stale, true, 'Note should be stale after anchor code changed');
+  });
+
+  test('Reattach clears stale status', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    await client.start();
+
+    // Create test file
+    const testFile = path.join(testDir, 'reattach-test.rs');
+    fs.writeFileSync(testFile, DEMO_CODE);
+
+    // Create note at line 12 (fn new) with content
+    const created = await client.request<{ id: string }>('notes/create', {
+      file: testFile,
+      projectRoot: testDir,
+      line: 12,
+      column: 0,
+      text: 'Reattach test note',
+      content: DEMO_CODE,
+    });
+
+    assert.ok(created.id, 'Note should be created');
+
+    // Change anchor code (makes note stale)
+    const modifiedContent = DEMO_CODE.replace('fn new', 'fn create');
+
+    // Reattach note to new code
+    await client.request('notes/reattach', {
+      id: created.id,
+      file: testFile,
+      line: 12,
+      content: modifiedContent,
+      projectRoot: testDir,
+    });
+
+    // Check staleness after reattach
+    const result = await client.request<{ notes: Array<{ stale: boolean }> }>('notes/list-for-file', {
+      file: testFile,
+      projectRoot: testDir,
+      content: modifiedContent,
+    });
+
+    const notes = unwrapNotes(result) as Array<{ stale: boolean }>;
+    assert.strictEqual(notes[0].stale, false, 'Note should be fresh after reattach');
+  });
+
+  test('Multiline notes: creates and retrieves multiline content', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    await client.start();
+
+    // Create test file
+    const testFile = path.join(testDir, 'multiline-test.rs');
+    fs.writeFileSync(testFile, DEMO_CODE);
+
+    const multilineText = 'Config improvements:\n- Add validation\n- Support env vars';
+
+    // Create multiline note
+    const created = await client.request<{ id: string; text: string; formattedLines?: string[] }>('notes/create', {
+      file: testFile,
+      projectRoot: testDir,
+      line: 7,
+      column: 0,
+      text: multilineText,
+      content: DEMO_CODE,
+    });
+
+    assert.ok(created.id, 'Note should be created');
+    assert.strictEqual(created.text, multilineText, 'Note text should match');
+    assert.ok(created.formattedLines, 'Should have formattedLines');
+    assert.ok(created.formattedLines!.length >= 3, 'Should have at least 3 formatted lines');
+  });
+
+  test('Full create-display-delete cycle', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    await client.start();
+
+    // Create test file
+    const testFile = path.join(testDir, 'lifecycle-test.rs');
+    fs.writeFileSync(testFile, DEMO_CODE);
+
+    // Create note
+    const created = await client.request<{ id: string }>('notes/create', {
+      file: testFile,
+      projectRoot: testDir,
+      line: 5,
+      column: 0,
+      text: 'Lifecycle test note',
+      content: DEMO_CODE,
+    });
+
+    assert.ok(created.id, 'Note should be created');
+
+    // List notes - should have one
+    const listAfterCreate = await client.request<{ notes: Array<{ id: string }> }>('notes/list-for-file', {
+      file: testFile,
+      projectRoot: testDir,
+      content: DEMO_CODE,
+    });
+
+    const notesAfterCreate = unwrapNotes(listAfterCreate) as Array<{ id: string }>;
+    assert.strictEqual(notesAfterCreate.length, 1, 'Should have 1 note after create');
+
+    // Delete note
+    await client.request('notes/delete', { id: created.id });
+
+    // List notes - should have none
+    const listAfterDelete = await client.request<{ notes: Array<{ id: string }> }>('notes/list-for-file', {
+      file: testFile,
+      projectRoot: testDir,
+      content: DEMO_CODE,
+    });
+
+    const notesAfterDelete = unwrapNotes(listAfterDelete) as Array<{ id: string }>;
+    assert.strictEqual(notesAfterDelete.length, 0, 'Should have 0 notes after delete');
+  });
+});
