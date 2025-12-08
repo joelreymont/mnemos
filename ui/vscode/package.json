@@ -242,9 +242,11 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js"
+    "test": "node ./out/test/runTest.js",
+    "test:e2e": "npm run compile && npx playwright test --config=test/e2e/playwright.config.ts"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.10.0",
     "@types/vscode": "^1.80.0",
@@ -254,6 +256,7 @@
     "eslint": "^8.54.0",
     "glob": "^10.3.10",
     "mocha": "^10.2.0",
+    "playwright": "^1.57.0",
     "typescript": "^5.3.2"
   }
 }
