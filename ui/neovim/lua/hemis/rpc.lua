@@ -223,11 +223,14 @@ local function start_server()
   end
 
   -- Start server in background (detached)
+  -- Must set HEMIS_DIR so backend uses the same socket path we're expecting
+  -- Use env command to ensure the env var is properly set
   local cmd = string.format(
-    "%s --serve%s >> %s/hemis.log 2>&1 &",
+    "env HEMIS_DIR=%s %s --serve%s >> %s/hemis.log 2>&1 &",
+    vim.fn.shellescape(hemis_dir),
     vim.fn.shellescape(backend),
     config_arg,
-    hemis_dir
+    vim.fn.shellescape(hemis_dir)
   )
   log("debug", "Starting server: " .. cmd)
   os.execute(cmd)
