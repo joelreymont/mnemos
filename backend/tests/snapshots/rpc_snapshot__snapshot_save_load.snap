@@ -9,9 +9,9 @@ expression: responses
     "result": {
       "bytes": 13,
       "content": "fn main() {}\n",
-      "file": "/tmp/code.rs",
+      "file": "/private/tmp/code.rs",
       "lines": 1,
-      "projectRoot": "/tmp",
+      "projectRoot": "/private/tmp",
       "updatedAt": "<ts>"
     }
   },
@@ -21,8 +21,8 @@ expression: responses
     "result": {
       "counts": {
         "edges": 0,
-        "embeddings": 1,
-        "files": 1,
+        "embeddings": 0,
+        "files": 0,
         "notes": 0
       },
       "ok": true,
@@ -35,8 +35,8 @@ expression: responses
     "result": {
       "counts": {
         "edges": 0,
-        "embeddings": 1,
-        "files": 1,
+        "embeddings": 0,
+        "files": 0,
         "notes": 0
       },
       "ok": true

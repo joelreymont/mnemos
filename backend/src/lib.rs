@@ -18,19 +18,22 @@ use treesitter::{
 
 /// Resolve project root: use provided value, or compute from file path via git.
 /// Falls back to file's parent directory if not in a git repo.
+/// Also canonicalizes the path to resolve symlinks (e.g., /tmp -> /private/tmp on macOS).
 fn resolve_project_root(provided: Option<&str>, file: &str) -> String {
-    if let Some(pr) = provided {
-        return pr.to_string();
-    }
-    if let Some(git_root) = git::find_root(Path::new(file)) {
-        return git_root;
-    }
-    // Fallback: file's parent directory
-    Path::new(file)
-        .parent()
-        .unwrap_or(Path::new("."))
-        .to_string_lossy()
-        .into_owned()
+    let root = if let Some(pr) = provided {
+        pr.to_string()
+    } else if let Some(git_root) = git::find_root(Path::new(file)) {
+        git_root
+    } else {
+        // Fallback: file's parent directory
+        Path::new(file)
+            .parent()
+            .unwrap_or(Path::new("."))
+            .to_string_lossy()
+            .into_owned()
+    };
+    // Canonicalize to resolve symlinks
+    canonical_path(&root)
 }
 
 /// Compute SHA256 hash of content, returning hex string
@@ -38,6 +41,16 @@ fn content_hash(content: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(content.as_bytes());
     format!("{:x}", hasher.finalize())
+}
+
+/// Canonicalize a file path, resolving symlinks.
+/// On macOS, /tmp is a symlink to /private/tmp - this ensures consistent paths.
+/// Falls back to the original path if canonicalization fails (e.g., file doesn't exist).
+fn canonical_path(path: &str) -> String {
+    Path::new(path)
+        .canonicalize()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| path.to_string())
 }
 
 /// Response wrapper for note list endpoints that includes content hash
@@ -76,6 +89,7 @@ pub mod snapshot;
 pub mod version;
 pub mod watcher;
 
+/// Directories to always skip (in addition to .gitignore patterns)
 const IGNORE_DIRS: &[&str] = &[
     ".git",
     "target",
@@ -85,7 +99,6 @@ const IGNORE_DIRS: &[&str] = &[
     ".idea",
     ".direnv",
     "venv",
-    "env",
     "__pycache__",
     "build",
 ];
@@ -97,73 +110,118 @@ const MAX_TRAVERSAL_DEPTH: usize = 50;
 const MAX_FILE_COUNT: usize = 100_000;
 
 fn list_files(root: &Path) -> anyhow::Result<ListFilesResult> {
+    use ignore::WalkBuilder;
+
     // Canonicalize path to prevent path traversal attacks
-    let canonical_root = root.canonicalize()
+    let canonical_root = root
+        .canonicalize()
         .with_context(|| format!("failed to canonicalize path: {}", root.display()))?;
 
     // Validate the path is a directory and not a system path
     if !canonical_root.is_dir() {
-        return Err(anyhow::anyhow!("path is not a directory: {}", canonical_root.display()));
+        return Err(anyhow::anyhow!(
+            "path is not a directory: {}",
+            canonical_root.display()
+        ));
     }
 
     // Reject obvious system paths to prevent accidental traversal
+    // Note: On macOS, /etc -> /private/etc, /var -> /private/var after canonicalization
+    // But allow /var/folders and /private/var/folders (temp directories)
     let path_str = canonical_root.to_string_lossy();
-    if path_str == "/" || path_str.starts_with("/etc") || path_str.starts_with("/var")
-        || path_str.starts_with("/usr") || path_str.starts_with("/bin")
-        || path_str.starts_with("/sbin") || path_str.starts_with("/System")
-        || path_str.starts_with("/Library") || path_str.starts_with("C:\\Windows")
+    let is_temp_dir = path_str.starts_with("/var/folders")
+        || path_str.starts_with("/private/var/folders")
+        || path_str.starts_with("/tmp")
+        || path_str.starts_with("/private/tmp");
+    if !is_temp_dir
+        && (path_str == "/"
+            || path_str.starts_with("/etc")
+            || path_str.starts_with("/private/etc")
+            || path_str.starts_with("/var")
+            || path_str.starts_with("/private/var")
+            || path_str.starts_with("/usr")
+            || path_str.starts_with("/bin")
+            || path_str.starts_with("/sbin")
+            || path_str.starts_with("/System")
+            || path_str.starts_with("/Library")
+            || path_str.starts_with("C:\\Windows"))
     {
-        return Err(anyhow::anyhow!("refusing to traverse system path: {}", canonical_root.display()));
+        return Err(anyhow::anyhow!(
+            "refusing to traverse system path: {}",
+            canonical_root.display()
+        ));
     }
 
-    // Track (path, depth) for depth limiting
-    let mut stack = vec![(canonical_root.clone(), 0usize)];
+    // Use the `ignore` crate which respects .gitignore files automatically
+    let mut builder = WalkBuilder::new(&canonical_root);
+    builder
+        .max_depth(Some(MAX_TRAVERSAL_DEPTH))
+        .follow_links(false) // Skip symlinks for security
+        .hidden(true) // Skip hidden files (match ripgrep default behavior)
+        .git_ignore(true) // Respect .gitignore files
+        .git_global(true) // Respect global gitignore
+        .git_exclude(true); // Respect .git/info/exclude
+
+    let walker = builder.build();
+
     let mut files = Vec::new();
     let mut truncated = false;
-    while let Some((dir, depth)) = stack.pop() {
-        // Check depth limit
-        if depth > MAX_TRAVERSAL_DEPTH {
-            continue; // Skip directories beyond max depth
+
+    for result in walker {
+        let entry = match result {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        // Skip directories and non-files
+        let file_type = match entry.file_type() {
+            Some(ft) => ft,
+            None => continue,
+        };
+        if !file_type.is_file() {
+            continue;
         }
 
-        for entry in fs::read_dir(&dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            let file_type = entry.file_type()?;
+        // Skip symlinks explicitly (extra safety)
+        if file_type.is_symlink() {
+            continue;
+        }
 
-            // Skip symbolic links entirely (TOCTOU protection)
-            if file_type.is_symlink() {
+        let path = entry.path();
+
+        // Ensure paths stay within root (security check)
+        if let Ok(canonical_path) = path.canonicalize() {
+            if !canonical_path.starts_with(&canonical_root) {
                 continue;
             }
-
-            // Ensure traversed paths stay within the original root (additional safety)
-            if let Ok(canonical_path) = path.canonicalize() {
-                if !canonical_path.starts_with(&canonical_root) {
-                    continue; // Skip paths that escape the root
-                }
-            }
-
-            let name = entry.file_name().to_string_lossy().to_string();
-            if file_type.is_dir() {
-                if IGNORE_DIRS.contains(&name.as_str()) {
-                    continue;
-                }
-                stack.push((path, depth + 1));
-            } else if file_type.is_file() {
-                // Check file count limit
-                if files.len() >= MAX_FILE_COUNT {
-                    truncated = true;
-                    files.sort_by(|a: &FileInfo, b: &FileInfo| a.file.cmp(&b.file));
-                    return Ok(ListFilesResult { files, truncated });
-                }
-                let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-                files.push(FileInfo {
-                    file: path.to_string_lossy().to_string(),
-                    size,
-                });
-            }
         }
+
+        // Skip files in ignored directories (target, node_modules, etc.)
+        let in_ignored_dir = path.components().any(|c| {
+            if let std::path::Component::Normal(name) = c {
+                if let Some(name_str) = name.to_str() {
+                    return IGNORE_DIRS.contains(&name_str);
+                }
+            }
+            false
+        });
+        if in_ignored_dir {
+            continue;
+        }
+
+        // Check file count limit
+        if files.len() >= MAX_FILE_COUNT {
+            truncated = true;
+            break;
+        }
+
+        let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+        files.push(FileInfo {
+            file: path.to_string_lossy().to_string(),
+            size,
+        });
     }
+
     files.sort_by(|a, b| a.file.cmp(&b.file));
     Ok(ListFilesResult { files, truncated })
 }
@@ -351,14 +409,16 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
         }
         "hemis/graph" => {
             // Return graph of notes and their edges for visualization
-            let project_root = req.params.get("projectRoot").and_then(|v| v.as_str());
+            let project_root_param = req.params.get("projectRoot").and_then(|v| v.as_str());
             let note_id = req.params.get("noteId").and_then(|v| v.as_str());
             let _include_stale = req.params.get("includeStale").and_then(|v| v.as_bool()).unwrap_or(true);
             let max_depth = req.params.get("maxDepth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
 
-            let Some(project_root) = project_root else {
+            let Some(project_root_param) = project_root_param else {
                 return Response::error(id, INVALID_PARAMS, "missing projectRoot");
             };
+            // Canonicalize path to resolve symlinks (e.g., /tmp -> /private/tmp on macOS)
+            let project_root = canonical_path(project_root_param);
 
             // Query notes for project
             let mut stmt = match db.prepare(
@@ -368,7 +428,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 Err(e) => return Response::error(id, INTERNAL_ERROR, e.to_string()),
             };
 
-            let notes_iter = match stmt.query_map([project_root], |row| {
+            let notes_iter = match stmt.query_map([&project_root], |row| {
                 Ok(json!({
                     "id": row.get::<_, String>(0)?,
                     "file": row.get::<_, String>(1)?,
@@ -395,7 +455,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 Err(e) => return Response::error(id, INTERNAL_ERROR, e.to_string()),
             };
 
-            let edges_iter = match edge_stmt.query_map([project_root], |row| {
+            let edges_iter = match edge_stmt.query_map([&project_root], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
@@ -461,12 +521,14 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
         }
         "hemis/tasks" => {
             // Scan indexed files for TODO/FIXME/HACK comments
-            let project_root = req.params.get("projectRoot").and_then(|v| v.as_str());
+            let project_root_param = req.params.get("projectRoot").and_then(|v| v.as_str());
             let limit = req.params.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
 
-            let Some(project_root) = project_root else {
+            let Some(project_root_param) = project_root_param else {
                 return Response::error(id, INVALID_PARAMS, "missing projectRoot");
             };
+            // Canonicalize path to resolve symlinks (e.g., /tmp -> /private/tmp on macOS)
+            let project_root = canonical_path(project_root_param);
 
             // Query indexed files for project
             let mut stmt = match db.prepare(
@@ -660,7 +722,9 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             }))
         }
         "hemis/explain-region" => {
-            let file = req.params.get("file").and_then(|v| v.as_str());
+            let file_param = req.params.get("file").and_then(|v| v.as_str());
+            // Canonicalize path to resolve symlinks (e.g., /tmp -> /private/tmp on macOS)
+            let file = file_param.map(canonical_path);
             let project_root = req.params.get("projectRoot").and_then(|v| v.as_str());
             // Accept both nested format (start.line) and flat format (startLine)
             let start_line = req
@@ -716,7 +780,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
             let content_param = req.params.get("content").and_then(|v| v.as_str());
-            if let Some(file) = file {
+            if let Some(ref file) = file {
                 // Get snippet: from content param (filter lines) or file (read only needed lines)
                 let snippet_result = if let Some(c) = content_param {
                     // Content provided - filter to requested lines
@@ -1216,18 +1280,20 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             }
         }
         "notes/list-for-file" => {
-            let file = req.params.get("file").and_then(|v| v.as_str());
-            if let Some(file) = file {
+            let file_param = req.params.get("file").and_then(|v| v.as_str());
+            if let Some(file_param) = file_param {
+                // Canonicalize path to resolve symlinks (e.g., /tmp -> /private/tmp on macOS)
+                let file = canonical_path(file_param);
                 // projectRoot is now optional - computed from file if not provided
                 let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
-                let proj = resolve_project_root(proj_param, file);
+                let proj = resolve_project_root(proj_param, &file);
                 // commit/blob are now optional - computed from file via git if not provided
                 // Only auto-fill from git if NEITHER is explicitly provided (to allow staleness testing)
                 let req_commit = req.params.get("commit").and_then(|v| v.as_str());
                 let req_blob = req.params.get("blob").and_then(|v| v.as_str());
                 let (commit, blob) = if req_commit.is_none() && req_blob.is_none() {
                     // Neither provided - auto-fill both from git
-                    let git_info = info_for_file(file);
+                    let git_info = info_for_file(&file);
                     (
                         git_info.as_ref().map(|g| g.commit.clone()),
                         git_info.as_ref().and_then(|g| g.blob.clone()),
@@ -1247,7 +1313,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                 let filters = NoteFilters {
-                    file,
+                    file: &file,
                     project_root: &proj,
                     node_path: None,
                     commit: commit.as_deref(),
@@ -1267,7 +1333,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     Ok(mut notes_list) => {
                         // If content is provided, compute display positions server-side
                         if let Some(content) = content_param {
-                            let file_path = Path::new(file);
+                            let file_path = Path::new(&file);
                             for note in &mut notes_list {
                                 // Convert from 1-based (database) to 0-based (tree-sitter)
                                 let ts_line = user_to_ts_line(note.line);
@@ -1321,18 +1387,20 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
         }
         "notes/get-at-position" => {
             // Returns the note at a specific position in a file, or null if none
-            let file = req.params.get("file").and_then(|v| v.as_str());
+            let file_param = req.params.get("file").and_then(|v| v.as_str());
             let line = req.params.get("line").and_then(|v| v.as_i64());
             let content = req.params.get("content").and_then(|v| v.as_str());
-            if let (Some(file), Some(target_line), Some(content)) = (file, line, content) {
+            if let (Some(file_param), Some(target_line), Some(content)) = (file_param, line, content) {
+                // Canonicalize path to resolve symlinks (e.g., /tmp -> /private/tmp on macOS)
+                let file = canonical_path(file_param);
                 let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
-                let proj = resolve_project_root(proj_param, file);
+                let proj = resolve_project_root(proj_param, &file);
                 // Auto-fill git info
-                let git_info = info_for_file(file);
+                let git_info = info_for_file(&file);
                 let commit = git_info.as_ref().map(|g| g.commit.clone());
                 let blob = git_info.as_ref().and_then(|g| g.blob.clone());
                 let filters = NoteFilters {
-                    file,
+                    file: &file,
                     project_root: &proj,
                     node_path: None,
                     commit: commit.as_deref(),
@@ -1341,7 +1409,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 };
                 match notes::list_for_file(db, filters) {
                     Ok(mut notes_list) => {
-                        let file_path = Path::new(file);
+                        let file_path = Path::new(&file);
                         // Compute display positions and find the matching note
                         for note in &mut notes_list {
                             let ts_line = user_to_ts_line(note.line);
@@ -1375,7 +1443,9 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             }
         }
         "notes/list-project" => {
-            if let Some(proj) = req.params.get("projectRoot").and_then(|v| v.as_str()) {
+            if let Some(proj_param) = req.params.get("projectRoot").and_then(|v| v.as_str()) {
+                // Canonicalize path to resolve symlinks (e.g., /tmp -> /private/tmp on macOS)
+                let proj = canonical_path(proj_param);
                 let limit = req
                     .params
                     .get("limit")
@@ -1386,7 +1456,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .get("offset")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0) as usize;
-                match notes::list_project(db, proj, limit, offset) {
+                match notes::list_project(db, &proj, limit, offset) {
                     Ok(mut notes_list) => {
                         display::ensure_formatted_lines_all(&mut notes_list, None);
                         Response::result_from(id, notes_list)
@@ -1459,18 +1529,20 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             }
         }
         "notes/list-by-node" => {
-            let file = req.params.get("file").and_then(|v| v.as_str());
+            let file_param = req.params.get("file").and_then(|v| v.as_str());
             let node = req.params.get("nodePath").cloned();
-            if let Some(file) = file {
+            if let Some(file_param) = file_param {
+                // Canonicalize path to resolve symlinks (e.g., /tmp -> /private/tmp on macOS)
+                let file = canonical_path(file_param);
                 // projectRoot is now optional - computed from file if not provided
                 let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
-                let proj = resolve_project_root(proj_param, file);
+                let proj = resolve_project_root(proj_param, &file);
                 // commit/blob are now optional - computed from file via git if not provided
                 // Only auto-fill from git if NEITHER is explicitly provided (to allow staleness testing)
                 let req_commit = req.params.get("commit").and_then(|v| v.as_str());
                 let req_blob = req.params.get("blob").and_then(|v| v.as_str());
                 let (commit, blob) = if req_commit.is_none() && req_blob.is_none() {
-                    let git_info = info_for_file(file);
+                    let git_info = info_for_file(&file);
                     (
                         git_info.as_ref().map(|g| g.commit.clone()),
                         git_info.as_ref().and_then(|g| g.blob.clone()),
@@ -1484,7 +1556,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
                 let filters = NoteFilters {
-                    file,
+                    file: &file,
                     project_root: &proj,
                     node_path: node,
                     commit: commit.as_deref(),
@@ -1503,11 +1575,13 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             }
         }
         "notes/create" => {
-            let file = req.params.get("file").and_then(|v| v.as_str());
-            if let Some(file) = file {
+            let file_param = req.params.get("file").and_then(|v| v.as_str());
+            if let Some(file_param) = file_param {
+                // Canonicalize path to resolve symlinks (e.g., /tmp -> /private/tmp on macOS)
+                let file = canonical_path(file_param);
                 // projectRoot is now optional - computed from file if not provided
                 let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
-                let proj = resolve_project_root(proj_param, file);
+                let proj = resolve_project_root(proj_param, &file);
                 let line = req
                     .params
                     .get("line")
@@ -1532,7 +1606,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 // Otherwise, use client-provided values (backwards compatibility)
                 let content = req.params.get("content").and_then(|v| v.as_str());
                 let (final_line, final_column, node_path, node_text_hash) = if let Some(content) = content {
-                    let file_path = Path::new(file);
+                    let file_path = Path::new(&file);
                     // Convert from 1-based (client) to 0-based (tree-sitter)
                     let ts_line = user_to_ts_line(line);
                     let ts_column = column as u32;
@@ -1556,11 +1630,11 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         .map(|s| s.to_string());
                     (line, column, node_path, node_text_hash)
                 };
-                let git = info_for_file(file);
+                let git = info_for_file(&file);
                 match notes::create(
                     db,
                     notes::CreateNoteParams {
-                        file,
+                        file: &file,
                         project_root: &proj,
                         line: final_line,
                         column: final_column,
@@ -1855,7 +1929,9 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
         }
         "notes/reattach" => {
             let note_id = req.params.get("id").and_then(|v| v.as_str());
-            let file = req.params.get("file").and_then(|v| v.as_str());
+            let file_param = req.params.get("file").and_then(|v| v.as_str());
+            // Canonicalize path to resolve symlinks (e.g., /tmp -> /private/tmp on macOS)
+            let file = file_param.map(canonical_path);
             if let Some(note_id) = note_id {
                 let line = req
                     .params
@@ -1871,7 +1947,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                     .clamp(0, i64::from(u32::MAX)); // Clamp to valid u32 range
                 // If content is provided, compute anchor position, node_path and hash server-side
                 let content = req.params.get("content").and_then(|v| v.as_str());
-                let (final_line, final_column, node_path, node_text_hash) = if let (Some(content), Some(file)) = (content, file) {
+                let (final_line, final_column, node_path, node_text_hash) = if let (Some(content), Some(ref file)) = (content, &file) {
                     let file_path = Path::new(file);
                     // Convert from 1-based (client) to 0-based (tree-sitter)
                     let ts_line = user_to_ts_line(line);
@@ -1896,7 +1972,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                         .map(|s| s.to_string());
                     (line, column, node_path, node_text_hash)
                 };
-                let git = file.and_then(info_for_file);
+                let git = file.as_deref().and_then(info_for_file);
                 match notes::reattach(db, note_id, final_line, final_column, node_path, git, node_text_hash) {
                     Ok(mut note) => {
                         display::ensure_formatted_lines(&mut note, None);
@@ -1914,12 +1990,14 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
         }
         "notes/buffer-update" => {
             // Real-time position tracking: recompute positions for all notes in file
-            let file = req.params.get("file").and_then(|v| v.as_str());
+            let file_param = req.params.get("file").and_then(|v| v.as_str());
             let content = req.params.get("content").and_then(|v| v.as_str());
-            if let (Some(file), Some(content)) = (file, content) {
+            if let (Some(file_param), Some(content)) = (file_param, content) {
+                // Canonicalize path to resolve symlinks (e.g., /tmp -> /private/tmp on macOS)
+                let file = canonical_path(file_param);
                 // Get all notes for this file
                 let filters = NoteFilters {
-                    file,
+                    file: &file,
                     project_root: "",
                     node_path: None,
                     commit: None,
@@ -1928,7 +2006,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 };
                 match notes::list_for_file(db, filters) {
                     Ok(mut notes_list) => {
-                        let file_path = Path::new(file);
+                        let file_path = Path::new(&file);
                         for note in &mut notes_list {
                             let old_line = note.line;
                             let old_stale = note.stale;
@@ -1976,17 +2054,19 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             }
         }
         "index/add-file" => {
-            let file = req.params.get("file").and_then(|v| v.as_str());
+            let file_param = req.params.get("file").and_then(|v| v.as_str());
             let content = req
                 .params
                 .get("content")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            if let Some(file) = file {
+            if let Some(file_param) = file_param {
+                // Canonicalize path to resolve symlinks (e.g., /tmp -> /private/tmp on macOS)
+                let file = canonical_path(file_param);
                 // projectRoot is now optional - computed from file if not provided
                 let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
-                let proj = resolve_project_root(proj_param, file);
-                match idx::add_file(db, file, &proj, content) {
+                let proj = resolve_project_root(proj_param, &file);
+                match idx::add_file(db, &file, &proj, content) {
                     Ok(info) => Response::result_from(id, info),
                     Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
                 }

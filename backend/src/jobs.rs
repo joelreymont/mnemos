@@ -312,6 +312,10 @@ struct ListFilesResult {
     truncated: bool,
 }
 
+/// File prefixes to skip when indexing (e.g., hemis runtime files)
+const IGNORE_FILE_PREFIXES: &[&str] = &["hemis."];
+
+/// Directories to always skip (in addition to .gitignore patterns)
 const IGNORE_DIRS: &[&str] = &[
     ".git",
     "target",
@@ -321,7 +325,6 @@ const IGNORE_DIRS: &[&str] = &[
     ".idea",
     ".direnv",
     "venv",
-    "env",
     "__pycache__",
     "build",
 ];
@@ -331,6 +334,7 @@ const MAX_FILE_COUNT: usize = 100_000;
 
 fn list_files(root: &Path) -> anyhow::Result<ListFilesResult> {
     use anyhow::Context;
+    use ignore::WalkBuilder;
 
     // Canonicalize path to prevent path traversal attacks
     let canonical_root = root
@@ -346,16 +350,25 @@ fn list_files(root: &Path) -> anyhow::Result<ListFilesResult> {
     }
 
     // Reject obvious system paths to prevent accidental traversal
+    // Note: On macOS, /etc -> /private/etc, /var -> /private/var after canonicalization
+    // But allow /var/folders and /private/var/folders (temp directories)
     let path_str = canonical_root.to_string_lossy();
-    if path_str == "/"
-        || path_str.starts_with("/etc")
-        || path_str.starts_with("/var")
-        || path_str.starts_with("/usr")
-        || path_str.starts_with("/bin")
-        || path_str.starts_with("/sbin")
-        || path_str.starts_with("/System")
-        || path_str.starts_with("/Library")
-        || path_str.starts_with("C:\\Windows")
+    let is_temp_dir = path_str.starts_with("/var/folders")
+        || path_str.starts_with("/private/var/folders")
+        || path_str.starts_with("/tmp")
+        || path_str.starts_with("/private/tmp");
+    if !is_temp_dir
+        && (path_str == "/"
+            || path_str.starts_with("/etc")
+            || path_str.starts_with("/private/etc")
+            || path_str.starts_with("/var")
+            || path_str.starts_with("/private/var")
+            || path_str.starts_with("/usr")
+            || path_str.starts_with("/bin")
+            || path_str.starts_with("/sbin")
+            || path_str.starts_with("/System")
+            || path_str.starts_with("/Library")
+            || path_str.starts_with("C:\\Windows"))
     {
         return Err(anyhow::anyhow!(
             "refusing to traverse system path: {}",
@@ -363,54 +376,83 @@ fn list_files(root: &Path) -> anyhow::Result<ListFilesResult> {
         ));
     }
 
-    // Track (path, depth) for depth limiting
-    let mut stack = vec![(canonical_root.clone(), 0usize)];
+    // Use the `ignore` crate which respects .gitignore files automatically
+    let mut builder = WalkBuilder::new(&canonical_root);
+    builder
+        .max_depth(Some(MAX_TRAVERSAL_DEPTH))
+        .follow_links(false) // Skip symlinks for security
+        .hidden(true) // Skip hidden files (match ripgrep default behavior)
+        .git_ignore(true) // Respect .gitignore files
+        .git_global(true) // Respect global gitignore
+        .git_exclude(true); // Respect .git/info/exclude
+
+    let walker = builder.build();
+
     let mut files = Vec::new();
     let mut truncated = false;
-    while let Some((dir, depth)) = stack.pop() {
-        // Check depth limit
-        if depth > MAX_TRAVERSAL_DEPTH {
-            continue; // Skip directories beyond max depth
+
+    for result in walker {
+        let entry = match result {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        // Skip directories and non-files
+        let file_type = match entry.file_type() {
+            Some(ft) => ft,
+            None => continue,
+        };
+        if !file_type.is_file() {
+            continue;
         }
 
-        for entry in fs::read_dir(&dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            let file_type = entry.file_type()?;
+        // Skip symlinks explicitly (extra safety)
+        if file_type.is_symlink() {
+            continue;
+        }
 
-            // Skip symbolic links entirely (TOCTOU protection)
-            if file_type.is_symlink() {
+        let path = entry.path();
+
+        // Ensure paths stay within root (security check)
+        if let Ok(canonical_path) = path.canonicalize() {
+            if !canonical_path.starts_with(&canonical_root) {
                 continue;
             }
+        }
 
-            // Ensure traversed paths stay within the original root (additional safety)
-            if let Ok(canonical_path) = path.canonicalize() {
-                if !canonical_path.starts_with(&canonical_root) {
-                    continue; // Skip paths that escape the root
+        // Skip files in ignored directories (target, node_modules, etc.)
+        let in_ignored_dir = path.components().any(|c| {
+            if let std::path::Component::Normal(name) = c {
+                if let Some(name_str) = name.to_str() {
+                    return IGNORE_DIRS.contains(&name_str);
                 }
             }
+            false
+        });
+        if in_ignored_dir {
+            continue;
+        }
 
-            let name = entry.file_name().to_string_lossy().to_string();
-            if file_type.is_dir() {
-                if IGNORE_DIRS.contains(&name.as_str()) {
-                    continue;
-                }
-                stack.push((path, depth + 1));
-            } else if file_type.is_file() {
-                // Check file count limit
-                if files.len() >= MAX_FILE_COUNT {
-                    truncated = true;
-                    files.sort_by(|a: &FileInfo, b: &FileInfo| a.file.cmp(&b.file));
-                    return Ok(ListFilesResult { files, truncated });
-                }
-                let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-                files.push(FileInfo {
-                    file: path.to_string_lossy().to_string(),
-                    size,
-                });
+        // Skip hemis.* runtime files
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if IGNORE_FILE_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) {
+                continue;
             }
         }
+
+        // Check file count limit
+        if files.len() >= MAX_FILE_COUNT {
+            truncated = true;
+            break;
+        }
+
+        let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+        files.push(FileInfo {
+            file: path.to_string_lossy().to_string(),
+            size,
+        });
     }
+
     files.sort_by(|a, b| a.file.cmp(&b.file));
     Ok(ListFilesResult { files, truncated })
 }
@@ -607,5 +649,36 @@ mod tests {
         // Files should be sorted
         assert!(result.files.iter().any(|f| f.file.ends_with("deep.txt")));
         assert!(result.files.iter().any(|f| f.file.ends_with("root.txt")));
+    }
+
+    #[test]
+    fn test_list_files_respects_gitignore() {
+        let tmpdir = tempfile::tempdir().unwrap();
+
+        // Initialize as git repo so .gitignore is respected
+        std::fs::create_dir_all(tmpdir.path().join(".git")).unwrap();
+
+        // Create .gitignore that ignores *.log and generated/ directory
+        std::fs::write(
+            tmpdir.path().join(".gitignore"),
+            "*.log\ngenerated/\n",
+        )
+        .unwrap();
+
+        // Create files - some should be ignored
+        std::fs::write(tmpdir.path().join("main.rs"), "fn main() {}").unwrap();
+        std::fs::write(tmpdir.path().join("debug.log"), "logs").unwrap();
+        std::fs::create_dir_all(tmpdir.path().join("generated")).unwrap();
+        std::fs::write(tmpdir.path().join("generated/output.rs"), "// generated").unwrap();
+
+        let result = list_files(tmpdir.path()).unwrap();
+        // Should only find main.rs (hidden files like .gitignore are skipped,
+        // and debug.log/generated/ are excluded by .gitignore patterns)
+        assert_eq!(result.files.len(), 1);
+        assert!(result.files[0].file.ends_with("main.rs"));
+        // Verify ignored files are NOT present
+        assert!(!result.files.iter().any(|f| f.file.ends_with(".log")));
+        assert!(!result.files.iter().any(|f| f.file.ends_with("output.rs")));
+        assert!(!result.files.iter().any(|f| f.file.ends_with(".gitignore")));
     }
 }

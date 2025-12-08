@@ -11,7 +11,7 @@ expression: responses
       "content": "fn add(x: i32) -> i32 { x + 1 }\n",
       "file": "/tmp/foo.rs",
       "lines": 1,
-      "projectRoot": "/tmp",
+      "projectRoot": "/private/tmp",
       "updatedAt": "<ts>"
     }
   },

@@ -102,12 +102,11 @@ fn handles_multiple_framed_requests() -> anyhow::Result<()> {
         returned.get("id").and_then(|v| v.as_str()).expect("id"),
         note_id
     );
-    assert_eq!(
-        returned
+    assert!(
+        !returned
             .get("stale")
             .and_then(|v| v.as_bool())
-            .expect("stale flag"),
-        false
+            .expect("stale flag")
     );
     Ok(())
 }
@@ -1815,9 +1814,8 @@ fn reattach_updates_note_position() -> anyhow::Result<()> {
         .cloned()
         .unwrap_or_default();
     assert_eq!(node_path.len(), 2, "nodePath should have 2 elements");
-    assert_eq!(
-        updated_note.get("stale").and_then(|v| v.as_bool()).unwrap(),
-        false,
+    assert!(
+        !updated_note.get("stale").and_then(|v| v.as_bool()).unwrap(),
         "reattached note should not be stale"
     );
     // Verify commit/blob SHAs are set (from git info)
@@ -4231,6 +4229,176 @@ fn explain_region_with_real_ai() -> anyhow::Result<()> {
     Ok(())
 }
 
+// Test explain-region with AI followed by note creation - verifies the full flow
+// that would be used by the neovim plugin
+#[test]
+fn explain_region_creates_note() -> anyhow::Result<()> {
+    // Check for AI CLI availability
+    let ai_provider = if std::process::Command::new("claude")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        Some("claude")
+    } else if std::process::Command::new("codex")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        Some("codex")
+    } else {
+        None
+    };
+
+    let Some(provider) = ai_provider else {
+        eprintln!("Skipping explain_region_creates_note: no AI CLI found");
+        return Ok(());
+    };
+
+    let db = NamedTempFile::new()?;
+    let tmpdir = tempfile::tempdir()?;
+    let file_path = tmpdir.path().join("server.rs");
+    let root_str = tmpdir.path().to_string_lossy().to_string();
+    let file_str = file_path.to_string_lossy().to_string();
+
+    let content = r#"fn main() {
+    let config = load_config();
+    let server = Server::new(config);
+    server.start();
+}
+"#;
+    std::fs::write(&file_path, content)?;
+
+    // Step 1: Get AI explanation
+    let req_explain = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hemis/explain-region",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str,
+            "startLine": 2,
+            "endLine": 4,
+            "useAI": true
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_explain.len(), req_explain);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .env("HEMIS_AI_PROVIDER", provider)
+        .timeout(std::time::Duration::from_secs(120))
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("explain response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    if let Some(err) = resp.error {
+        panic!("explain-region error: {:?}", err);
+    }
+
+    let result = resp.result.expect("should have result");
+    let explanation = result
+        .get("explanation")
+        .and_then(|v| v.as_str())
+        .expect("should have AI explanation");
+    let ai_info = result.get("ai").expect("should have ai info");
+    let status_display = ai_info
+        .get("statusDisplay")
+        .and_then(|v| v.as_str())
+        .unwrap_or("[AI]");
+
+    // Step 2: Create note with the AI explanation
+    let note_text = format!("{} {}", status_display, explanation);
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/create",
+        "params": {
+            "file": file_str,
+            "line": 2,
+            "column": 0,
+            "text": note_text,
+            "projectRoot": root_str
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("create response");
+    let resp: Response = serde_json::from_slice(&body)?;
+
+    if let Some(err) = resp.error {
+        panic!("notes/create error: {:?}", err);
+    }
+
+    let note_id = resp
+        .result
+        .as_ref()
+        .and_then(|r| r.get("id"))
+        .and_then(|v| v.as_str())
+        .expect("should have note id");
+
+    // Step 3: Verify note exists via list-for-file
+    let req_list = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "notes/list-for-file",
+        "params": {
+            "file": file_str,
+            "projectRoot": root_str
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_list.len(), req_list);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("list response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    let notes = resp.result.as_ref().and_then(extract_notes).unwrap();
+
+    assert!(!notes.is_empty(), "should have at least one note");
+    let found = notes
+        .iter()
+        .find(|n| n.get("id").and_then(|v| v.as_str()) == Some(note_id));
+    assert!(found.is_some(), "created note should be in list");
+
+    let note = found.unwrap();
+    let note_line = note.get("line").and_then(|v| v.as_i64()).unwrap_or(0);
+    let note_text = note.get("text").and_then(|v| v.as_str()).unwrap_or("");
+    assert_eq!(note_line, 2, "note should be on line 2");
+    assert!(
+        note_text.contains(status_display),
+        "note text should contain AI status"
+    );
+
+    eprintln!(
+        "Successfully created note from AI explanation: {} chars",
+        note_text.len()
+    );
+
+    Ok(())
+}
+
 // Test that persistent Claude process speeds up consecutive calls.
 // Second call should be faster because it reuses the running process.
 // NOTE: Ignored because timing assertions are inherently flaky - depends on
@@ -5604,6 +5772,140 @@ fn restore_version_not_found() -> anyhow::Result<()> {
     let resp: Response = serde_json::from_slice(&body)?;
 
     assert!(resp.error.is_some(), "should return error for non-existent version");
+
+    Ok(())
+}
+
+/// Test that path canonicalization works correctly for symlinked paths.
+/// On macOS, /tmp is a symlink to /private/tmp. Notes created with one path
+/// should be retrievable with the other.
+#[test]
+fn path_canonicalization_handles_symlinks() -> anyhow::Result<()> {
+    use std::path::Path;
+
+    // Skip on non-macOS systems where /tmp might not be a symlink
+    let tmp_canonical = Path::new("/tmp").canonicalize();
+    if tmp_canonical.is_err() || tmp_canonical.as_ref().unwrap().to_str() == Some("/tmp") {
+        eprintln!("Skipping path_canonicalization test: /tmp is not a symlink");
+        return Ok(());
+    }
+    let private_tmp = tmp_canonical.unwrap();
+    eprintln!("Testing symlink: /tmp -> {:?}", private_tmp);
+
+    let db = NamedTempFile::new()?;
+
+    // Create a real file in /tmp
+    let test_dir = tempfile::tempdir_in("/tmp")?;
+    let file_path = test_dir.path().join("test.rs");
+    std::fs::write(&file_path, "fn main() {}\n")?;
+
+    // Get both path variants
+    let symlink_path = file_path.to_string_lossy().to_string();
+    let canonical_path = file_path.canonicalize()?.to_string_lossy().to_string();
+
+    assert!(symlink_path.starts_with("/tmp/"), "should use /tmp path");
+    assert!(canonical_path.starts_with("/private/tmp/"), "should resolve to /private/tmp");
+    eprintln!("Symlink path: {}", symlink_path);
+    eprintln!("Canonical path: {}", canonical_path);
+
+    // Create note using symlink path (/tmp/...)
+    let req_create = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "notes/create",
+        "params": {
+            "file": symlink_path,
+            "projectRoot": test_dir.path().to_string_lossy(),
+            "line": 1,
+            "column": 0,
+            "text": "test note via symlink"
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    assert!(resp.error.is_none(), "create should succeed: {:?}", resp.error);
+
+    let note_id = resp.result.as_ref()
+        .and_then(|r| r.get("id"))
+        .and_then(|v| v.as_str())
+        .expect("should have note id");
+    eprintln!("Created note: {}", note_id);
+
+    // Query using canonical path (/private/tmp/...) - should find the note
+    let req_list = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "notes/list-for-file",
+        "params": {
+            "file": canonical_path,
+            "projectRoot": test_dir.path().canonicalize()?.to_string_lossy(),
+            "includeStale": true
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_list.len(), req_list);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    assert!(resp.error.is_none(), "list should succeed: {:?}", resp.error);
+
+    let notes = extract_notes(resp.result.as_ref().unwrap()).unwrap_or_default();
+    assert_eq!(notes.len(), 1, "should find the note via canonical path");
+    assert_eq!(
+        notes[0].get("id").and_then(|v| v.as_str()),
+        Some(note_id),
+        "should be the same note"
+    );
+
+    // Query using symlink path (/tmp/...) - should also find the note
+    let req_list2 = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "notes/list-for-file",
+        "params": {
+            "file": symlink_path,
+            "projectRoot": test_dir.path().to_string_lossy(),
+            "includeStale": true
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_list2.len(), req_list2);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    assert!(resp.error.is_none(), "list should succeed: {:?}", resp.error);
+
+    let notes = extract_notes(resp.result.as_ref().unwrap()).unwrap_or_default();
+    assert_eq!(notes.len(), 1, "should find the note via symlink path");
+    assert_eq!(
+        notes[0].get("id").and_then(|v| v.as_str()),
+        Some(note_id),
+        "should be the same note"
+    );
 
     Ok(())
 }

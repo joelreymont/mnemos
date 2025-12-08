@@ -27,20 +27,30 @@ pub struct HemisConfig {
     pub ai_provider: Option<String>,
 }
 
-/// Get the hemis config directory (XDG compliant).
-/// Uses HEMIS_CONFIG_DIR env var if set, otherwise ~/.config/hemis
+/// Get the hemis config directory.
+/// Priority: HEMIS_CONFIG_DIR env var > ~/.config/hemis (if exists) > platform default
 pub fn config_dir() -> PathBuf {
-    std::env::var("HEMIS_CONFIG_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            dirs::config_dir()
-                .unwrap_or_else(|| {
-                    dirs::home_dir()
-                        .map(|h| h.join(".config"))
-                        .unwrap_or_else(|| PathBuf::from(".config"))
-                })
-                .join("hemis")
+    // 1. Check env var first
+    if let Ok(dir) = std::env::var("HEMIS_CONFIG_DIR") {
+        return PathBuf::from(dir);
+    }
+
+    // 2. Check XDG location (~/.config/hemis) - preferred for CLI tools
+    if let Some(home) = dirs::home_dir() {
+        let xdg_config = home.join(".config").join("hemis");
+        if xdg_config.exists() {
+            return xdg_config;
+        }
+    }
+
+    // 3. Fall back to platform-native location (~/Library/Application Support/hemis on macOS)
+    dirs::config_dir()
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .map(|h| h.join(".config"))
+                .unwrap_or_else(|| PathBuf::from(".config"))
         })
+        .join("hemis")
 }
 
 /// Get the hemis data directory (~/.hemis or HEMIS_DIR).

@@ -14,13 +14,22 @@ M.reconnect_timer = nil
 -- Event handlers (set by init.lua)
 M.handlers = {}
 
--- Paths
+-- Paths (must be async-safe - no vim.fn.* in callbacks)
 local function get_hemis_dir()
   local custom = config.get("hemis_dir")
   if custom then
-    return vim.fn.expand(custom)
+    -- Expand ~ manually for async safety
+    if custom:sub(1, 1) == "~" then
+      return os.getenv("HOME") .. custom:sub(2)
+    end
+    return custom
   end
-  return vim.fn.expand("~/.hemis")
+  -- Check HEMIS_DIR env var (used by demo automation)
+  local env_dir = os.getenv("HEMIS_DIR")
+  if env_dir then
+    return env_dir
+  end
+  return os.getenv("HOME") .. "/.hemis"
 end
 
 local function get_events_socket_path()
