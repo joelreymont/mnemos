@@ -173,7 +173,7 @@ function M.add_note_multiline()
     row = math.floor((vim.o.lines - height) / 2),
     style = "minimal",
     border = "rounded",
-    title = " New Note (<C-c><C-c> to save, <C-c><C-k> to cancel) ",
+    title = " New Note (<CR> to save, q or <Esc> to cancel) ",
     title_pos = "center",
   })
 
@@ -261,7 +261,7 @@ function M.edit_note()
       row = math.floor((vim.o.lines - height) / 2),
       style = "minimal",
       border = "rounded",
-      title = " Edit Note (<C-c><C-c> to save, <C-c><C-k> to cancel) ",
+      title = " Edit Note (<CR> to save, q or <Esc> to cancel) ",
       title_pos = "center",
     })
 
