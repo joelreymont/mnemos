@@ -68,9 +68,40 @@ function M.setup(opts)
   end)
 
   M.events.on("note-created", function(event)
-    -- Refresh display for the file where note was created
     local bufnr = find_buffer_by_path(event.file)
-    if bufnr ~= -1 and vim.api.nvim_buf_is_loaded(bufnr) then
+    if bufnr == -1 or not vim.api.nvim_buf_is_loaded(bufnr) then
+      return
+    end
+
+    -- Check if this is from explain_region (has pending timer)
+    local pending_timer = M.commands._pending_status_timer
+    if pending_timer then
+      -- explain_region case: we handle refresh and cleanup here
+      -- This runs outside the blocking RPC callback chain
+      M.commands._pending_status_timer = nil
+      M.commands.explain_region_in_progress = false
+
+      -- Keep timer running during fetch to show continued progress
+      -- Fetch notes and render
+      M.notes.list_for_buffer(function(err, result)
+        if not err then
+          local notes_list = result
+          if result and result.notes then
+            notes_list = result.notes
+          end
+          M.commands.buffer_notes = notes_list or {}
+          M.display.render_notes(bufnr, M.commands.buffer_notes)
+          M.display.cache_notes(bufnr, M.commands.buffer_notes)
+        end
+
+        -- Stop timer and clear message AFTER render completes
+        pending_timer:stop()
+        pending_timer:close()
+        vim.cmd("redraw!")
+        vim.api.nvim_echo({ { "" } }, false, {})
+      end)
+    else
+      -- Normal case: just refresh
       M.commands.refresh()
     end
   end)

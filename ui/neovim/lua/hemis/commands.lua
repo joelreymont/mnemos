@@ -13,6 +13,10 @@ M.buffer_notes = {}
 -- Selected note state (global, persists across buffers)
 M.selected_note = nil
 
+-- Flag to prevent race between explain_region's refresh_sync and event-triggered refresh
+M.explain_region_in_progress = false
+
+
 -- Refresh notes display (async)
 function M.refresh()
   notes.list_for_buffer(function(err, result)
@@ -37,18 +41,36 @@ end
 
 -- Synchronous refresh - waits for notes to be fetched and rendered
 -- Use after operations that need immediate display (e.g., explain_region)
-function M.refresh_sync(timeout_ms)
+function M.refresh_sync(timeout_ms, debug_t0)
   timeout_ms = timeout_ms or 5000
   local done = false
   local refresh_err = nil
 
   notes.list_for_buffer(function(err, result)
+    if debug_t0 then
+      vim.notify(string.format("[DEBUG %.3fs] refresh_sync callback fired (notes fetched)", os.clock() - debug_t0), vim.log.levels.INFO)
+    end
+
     if err then
       refresh_err = err
     else
-      M.buffer_notes = result or {}
+      -- Backend returns {notes: [...]} wrapper
+      local notes_list = result
+      if result and result.notes then
+        notes_list = result.notes
+      end
+      M.buffer_notes = notes_list or {}
+
+      if debug_t0 then
+        vim.notify(string.format("[DEBUG %.3fs] Calling display.render_notes (in refresh_sync callback)", os.clock() - debug_t0), vim.log.levels.INFO)
+      end
+
       display.render_notes(nil, M.buffer_notes)
       display.cache_notes(nil, M.buffer_notes)
+
+      if debug_t0 then
+        vim.notify(string.format("[DEBUG %.3fs] display.render_notes completed", os.clock() - debug_t0), vim.log.levels.INFO)
+      end
     end
     done = true
   end)
@@ -65,6 +87,32 @@ function M.refresh_sync(timeout_ms)
   if refresh_err then
     vim.notify("Failed to fetch notes: " .. (refresh_err.message or "unknown"), vim.log.levels.ERROR)
   end
+end
+
+-- Wait for extmarks to actually exist in buffer (for sync with visual display)
+-- Returns true if extmarks found, false on timeout
+function M.wait_for_extmarks(buf, timeout_ms)
+  buf = buf or vim.api.nvim_get_current_buf()
+  timeout_ms = timeout_ms or 3000
+  local ns = display.ns_id
+  local uv = vim.uv or vim.loop
+  local start = uv.now()
+
+  while (uv.now() - start) < timeout_ms do
+    local marks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, {})
+    if #marks > 0 then
+      -- Force redraw to ensure extmarks are visually displayed
+      vim.cmd("redraw")
+      return true
+    end
+    -- Process events and wait a bit
+    uv.run("nowait")
+    vim.wait(50, function()
+      local m = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, {})
+      return #m > 0
+    end, 10)
+  end
+  return false
 end
 
 -- Get raw cursor position (server handles anchor adjustment)
@@ -744,7 +792,6 @@ function M.clear_selection()
 end
 
 -- Explain region using AI and create a note
--- Display refresh is triggered by server-side "note-created" event (see init.lua)
 function M.explain_region()
   -- Exit visual mode first to set '< and '> marks
   local mode = vim.fn.mode()
@@ -762,27 +809,57 @@ function M.explain_region()
     return
   end
 
+  -- Set flag to prevent race with event-triggered refresh
+  M.explain_region_in_progress = true
+
   -- Capture context before async operations
   vim.api.nvim_win_set_cursor(0, { start_line, 0 })
   local anchor = get_cursor_position()
   local source_buf = vim.api.nvim_get_current_buf()
   local file = vim.fn.expand("%:p")
 
-  -- Show persistent status in echo area (stays until next message)
-  vim.api.nvim_echo({ { "AI thinking...", "Comment" } }, false, {})
+  -- Track timing for display
+  local start_time = vim.uv.now()
+
+  -- Show persistent status in echo area with timer
+  local status_timer = vim.uv.new_timer()
+  local timer_active = true
+  local function update_status()
+    if not timer_active then return end
+    local elapsed = math.floor((vim.uv.now() - start_time) / 1000)
+    vim.api.nvim_echo({ { string.format("AI thinking... %ds", elapsed), "Comment" } }, false, {})
+  end
+
+  -- Helper to stop the status timer and clear message
+  local function stop_and_clear()
+    timer_active = false
+    if status_timer then
+      status_timer:stop()
+      status_timer:close()
+      status_timer = nil
+    end
+    vim.cmd("redraw!")
+    vim.api.nvim_echo({ { "" } }, false, {})
+  end
+
+  update_status()
   vim.cmd("redraw")
 
-  -- Request AI explanation - note creation triggers "note-created" event
-  -- which is handled by init.lua to refresh the display
+  -- Start timer to update elapsed time every second
+  status_timer:start(1000, 1000, vim.schedule_wrap(update_status))
+
+  -- Request AI explanation
   notes.explain_region(file, start_line, end_line, true, false, function(err, result)
     if err then
-      vim.api.nvim_echo({ { "" } }, false, {})
+      stop_and_clear()
+      M.explain_region_in_progress = false
       vim.notify("Failed to explain region: " .. (err.message or vim.inspect(err)), vim.log.levels.ERROR)
       return
     end
 
     if not result or not result.explanation then
-      vim.api.nvim_echo({ { "" } }, false, {})
+      stop_and_clear()
+      M.explain_region_in_progress = false
       vim.notify("No AI explanation available", vim.log.levels.WARN)
       return
     end
@@ -790,29 +867,38 @@ function M.explain_region()
     -- Backend guarantees ai.statusDisplay when AI is used
     local text = string.format("%s %s", result.ai.statusDisplay, result.explanation)
 
+    -- Store timer reference BEFORE notes.create (event fires before RPC returns)
+    M._pending_status_timer = status_timer
+
     -- Create note with explanation
-    -- Note: Display refresh happens via "note-created" server push event
     notes.create(text, {
       anchor = anchor,
       source_buf = source_buf,
     }, function(create_err, _)
-      -- Clear the "AI thinking..." message
-      vim.api.nvim_echo({ { "" } }, false, {})
       if create_err then
+        M._pending_status_timer = nil
+        stop_and_clear()
+        M.explain_region_in_progress = false
         vim.notify("Failed to create note: " .. (create_err.message or "unknown"), vim.log.levels.ERROR)
         return
       end
-      -- Fallback: refresh if event client isn't connected
-      -- (normally the "note-created" event handler does this)
-      if not events.is_connected() then
-        M.refresh()
-      end
+
+      -- Event handler will handle refresh and message clearing
+      -- Add fallback timeout in case event doesn't arrive
+      vim.defer_fn(function()
+        if M._pending_status_timer == status_timer then
+          -- Event handler didn't clean up, do it ourselves
+          M._pending_status_timer = nil
+          M.explain_region_in_progress = false
+          M.refresh_sync(5000)
+          stop_and_clear()
+        end
+      end, 5000)
     end)
   end)
 end
 
 -- Explain region using AI with detailed/comprehensive explanation
--- Display refresh is triggered by server-side "note-created" event (see init.lua)
 function M.explain_region_full()
   -- Exit visual mode first to set '< and '> marks
   local mode = vim.fn.mode()
@@ -830,27 +916,57 @@ function M.explain_region_full()
     return
   end
 
+  -- Set flag to prevent race with event-triggered refresh
+  M.explain_region_in_progress = true
+
   -- Capture context before async operations
   vim.api.nvim_win_set_cursor(0, { start_line, 0 })
   local anchor = get_cursor_position()
   local source_buf = vim.api.nvim_get_current_buf()
   local file = vim.fn.expand("%:p")
 
-  -- Show persistent status in echo area (stays until next message)
-  vim.api.nvim_echo({ { "AI thinking deeply...", "Comment" } }, false, {})
+  -- Track timing for display
+  local start_time = vim.uv.now()
+
+  -- Show persistent status in echo area with timer
+  local status_timer = vim.uv.new_timer()
+  local timer_active = true
+  local function update_status()
+    if not timer_active then return end
+    local elapsed = math.floor((vim.uv.now() - start_time) / 1000)
+    vim.api.nvim_echo({ { string.format("AI thinking deeply... %ds", elapsed), "Comment" } }, false, {})
+  end
+
+  -- Helper to stop the status timer and clear message
+  local function stop_and_clear()
+    timer_active = false
+    if status_timer then
+      status_timer:stop()
+      status_timer:close()
+      status_timer = nil
+    end
+    vim.cmd("redraw!")
+    vim.api.nvim_echo({ { "" } }, false, {})
+  end
+
+  update_status()
   vim.cmd("redraw")
 
-  -- Request detailed AI explanation - note creation triggers "note-created" event
-  -- which is handled by init.lua to refresh the display
+  -- Start timer to update elapsed time every second
+  status_timer:start(1000, 1000, vim.schedule_wrap(update_status))
+
+  -- Request detailed AI explanation
   notes.explain_region(file, start_line, end_line, true, true, function(err, result)
     if err then
-      vim.api.nvim_echo({ { "" } }, false, {})
+      stop_and_clear()
+      M.explain_region_in_progress = false
       vim.notify("Failed to explain region: " .. (err.message or vim.inspect(err)), vim.log.levels.ERROR)
       return
     end
 
     if not result or not result.explanation then
-      vim.api.nvim_echo({ { "" } }, false, {})
+      stop_and_clear()
+      M.explain_region_in_progress = false
       vim.notify("No AI explanation available", vim.log.levels.WARN)
       return
     end
@@ -858,23 +974,33 @@ function M.explain_region_full()
     -- Backend guarantees ai.statusDisplay when AI is used
     local text = string.format("%s %s", result.ai.statusDisplay, result.explanation)
 
+    -- Store timer reference BEFORE notes.create (event fires before RPC returns)
+    M._pending_status_timer = status_timer
+
     -- Create note with explanation
-    -- Note: Display refresh happens via "note-created" server push event
     notes.create(text, {
       anchor = anchor,
       source_buf = source_buf,
     }, function(create_err, _)
-      -- Clear the "AI thinking deeply..." message
-      vim.api.nvim_echo({ { "" } }, false, {})
       if create_err then
+        M._pending_status_timer = nil
+        stop_and_clear()
+        M.explain_region_in_progress = false
         vim.notify("Failed to create note: " .. (create_err.message or "unknown"), vim.log.levels.ERROR)
         return
       end
-      -- Fallback: refresh if event client isn't connected
-      -- (normally the "note-created" event handler does this)
-      if not events.is_connected() then
-        M.refresh()
-      end
+
+      -- Event handler will handle refresh and message clearing
+      -- Add fallback timeout in case event doesn't arrive
+      vim.defer_fn(function()
+        if M._pending_status_timer == status_timer then
+          -- Event handler didn't clean up, do it ourselves
+          M._pending_status_timer = nil
+          M.explain_region_in_progress = false
+          M.refresh_sync(5000)
+          stop_and_clear()
+        end
+      end, 5000)
     end)
   end)
 end
