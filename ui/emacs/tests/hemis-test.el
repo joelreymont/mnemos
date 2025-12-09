@@ -1341,4 +1341,183 @@ Handles :json-false which is truthy in Emacs."
               (should (stringp display))
               (should (> (length display) 0)))))))))
 
+;;; Goto-Symbol E2E Tests (simulating demo driver behavior)
+;;; These tests verify the FULL goto-symbol flow: index -> search -> navigate
+
+(defun hemis-test--search-result-to-list (result)
+  "Convert RESULT from index/search to a list (handles vectors)."
+  (if (vectorp result)
+      (append result nil)
+    result))
+
+(defun hemis-test--get-result-line (hit)
+  "Get line from search result HIT, handling various formats."
+  (or (alist-get 'line hit)
+      (plist-get hit :line)
+      (cdr (assoc "line" hit))
+      (and (hash-table-p hit) (gethash "line" hit))))
+
+(ert-deftest hemis-goto-symbol-fn-load-config ()
+  "Test index/search finds fn load_config at correct line."
+  (hemis-test-with-backend
+    (let ((test-file (expand-file-name "goto-symbol.rs" test-dir)))
+      (with-temp-file test-file
+        (insert hemis-test-demo-code))
+      (with-temp-buffer
+        (insert hemis-test-demo-code)
+        (set-visited-file-name test-file t t)
+        (let ((hemis--project-root-override test-dir))
+          ;; Step 1: Index the file
+          (hemis--request "index/add-file"
+                         `((file . ,test-file)
+                           (projectRoot . ,test-dir)
+                           (content . ,hemis-test-demo-code)))
+          ;; Step 2: Search for symbol
+          (let* ((raw-results (hemis--request "index/search"
+                                             `((query . "fn load_config")
+                                               (projectRoot . ,test-dir))))
+                 (results (hemis-test--search-result-to-list raw-results))
+                 (first-hit (car results))
+                 (line (hemis-test--get-result-line first-hit)))
+            (should results)
+            (should (> (length results) 0))
+            ;; fn load_config is on line 7
+            (should (= 7 line))))))))
+
+(ert-deftest hemis-goto-symbol-impl-server ()
+  "Test index/search finds impl Server at correct line."
+  (hemis-test-with-backend
+    (let ((test-file (expand-file-name "goto-symbol2.rs" test-dir)))
+      (with-temp-file test-file
+        (insert hemis-test-demo-code))
+      (with-temp-buffer
+        (insert hemis-test-demo-code)
+        (set-visited-file-name test-file t t)
+        (let ((hemis--project-root-override test-dir))
+          ;; Index the file
+          (hemis--request "index/add-file"
+                         `((file . ,test-file)
+                           (projectRoot . ,test-dir)
+                           (content . ,hemis-test-demo-code)))
+          ;; Search for impl Server
+          (let* ((raw-results (hemis--request "index/search"
+                                             `((query . "impl Server")
+                                               (projectRoot . ,test-dir))))
+                 (results (hemis-test--search-result-to-list raw-results))
+                 (first-hit (car results))
+                 (line (hemis-test--get-result-line first-hit)))
+            (should results)
+            ;; impl Server is on line 11
+            (should (= 11 line))))))))
+
+(ert-deftest hemis-goto-symbol-fn-new ()
+  "Test index/search finds fn new at correct line."
+  (hemis-test-with-backend
+    (let ((test-file (expand-file-name "goto-symbol3.rs" test-dir)))
+      (with-temp-file test-file
+        (insert hemis-test-demo-code))
+      (with-temp-buffer
+        (insert hemis-test-demo-code)
+        (set-visited-file-name test-file t t)
+        (let ((hemis--project-root-override test-dir))
+          ;; Index the file
+          (hemis--request "index/add-file"
+                         `((file . ,test-file)
+                           (projectRoot . ,test-dir)
+                           (content . ,hemis-test-demo-code)))
+          ;; Search for fn new
+          (let* ((raw-results (hemis--request "index/search"
+                                             `((query . "fn new")
+                                               (projectRoot . ,test-dir))))
+                 (results (hemis-test--search-result-to-list raw-results))
+                 (first-hit (car results))
+                 (line (hemis-test--get-result-line first-hit)))
+            (should results)
+            ;; fn new is on line 12
+            (should (= 12 line))))))))
+
+(ert-deftest hemis-goto-symbol-symlink-path ()
+  "Test index/search works with symlinked paths (macOS /tmp -> /private/tmp)."
+  ;; Use /tmp to test path canonicalization
+  (let* ((tmp-dir (make-temp-file "hemis-goto-symlink-" t))
+         (test-file (expand-file-name "app.rs" tmp-dir))
+         (hemis-dir tmp-dir)
+         (hemis--process nil)
+         (hemis--conn nil)
+         (hemis--server-process nil)
+         (hemis-backend-env (list (concat "HEMIS_DIR=" tmp-dir)
+                                  (concat "HEMIS_DB_PATH=" tmp-dir "/hemis.db")))
+         (hemis-backend (expand-file-name
+                         (or (getenv "HEMIS_BACKEND")
+                             hemis-backend
+                             hemis--default-backend))))
+    (hemis-notes-global-mode -1)
+    (unwind-protect
+        (progn
+          (with-temp-file test-file
+            (insert hemis-test-demo-code))
+          ;; Check if this is a symlinked path
+          (let* ((resolved (file-truename test-file))
+                 (is-symlinked (not (string= test-file resolved))))
+            (when is-symlinked
+              (message "Testing symlink: %s -> %s" test-file resolved))
+            ;; Index with non-canonical path
+            (hemis--request "index/add-file"
+                           `((file . ,test-file)
+                             (projectRoot . ,tmp-dir)
+                             (content . ,hemis-test-demo-code)))
+            ;; Search with non-canonical projectRoot
+            (let* ((raw-results (hemis--request "index/search"
+                                               `((query . "fn load_config")
+                                                 (projectRoot . ,tmp-dir))))
+                   (results (hemis-test--search-result-to-list raw-results))
+                   (first-hit (car results))
+                   (line (hemis-test--get-result-line first-hit)))
+              (should results)
+              (should (> (length results) 0))
+              (should (= 7 line)))))
+      ;; Cleanup
+      (ignore-errors (hemis-shutdown))
+      (let ((deadline (+ (float-time) 2)))
+        (while (and (file-exists-p (expand-file-name "hemis.sock" tmp-dir))
+                    (< (float-time) deadline))
+          (sleep-for 0.1)))
+      (ignore-errors (delete-file (expand-file-name "hemis.sock" tmp-dir)))
+      (ignore-errors (delete-file (expand-file-name "hemis.lock" tmp-dir)))
+      (ignore-errors (delete-directory tmp-dir t)))))
+
+(ert-deftest hemis-goto-symbol-navigate ()
+  "Test full goto-symbol flow: index, search, navigate to line."
+  (hemis-test-with-backend
+    (let ((test-file (expand-file-name "goto-navigate.rs" test-dir)))
+      (with-temp-file test-file
+        (insert hemis-test-demo-code))
+      (with-temp-buffer
+        (insert hemis-test-demo-code)
+        (set-visited-file-name test-file t t)
+        (let ((hemis--project-root-override test-dir))
+          ;; Index the file
+          (hemis--request "index/add-file"
+                         `((file . ,test-file)
+                           (projectRoot . ,test-dir)
+                           (content . ,hemis-test-demo-code)))
+          ;; Search for symbol
+          (let* ((raw-results (hemis--request "index/search"
+                                             `((query . "fn load_config")
+                                               (projectRoot . ,test-dir))))
+                 (results (hemis-test--search-result-to-list raw-results))
+                 (first-hit (car results))
+                 (target-line (hemis-test--get-result-line first-hit)))
+            (should (= 7 target-line))
+            ;; Navigate to line (simulating demo driver goto-line)
+            (goto-char (point-min))
+            (forward-line (1- target-line))
+            ;; Verify we're at the right line
+            (should (= target-line (line-number-at-pos)))
+            ;; Verify the line contains our symbol
+            (should (string-match-p "fn load_config"
+                                    (buffer-substring-no-properties
+                                     (line-beginning-position)
+                                     (line-end-position))))))))))
+
 (provide 'hemis-test)

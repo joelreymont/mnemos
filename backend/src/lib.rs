@@ -2083,8 +2083,13 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 .get("query")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
-            match idx::search(db, query, proj) {
+            // Canonicalize projectRoot to match how files are indexed (e.g., /tmp -> /private/tmp on macOS)
+            let proj = req
+                .params
+                .get("projectRoot")
+                .and_then(|v| v.as_str())
+                .map(canonical_path);
+            match idx::search(db, query, proj.as_deref()) {
                 Ok(results) => Response::result_from(id, results),
                 Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
             }

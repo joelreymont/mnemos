@@ -3193,6 +3193,133 @@ fn index_add_file() -> anyhow::Result<()> {
     Ok(())
 }
 
+// Test index/search with demo file content - verify exact line numbers for goto-symbol
+#[test]
+fn index_search_demo_file_symbols() -> anyhow::Result<()> {
+    let db = NamedTempFile::new()?;
+    let tmpdir = tempfile::tempdir()?;
+    let file_path = tmpdir.path().join("app.rs");
+    let project_root = tmpdir.path().to_string_lossy().to_string();
+
+    // This is the EXACT content from hemis-demo/scripts/config.demo
+    let content = r#"fn main() {
+    let config = load_config();
+    let server = Server::new(config);
+    server.start();
+}
+
+fn load_config() -> Config {
+    Config::default()
+}
+
+struct Server {
+    config: Config,
+}
+
+impl Server {
+    fn new(config: Config) -> Self {
+        Self { config }
+    }
+
+    fn start(&self) {
+        println!("Starting server...");
+    }
+}
+
+struct Config {
+    port: u16,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { port: 8080 }
+    }
+}
+"#;
+    std::fs::write(&file_path, content)?;
+
+    // Index the file
+    let req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "index/add-file",
+        "params": {
+            "file": file_path.to_string_lossy(),
+            "projectRoot": project_root,
+            "content": content
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("index response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    assert!(resp.error.is_none(), "index/add-file should succeed");
+
+    // Test each symbol used in the demo scripts
+    let test_cases = vec![
+        ("fn load_config", 7),   // Used in neovim.demo, emacs.demo, vscode.demo, explain-region.demo
+        ("fn new", 16),          // Used in all demos
+        ("struct Server", 11),   // Used in neovim.demo, emacs.demo, vscode.demo
+        ("impl Server", 15),     // Used in neovim.demo, emacs.demo, vscode.demo, reattach.demo
+        ("struct Config", 25),   // Used in neovim.demo, emacs.demo, vscode.demo
+    ];
+
+    for (query, expected_line) in test_cases {
+        let req_search = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "index/search",
+            "params": {
+                "query": query,
+                "projectRoot": project_root
+            }
+        })
+        .to_string();
+
+        let input = format!("Content-Length: {}\r\n\r\n{}", req_search.len(), req_search);
+        let assert = cargo_bin_cmd!("hemis")
+            .env("HEMIS_DB_PATH", db.path())
+            .write_stdin(input)
+            .assert()
+            .success();
+        let stdout = assert.get_output().stdout.clone();
+        let (body, _) = decode_framed(&stdout).expect("search response");
+        let resp: Response = serde_json::from_slice(&body)?;
+
+        let results = resp
+            .result
+            .as_ref()
+            .and_then(|v| v.as_array())
+            .expect("search results should be array");
+        assert!(
+            !results.is_empty(),
+            "Search for '{}' should return results",
+            query
+        );
+
+        let first_hit = &results[0];
+        let actual_line = first_hit
+            .get("line")
+            .and_then(|v| v.as_u64())
+            .expect("result should have line");
+
+        assert_eq!(
+            actual_line, expected_line as u64,
+            "Search for '{}' should return line {}, got {}",
+            query, expected_line, actual_line
+        );
+    }
+
+    Ok(())
+}
+
 // Test hemis/open-project initializes project root
 #[test]
 fn open_project_succeeds() -> anyhow::Result<()> {
@@ -5906,6 +6033,115 @@ fn path_canonicalization_handles_symlinks() -> anyhow::Result<()> {
         Some(note_id),
         "should be the same note"
     );
+
+    Ok(())
+}
+
+/// Test that index/search path canonicalization works correctly for symlinked paths.
+/// Files indexed with canonical paths should be searchable with symlink paths.
+#[test]
+fn index_search_path_canonicalization() -> anyhow::Result<()> {
+    use std::path::Path;
+
+    // Skip on non-macOS systems where /tmp might not be a symlink
+    let tmp_canonical = Path::new("/tmp").canonicalize();
+    if tmp_canonical.is_err() || tmp_canonical.as_ref().unwrap().to_str() == Some("/tmp") {
+        eprintln!("Skipping index_search_path_canonicalization test: /tmp is not a symlink");
+        return Ok(());
+    }
+    let private_tmp = tmp_canonical.unwrap();
+    eprintln!("Testing symlink: /tmp -> {:?}", private_tmp);
+
+    let db = NamedTempFile::new()?;
+
+    // Create a real file in /tmp
+    let test_dir = tempfile::tempdir_in("/tmp")?;
+    let file_path = test_dir.path().join("app.rs");
+
+    // Use content that matches the demo file
+    let content = r#"fn main() {
+    let config = load_config();
+    let server = Server::new(config);
+}
+
+fn load_config() -> Config {
+    Config::default()
+}
+
+struct Server {
+    config: Config,
+}
+"#;
+    std::fs::write(&file_path, content)?;
+
+    // Get both path variants
+    let symlink_path = file_path.to_string_lossy().to_string();
+    let symlink_project = test_dir.path().to_string_lossy().to_string();
+    let canonical_path = file_path.canonicalize()?.to_string_lossy().to_string();
+    let canonical_project = test_dir.path().canonicalize()?.to_string_lossy().to_string();
+
+    assert!(symlink_path.starts_with("/tmp/"), "should use /tmp path");
+    assert!(canonical_path.starts_with("/private/tmp/"), "should resolve to /private/tmp");
+    eprintln!("Symlink path: {}", symlink_path);
+    eprintln!("Canonical path: {}", canonical_path);
+
+    // Index file using canonical path (as the backend would store it)
+    let req_index = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "index/add-file",
+        "params": {
+            "file": canonical_path,
+            "projectRoot": canonical_project,
+            "content": content
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_index.len(), req_index);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    assert!(resp.error.is_none(), "index should succeed: {:?}", resp.error);
+
+    // Search using symlink path for projectRoot (simulating demo driver behavior)
+    let req_search = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "index/search",
+        "params": {
+            "query": "fn load_config",
+            "projectRoot": symlink_project  // Using symlink path!
+        }
+    })
+    .to_string();
+
+    let input = format!("Content-Length: {}\r\n\r\n{}", req_search.len(), req_search);
+    let assert = cargo_bin_cmd!("hemis")
+        .env("HEMIS_DB_PATH", db.path())
+        .write_stdin(input)
+        .assert()
+        .success();
+
+    let stdout = assert.get_output().stdout.clone();
+    let (body, _) = decode_framed(&stdout).expect("should have response");
+    let resp: Response = serde_json::from_slice(&body)?;
+    assert!(resp.error.is_none(), "search should succeed: {:?}", resp.error);
+
+    let results = resp.result.as_ref().unwrap().as_array().unwrap();
+    assert!(!results.is_empty(), "should find the symbol even when searching with symlink path");
+
+    let first_hit = &results[0];
+    let line = first_hit.get("line").and_then(|v| v.as_i64()).unwrap_or(0);
+    assert_eq!(line, 6, "fn load_config should be on line 6");
+
+    eprintln!("Successfully found symbol via symlink projectRoot path");
 
     Ok(())
 }

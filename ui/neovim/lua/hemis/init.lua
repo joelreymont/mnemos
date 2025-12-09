@@ -68,12 +68,9 @@ function M.setup(opts)
   end)
 
   M.events.on("note-created", function(event)
-    local bufnr = find_buffer_by_path(event.file)
-    if bufnr == -1 or not vim.api.nvim_buf_is_loaded(bufnr) then
-      return
-    end
-
     -- Check if this is from explain_region (has pending timer)
+    -- Do this FIRST before buffer lookup, since timer should be cleared even if
+    -- buffer path doesn't match (symlink issues)
     local pending_timer = M.commands._pending_status_timer
     if pending_timer then
       -- explain_region case: we handle refresh and cleanup here
@@ -90,7 +87,8 @@ function M.setup(opts)
       vim.cmd("redraw!")
       vim.api.nvim_echo({ { "" } }, false, {})
 
-      -- Fetch notes and render (timer already stopped)
+      -- Refresh notes for current buffer (the one where explain_region was called)
+      local current_buf = vim.api.nvim_get_current_buf()
       M.notes.list_for_buffer(function(err, result)
         if not err then
           local notes_list = result
@@ -98,14 +96,20 @@ function M.setup(opts)
             notes_list = result.notes
           end
           M.commands.buffer_notes = notes_list or {}
-          M.display.render_notes(bufnr, M.commands.buffer_notes)
-          M.display.cache_notes(bufnr, M.commands.buffer_notes)
+          M.display.render_notes(current_buf, M.commands.buffer_notes)
+          M.display.cache_notes(current_buf, M.commands.buffer_notes)
         end
       end)
-    else
-      -- Normal case: just refresh
-      M.commands.refresh()
+      return
     end
+
+    -- Normal case: find buffer and refresh
+    local bufnr = find_buffer_by_path(event.file)
+    if bufnr == -1 or not vim.api.nvim_buf_is_loaded(bufnr) then
+      return
+    end
+
+    M.commands.refresh()
   end)
 
   M.events.on("note-deleted", function(_event)
