@@ -78,6 +78,9 @@ function M.setup(opts)
     if pending_timer then
       -- explain_region case: we handle refresh and cleanup here
       -- This runs outside the blocking RPC callback chain
+
+      -- Increment generation FIRST to invalidate any queued timer callbacks
+      M.commands._status_generation = (M.commands._status_generation or 0) + 1
       M.commands._pending_status_timer = nil
       M.commands.explain_region_in_progress = false
 

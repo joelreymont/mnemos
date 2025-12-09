@@ -16,6 +16,9 @@ M.selected_note = nil
 -- Flag to prevent race between explain_region's refresh_sync and event-triggered refresh
 M.explain_region_in_progress = false
 
+-- Generation counter to invalidate queued timer callbacks
+M._status_generation = 0
+
 
 -- Refresh notes display (async)
 function M.refresh()
@@ -170,7 +173,7 @@ function M.add_note_multiline()
     row = math.floor((vim.o.lines - height) / 2),
     style = "minimal",
     border = "rounded",
-    title = " New Note (C-c C-c to save, C-c C-k to cancel) ",
+    title = " New Note (<C-c><C-c> to save, <C-c><C-k> to cancel) ",
     title_pos = "center",
   })
 
@@ -258,7 +261,7 @@ function M.edit_note()
       row = math.floor((vim.o.lines - height) / 2),
       style = "minimal",
       border = "rounded",
-      title = " Edit Note (C-c C-c to save, C-c C-k to cancel) ",
+      title = " Edit Note (<C-c><C-c> to save, <C-c><C-k> to cancel) ",
       title_pos = "center",
     })
 
@@ -825,17 +828,24 @@ function M.explain_region()
   -- Track timing for display
   local start_time = vim.uv.now()
 
+  -- Increment generation to invalidate any queued timer callbacks from previous runs
+  M._status_generation = M._status_generation + 1
+  local current_generation = M._status_generation
+
   -- Show persistent status in echo area with timer
   local status_timer = vim.uv.new_timer()
   local function update_status()
-    -- Check if this timer is still the active one (event handler clears _pending_status_timer)
+    -- Check both timer reference AND generation (generation invalidates queued callbacks)
     if M._pending_status_timer ~= status_timer then return end
+    if M._status_generation ~= current_generation then return end
     local elapsed = math.floor((vim.uv.now() - start_time) / 1000)
     vim.api.nvim_echo({ { string.format("AI thinking... %ds", elapsed), "Comment" } }, false, {})
   end
 
   -- Helper to stop the status timer and clear message
   local function stop_and_clear()
+    -- Increment generation FIRST to invalidate any queued timer callbacks
+    M._status_generation = M._status_generation + 1
     M._pending_status_timer = nil
     if status_timer then
       status_timer:stop()
@@ -934,17 +944,24 @@ function M.explain_region_full()
   -- Track timing for display
   local start_time = vim.uv.now()
 
+  -- Increment generation to invalidate any queued timer callbacks from previous runs
+  M._status_generation = M._status_generation + 1
+  local current_generation = M._status_generation
+
   -- Show persistent status in echo area with timer
   local status_timer = vim.uv.new_timer()
   local function update_status()
-    -- Check if this timer is still the active one (event handler clears _pending_status_timer)
+    -- Check both timer reference AND generation (generation invalidates queued callbacks)
     if M._pending_status_timer ~= status_timer then return end
+    if M._status_generation ~= current_generation then return end
     local elapsed = math.floor((vim.uv.now() - start_time) / 1000)
     vim.api.nvim_echo({ { string.format("AI thinking deeply... %ds", elapsed), "Comment" } }, false, {})
   end
 
   -- Helper to stop the status timer and clear message
   local function stop_and_clear()
+    -- Increment generation FIRST to invalidate any queued timer callbacks
+    M._status_generation = M._status_generation + 1
     M._pending_status_timer = nil
     if status_timer then
       status_timer:stop()
