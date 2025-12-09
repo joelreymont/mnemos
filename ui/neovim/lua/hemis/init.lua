@@ -81,8 +81,13 @@ function M.setup(opts)
       M.commands._pending_status_timer = nil
       M.commands.explain_region_in_progress = false
 
-      -- Keep timer running during fetch to show continued progress
-      -- Fetch notes and render
+      -- Stop timer and clear message IMMEDIATELY when note arrives
+      pending_timer:stop()
+      pending_timer:close()
+      vim.cmd("redraw!")
+      vim.api.nvim_echo({ { "" } }, false, {})
+
+      -- Fetch notes and render (timer already stopped)
       M.notes.list_for_buffer(function(err, result)
         if not err then
           local notes_list = result
@@ -93,12 +98,6 @@ function M.setup(opts)
           M.display.render_notes(bufnr, M.commands.buffer_notes)
           M.display.cache_notes(bufnr, M.commands.buffer_notes)
         end
-
-        -- Stop timer and clear message AFTER render completes
-        pending_timer:stop()
-        pending_timer:close()
-        vim.cmd("redraw!")
-        vim.api.nvim_echo({ { "" } }, false, {})
       end)
     else
       -- Normal case: just refresh

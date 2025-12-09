@@ -340,11 +340,15 @@ function M.edit_note_buffer()
 
         -- Backend trims, but skip if only whitespace
         if text:match("%S") then
+          -- Mark as saved immediately so 'q' keymap works right after :w
+          -- (optimistic update - if save fails, user sees error)
+          vim.bo[buf].modified = false
           notes.update(note_id, text, {}, function(err, _)
             if err then
               vim.notify("Failed to save note: " .. (err.message or "unknown"), vim.log.levels.ERROR)
+              -- Re-mark as modified since save failed
+              vim.bo[buf].modified = true
             else
-              vim.bo[buf].modified = false
               vim.notify("Note saved", vim.log.levels.INFO)
               -- Refresh notes display in source buffer
               M.refresh()
@@ -823,16 +827,16 @@ function M.explain_region()
 
   -- Show persistent status in echo area with timer
   local status_timer = vim.uv.new_timer()
-  local timer_active = true
   local function update_status()
-    if not timer_active then return end
+    -- Check if this timer is still the active one (event handler clears _pending_status_timer)
+    if M._pending_status_timer ~= status_timer then return end
     local elapsed = math.floor((vim.uv.now() - start_time) / 1000)
     vim.api.nvim_echo({ { string.format("AI thinking... %ds", elapsed), "Comment" } }, false, {})
   end
 
   -- Helper to stop the status timer and clear message
   local function stop_and_clear()
-    timer_active = false
+    M._pending_status_timer = nil
     if status_timer then
       status_timer:stop()
       status_timer:close()
@@ -841,6 +845,9 @@ function M.explain_region()
     vim.cmd("redraw!")
     vim.api.nvim_echo({ { "" } }, false, {})
   end
+
+  -- Store timer reference so update_status can check if it's still active
+  M._pending_status_timer = status_timer
 
   update_status()
   vim.cmd("redraw")
@@ -867,8 +874,7 @@ function M.explain_region()
     -- Backend guarantees ai.statusDisplay when AI is used
     local text = string.format("%s %s", result.ai.statusDisplay, result.explanation)
 
-    -- Store timer reference BEFORE notes.create (event fires before RPC returns)
-    M._pending_status_timer = status_timer
+    -- Timer reference already stored at start of function
 
     -- Create note with explanation
     notes.create(text, {
@@ -930,16 +936,16 @@ function M.explain_region_full()
 
   -- Show persistent status in echo area with timer
   local status_timer = vim.uv.new_timer()
-  local timer_active = true
   local function update_status()
-    if not timer_active then return end
+    -- Check if this timer is still the active one (event handler clears _pending_status_timer)
+    if M._pending_status_timer ~= status_timer then return end
     local elapsed = math.floor((vim.uv.now() - start_time) / 1000)
     vim.api.nvim_echo({ { string.format("AI thinking deeply... %ds", elapsed), "Comment" } }, false, {})
   end
 
   -- Helper to stop the status timer and clear message
   local function stop_and_clear()
-    timer_active = false
+    M._pending_status_timer = nil
     if status_timer then
       status_timer:stop()
       status_timer:close()
@@ -948,6 +954,9 @@ function M.explain_region_full()
     vim.cmd("redraw!")
     vim.api.nvim_echo({ { "" } }, false, {})
   end
+
+  -- Store timer reference so update_status can check if it's still active
+  M._pending_status_timer = status_timer
 
   update_status()
   vim.cmd("redraw")
@@ -974,8 +983,7 @@ function M.explain_region_full()
     -- Backend guarantees ai.statusDisplay when AI is used
     local text = string.format("%s %s", result.ai.statusDisplay, result.explanation)
 
-    -- Store timer reference BEFORE notes.create (event fires before RPC returns)
-    M._pending_status_timer = status_timer
+    -- Timer reference already stored at start of function
 
     -- Create note with explanation
     notes.create(text, {
