@@ -390,7 +390,7 @@ function M.edit_note_buffer()
   end)
 end
 
--- List notes in a buffer
+-- List notes in a buffer using vim.ui.select (floating picker via dressing.nvim)
 function M.list_notes()
   notes.list_for_buffer(function(err, result)
     if err then
@@ -403,86 +403,38 @@ function M.list_notes()
       return
     end
 
-    -- Create notes list buffer
-    local buf = vim.api.nvim_create_buf(false, true)
-    local file = vim.fn.expand("%:t")
+    -- Build picker items
+    local items = {}
+    for _, note in ipairs(result) do
+      local short_id = note.shortId or (note.id or ""):sub(1, 8)
+      local summary = note.summary or (note.text or ""):sub(1, 50)
+      local stale = note.stale and " [STALE]" or ""
+      table.insert(items, {
+        label = string.format("[%s] L%d: %s%s", short_id, note.line or 0, summary, stale),
+        note = note,
+      })
+    end
 
-    local lines = { "Hemis notes for " .. file, "" }
+    -- Format function for vim.ui.select
+    local function format_item(item)
+      return item.label
+    end
 
-    for i, note in ipairs(result) do
-      -- Backend uses camelCase: displayMarker, iconHint, summary
-      local marker = note.displayMarker or note.display_marker or "[?]"
-      local stale = (note.iconHint or note.icon_hint) == "stale" and " [stale]" or ""
-
-      table.insert(lines, string.format("  %d %s L%d,C%d%s", i - 1, marker, note.line or 0, note.column or 0, stale))
-
-      -- Backend returns summary (may be nil in tests)
-      local text = note.summary or note.text or ""
-      if text ~= "" then
-        for line in text:gmatch("[^\n]+") do
-          table.insert(lines, "    " .. line)
+    vim.ui.select(items, {
+      prompt = "Notes in " .. vim.fn.expand("%:t") .. ":",
+      format_item = format_item,
+    }, function(selected)
+      if selected then
+        -- Jump to note location
+        local note = selected.note
+        if note.line then
+          vim.api.nvim_win_set_cursor(0, { note.line, (note.column or 1) - 1 })
         end
+        -- Select this note
+        M.set_selected_note(note)
       end
-      table.insert(lines, "")
-    end
-
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.bo[buf].buftype = "nofile"
-    vim.bo[buf].modifiable = false
-    vim.api.nvim_buf_set_name(buf, "Hemis Notes")
-
-    -- Open in split
-    vim.cmd("split")
-    vim.api.nvim_win_set_buf(0, buf)
-
-    -- Store notes for navigation
-    vim.b[buf].hemis_notes = result
-    vim.b[buf].hemis_file = vim.fn.expand("%:p")
-
-    -- Keymaps
-    vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf })
-    vim.keymap.set("n", "<CR>", function()
-      M.visit_note_from_list(buf)
-    end, { buffer = buf })
+    end)
   end)
-end
-
--- Visit note from list buffer
-function M.visit_note_from_list(buf)
-  local cursor = vim.api.nvim_win_get_cursor(0)
-  local line = cursor[1]
-
-  local notes_list = vim.b[buf].hemis_notes
-
-  if not notes_list then
-    return
-  end
-
-  -- Find which note we're on (rough heuristic: look for note index pattern)
-  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local note_idx = nil
-
-  for i = line, 1, -1 do
-    local match = lines[i]:match("^%s*(%d+)%s+%[")
-    if match then
-      note_idx = tonumber(match) + 1
-      break
-    end
-  end
-
-  if note_idx and notes_list[note_idx] then
-    local note = notes_list[note_idx]
-    -- Use file from note itself (works for both notes list and backlinks)
-    local file = note.file or vim.b[buf].hemis_file
-    if not file then
-      vim.notify("No file for this note", vim.log.levels.WARN)
-      return
-    end
-    vim.cmd("close")
-    vim.cmd("edit " .. file)
-    vim.api.nvim_win_set_cursor(0, { note.line or 1, note.column or 0 })
-    vim.cmd("normal! zz")
-  end
 end
 
 -- Search notes
