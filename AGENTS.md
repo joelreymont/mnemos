@@ -9,10 +9,12 @@ Docs: `docs/`
 | Git | `git_context` | `include_diff`, `diff_limit` |
 | Work items | `bd_*` | `bd_create(title)`, `bd_close/show(id)`, `bd_list(status)` |
 | Rust | `cargo_test/clippy/build` | `cwd`, `package`, `filter`, `fix`, `release` |
-| Swift | `swift_test` | `cwd`, `filter` |
+| Swift | `swift_test` | `cwd`, `filter` ⚠️ **ASK FIRST for hemis-demo** |
 | Ask o3 | `ask_oracle` | `question` |
 
 **Bash OK for:** git commit/push/pull, hemis CLI, installing deps.
+
+**⚠️ swift_test in hemis-demo REQUIRES PERMISSION** - E2E tests launch GUI and control keyboard/mouse.
 
 ## Demo Automation
 
@@ -27,10 +29,28 @@ Demo driver (`hemis-demo`) controls keyboard/mouse. **Ask for explicit confirmat
 ### Testing (MANDATORY - ZERO TOLERANCE)
 **ALL tests MUST pass. There are NO "pre-existing" failing tests.** If a test fails, FIX IT IMMEDIATELY before continuing. No exceptions.
 
+**DO NOT claim tests are "pre-existing failures" - they are YOUR failures to fix.** The codebase owner maintains zero tolerance for broken tests. If tests fail, the code that broke them must be fixed, not the other way around.
+
 - Every bug fix and feature MUST include tests
 - Write tests FIRST or alongside implementation
-- Run `cargo test` before committing - if ANY test fails, the commit is blocked
 - Flaky tests must be either fixed or marked `#[ignore]` with explanation
+- **Types used in tests MUST have proper Codable/Decodable conformance**
+
+#### Test Suites (run before committing)
+| Suite | Command | Notes |
+|-------|---------|-------|
+| Rust unit/integration | `cargo test` | Runs all backend tests |
+| Rust clippy | `cargo clippy` | Warnings = errors |
+| Neovim UI (headless) | `cd ui/neovim && nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedDirectory tests/ {minimal_init = 'tests/minimal_init.lua'}"` | Plenary-based, runs headless |
+| Emacs UI (headless) | `emacs -Q --batch -L ui/emacs -l hemis.el -L ui/emacs/tests -l hemis-test.el -f ert-run-tests-batch-and-exit` | ERT-based, runs headless (from repo root) |
+| VSCode E2E | `cd ui/vscode && npm test` | Playwright-based, mostly headless |
+
+#### hemis-demo (REQUIRES PERMISSION)
+**DO NOT run hemis-demo tests or demos without explicit user permission.** The demo driver controls keyboard/mouse and launches GUI applications.
+- **`swift_test` MCP tool with cwd=hemis-demo** - launches GUI, ASK FIRST
+- `swift test` in hemis-demo - launches GUI, ASK FIRST
+- `swift run hemis-demo` - definitely launches GUI, ASK FIRST
+- Any command that runs E2E tests in hemis-demo - ASK FIRST
 
 ### Warnings = Errors (MANDATORY - ZERO TOLERANCE)
 **ALL warnings MUST be fixed. Warnings are errors.** Run `cargo clippy` and fix ALL warnings before committing.
