@@ -398,14 +398,20 @@ function M.list_notes()
       return
     end
 
-    if not result or #result == 0 then
+    -- Backend returns {notes: [...], contentHash: ...} wrapper when content is sent
+    local notes_list = result
+    if result and result.notes then
+      notes_list = result.notes
+    end
+
+    if not notes_list or #notes_list == 0 then
       vim.notify("No notes for this file", vim.log.levels.INFO)
       return
     end
 
     -- Build picker items
     local items = {}
-    for _, note in ipairs(result) do
+    for _, note in ipairs(notes_list) do
       local short_id = note.shortId or (note.id or ""):sub(1, 8)
       local summary = note.summary or (note.text or ""):sub(1, 50)
       local stale = note.stale and " [STALE]" or ""
