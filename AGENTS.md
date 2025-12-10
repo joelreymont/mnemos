@@ -20,6 +20,8 @@ Docs: `docs/`
 
 Demo driver (`hemis-demo`) controls keyboard/mouse. **Ask for explicit confirmation ("go", "run it") before running.**
 
+**Permission is ONE-TIME ONLY** - each demo run requires fresh permission. Do not re-run demos without asking again.
+
 ## Development Guidelines
 
 ### Commits
