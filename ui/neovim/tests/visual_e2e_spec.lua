@@ -13,7 +13,7 @@ local function setup_e2e_env()
   local test_file = test_dir .. "/app.rs"
   vim.fn.mkdir(test_dir, "p")
 
-  -- Write test file
+  -- Write test file - MUST MATCH config.demo exactly for goto-symbol tests
   local code = [[fn main() {
     let config = load_config();
     let server = Server::new(config);
@@ -24,9 +24,27 @@ fn load_config() -> Config {
     Config::default()
 }
 
+struct Server {
+    config: Config,
+}
+
 impl Server {
     fn new(config: Config) -> Self {
         Self { config }
+    }
+
+    fn start(&self) {
+        println!("Starting server...");
+    }
+}
+
+struct Config {
+    port: u16,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { port: 8080 }
     }
 }
 ]]
@@ -811,7 +829,7 @@ describe("visual e2e: index/search symbol lookup", function()
     assert.truthy(#search_result > 0, "Should have at least one search result")
 
     local first_hit = search_result[1]
-    assert.equals(11, first_hit.line, "impl Server should be on line 11")
+    assert.equals(15, first_hit.line, "impl Server should be on line 15")
 
     env.cleanup()
   end)
@@ -855,7 +873,7 @@ describe("visual e2e: index/search symbol lookup", function()
     assert.truthy(#search_result > 0, "Should have at least one search result")
 
     local first_hit = search_result[1]
-    assert.equals(12, first_hit.line, "fn new should be on line 12")
+    assert.equals(16, first_hit.line, "fn new should be on line 16")
 
     env.cleanup()
   end)
@@ -1042,7 +1060,7 @@ describe("visual e2e: goto-symbol (demo driver flow)", function()
     assert.is_nil(err, err)
     assert.is_not_nil(hit)
 
-    -- Verify cursor is at correct line
+    -- Verify cursor is at correct line (line 7 in the full demo file)
     local cursor = vim.api.nvim_win_get_cursor(0)
     assert.equals(7, cursor[1], "Cursor should be at line 7 (fn load_config)")
     assert.equals(7, hit.line, "Search hit should report line 7")
@@ -1064,9 +1082,10 @@ describe("visual e2e: goto-symbol (demo driver flow)", function()
     assert.is_nil(err, err)
     assert.is_not_nil(hit)
 
+    -- impl Server is at line 15 in the full demo file
     local cursor = vim.api.nvim_win_get_cursor(0)
-    assert.equals(11, cursor[1], "Cursor should be at line 11 (impl Server)")
-    assert.equals(11, hit.line, "Search hit should report line 11")
+    assert.equals(15, cursor[1], "Cursor should be at line 15 (impl Server)")
+    assert.equals(15, hit.line, "Search hit should report line 15")
 
     env.cleanup()
   end)
@@ -1085,9 +1104,10 @@ describe("visual e2e: goto-symbol (demo driver flow)", function()
     assert.is_nil(err, err)
     assert.is_not_nil(hit)
 
+    -- fn new is at line 16 in the full demo file
     local cursor = vim.api.nvim_win_get_cursor(0)
-    assert.equals(12, cursor[1], "Cursor should be at line 12 (fn new)")
-    assert.equals(12, hit.line, "Search hit should report line 12")
+    assert.equals(16, cursor[1], "Cursor should be at line 16 (fn new)")
+    assert.equals(16, hit.line, "Search hit should report line 16")
 
     env.cleanup()
   end)
@@ -1099,6 +1119,7 @@ describe("visual e2e: goto-symbol (demo driver flow)", function()
     local test_file = test_dir .. "/app.rs"
     vim.fn.mkdir(test_dir, "p")
 
+    -- MUST MATCH config.demo exactly
     local code = [[fn main() {
     let config = load_config();
     let server = Server::new(config);
@@ -1109,9 +1130,27 @@ fn load_config() -> Config {
     Config::default()
 }
 
+struct Server {
+    config: Config,
+}
+
 impl Server {
     fn new(config: Config) -> Self {
         Self { config }
+    }
+
+    fn start(&self) {
+        println!("Starting server...");
+    }
+}
+
+struct Config {
+    port: u16,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { port: 8080 }
     }
 }
 ]]

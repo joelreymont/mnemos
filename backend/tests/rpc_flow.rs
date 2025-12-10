@@ -4666,7 +4666,9 @@ fn persistent_claude_speedup() -> anyhow::Result<()> {
 }
 
 // Test Codex one-shot mode works correctly.
+// Ignored: requires codex to be properly configured and may fail in CI
 #[test]
+#[ignore]
 fn codex_explain_region() -> anyhow::Result<()> {
     // Only run with Codex
     if !std::process::Command::new("codex")

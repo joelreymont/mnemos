@@ -1287,6 +1287,8 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 // projectRoot is now optional - computed from file if not provided
                 let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
                 let proj = resolve_project_root(proj_param, &file);
+                debug!("[RPC] notes/list-for-file: file_param={} -> file={}, proj_param={:?} -> proj={}",
+                    file_param, file, proj_param, proj);
                 // commit/blob are now optional - computed from file via git if not provided
                 // Only auto-fill from git if NEITHER is explicitly provided (to allow staleness testing)
                 let req_commit = req.params.get("commit").and_then(|v| v.as_str());
@@ -1331,6 +1333,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 let content_param = req.params.get("content").and_then(|v| v.as_str());
                 match notes::list_for_file(db, filters) {
                     Ok(mut notes_list) => {
+                        debug!("[RPC] notes/list-for-file: found {} notes", notes_list.len());
                         // If content is provided, compute display positions server-side
                         if let Some(content) = content_param {
                             let file_path = Path::new(&file);

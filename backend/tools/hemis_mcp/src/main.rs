@@ -27,6 +27,9 @@ use rmcp::{
 
 const SERVER_VERSION: &str = "v1";
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+const SWIFT_TIMEOUT: Duration = Duration::from_secs(300); // 5 min for swift test (slow)
+const CLIPPY_TIMEOUT: Duration = Duration::from_secs(180); // 3 min for clippy
+const BUILD_TIMEOUT: Duration = Duration::from_secs(300);  // 5 min for build
 const BD_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Extension trait for Command to reduce boilerplate with optional cwd/package args
@@ -508,12 +511,8 @@ impl HemisServer {
         cmd.with_package(req.package.as_deref())
            .with_cwd(req.cwd.as_deref());
 
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-
-        match cmd.output() {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
+        match run_command_with_timeout(cmd, CLIPPY_TIMEOUT) {
+            Ok((stdout, stderr)) => {
                 let summary = parse_clippy_json(&stdout, &stderr);
                 Ok(CallToolResult::success(vec![Content::text(summary)]))
             }
@@ -535,16 +534,20 @@ impl HemisServer {
         cmd.with_package(req.package.as_deref())
            .with_cwd(req.cwd.as_deref());
 
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-
-        match cmd.output() {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let summary = parse_cargo_build_json(&stdout, &stderr, output.status.success());
+        match run_command_with_timeout(cmd, BUILD_TIMEOUT) {
+            Ok((stdout, stderr)) => {
+                let summary = parse_cargo_build_json(&stdout, &stderr, true);
                 Ok(CallToolResult::success(vec![Content::text(summary)]))
             }
-            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("ERROR: {}", e))]))
+            Err(e) => {
+                // Parse error output for build failures
+                if e.starts_with("exit") {
+                    let summary = parse_cargo_build_json("", &e, false);
+                    Ok(CallToolResult::success(vec![Content::text(summary)]))
+                } else {
+                    Ok(CallToolResult::success(vec![Content::text(format!("ERROR: {}", e))]))
+                }
+            }
         }
     }
 
@@ -561,17 +564,21 @@ impl HemisServer {
             cmd.args(["--filter", filter]);
         }
 
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-
-        match cmd.output() {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
+        match run_command_with_timeout(cmd, SWIFT_TIMEOUT) {
+            Ok((stdout, stderr)) => {
                 let combined = format!("{}\n{}", stdout, stderr);
-                let summary = parse_swift_test_output(&combined, output.status.success());
+                let summary = parse_swift_test_output(&combined, true);
                 Ok(CallToolResult::success(vec![Content::text(summary)]))
             }
-            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("ERROR: {}", e))]))
+            Err(e) => {
+                // Parse error output for test failures
+                if e.starts_with("exit") {
+                    let summary = parse_swift_test_output(&e, false);
+                    Ok(CallToolResult::success(vec![Content::text(summary)]))
+                } else {
+                    Ok(CallToolResult::success(vec![Content::text(format!("ERROR: {}", e))]))
+                }
+            }
         }
     }
 
@@ -583,16 +590,19 @@ impl HemisServer {
         let mut cmd = Command::new("cargo");
         cmd.args(["build", "--release", "-p", "hemis-mcp", "--message-format=json", "--color=never"]);
 
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-
-        match cmd.output() {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let summary = parse_cargo_build_json(&stdout, &stderr, output.status.success());
+        match run_command_with_timeout(cmd, BUILD_TIMEOUT) {
+            Ok((stdout, stderr)) => {
+                let summary = parse_cargo_build_json(&stdout, &stderr, true);
                 Ok(CallToolResult::success(vec![Content::text(summary)]))
             }
-            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!("ERROR: {}", e))]))
+            Err(e) => {
+                if e.starts_with("exit") {
+                    let summary = parse_cargo_build_json("", &e, false);
+                    Ok(CallToolResult::success(vec![Content::text(summary)]))
+                } else {
+                    Ok(CallToolResult::success(vec![Content::text(format!("ERROR: {}", e))]))
+                }
+            }
         }
     }
 

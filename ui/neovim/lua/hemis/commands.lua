@@ -433,11 +433,15 @@ function M.list_notes()
       if selected then
         -- Jump to note location
         local note = selected.note
-        if note.line then
-          vim.api.nvim_win_set_cursor(0, { note.line, (note.column or 1) - 1 })
+        if note and note.line then
+          vim.schedule(function()
+            vim.api.nvim_win_set_cursor(0, { note.line, (note.column or 1) - 1 })
+            -- Select this note
+            M.set_selected_note(note)
+          end)
+        else
+          vim.notify("Selected note has no line info", vim.log.levels.WARN)
         end
-        -- Select this note
-        M.set_selected_note(note)
       end
     end)
   end)
