@@ -1466,3 +1466,103 @@ impl Server {
     env.cleanup()
   end)
 end)
+
+-- Selected note highlighting E2E tests
+describe("visual e2e: selected note highlighting", function()
+  it("VISUAL: selected note shows with HemisNoteSelected highlight", function()
+    if not vim.g.hemis_test_backend then
+      pending("Requires backend")
+      return
+    end
+    local env = setup_e2e_env()
+    local display = require("hemis.display")
+    local commands = require("hemis.commands")
+
+    local connected = false
+    local create_done = false
+    local note_id = nil
+
+    -- Connect and create note
+    env.rpc.start(function(ok)
+      if not ok then
+        create_done = true
+        return
+      end
+      connected = true
+
+      env.rpc.request("notes/create", {
+        file = env.file,
+        line = 7,
+        column = 0,
+        text = "Note to be selected",
+        projectRoot = env.dir,
+      }, function(err, res)
+        if res then
+          note_id = res.id
+        end
+        create_done = true
+      end)
+    end)
+
+    helpers.wait_for(function() return create_done end, 10000)
+    assert.truthy(connected, "Should connect to backend")
+    assert.is_not_nil(note_id, "Note should have been created")
+
+    -- List notes and render
+    local list_done = false
+    local notes = nil
+
+    env.rpc.request("notes/list-for-file", {
+      file = env.file,
+      projectRoot = env.dir,
+    }, function(err, res)
+      if not err then
+        notes = helpers.unwrap_notes(res)
+      end
+      list_done = true
+    end)
+
+    helpers.wait_for(function() return list_done end, 5000)
+    assert.is_not_nil(notes, "Should have received notes list")
+    assert.truthy(#notes > 0, "Should have at least one note")
+
+    -- Set the buffer_notes and render without selection first
+    commands.buffer_notes = notes
+    display.render_notes(env.buf, notes, nil)
+    helpers.wait(100)
+
+    -- Verify note renders with HemisNote (not selected)
+    local ns = display.ns_id
+    local marks = vim.api.nvim_buf_get_extmarks(env.buf, ns, 0, -1, { details = true })
+    assert.truthy(#marks > 0, "Should have at least one extmark")
+    local details = marks[1][4] or {}
+    local virt_lines = details.virt_lines or {}
+    local hl_before = virt_lines[1] and virt_lines[1][1] and virt_lines[1][1][2]
+    assert.equals("HemisNote", hl_before, "Before selection should use HemisNote")
+
+    -- Now set the note as selected and re-render
+    commands.set_selected_note(notes[1])
+    helpers.wait(100)
+
+    -- Verify note now renders with HemisNoteSelected
+    marks = vim.api.nvim_buf_get_extmarks(env.buf, ns, 0, -1, { details = true })
+    assert.truthy(#marks > 0, "Should still have extmark after selection")
+    details = marks[1][4] or {}
+    virt_lines = details.virt_lines or {}
+    local hl_after = virt_lines[1] and virt_lines[1][1] and virt_lines[1][1][2]
+    assert.equals("HemisNoteSelected", hl_after, "VISUAL VERIFICATION FAILED: After selection should use HemisNoteSelected")
+
+    -- Clear selection
+    commands.set_selected_note(nil)
+    helpers.wait(100)
+
+    -- Verify back to HemisNote
+    marks = vim.api.nvim_buf_get_extmarks(env.buf, ns, 0, -1, { details = true })
+    details = marks[1][4] or {}
+    virt_lines = details.virt_lines or {}
+    local hl_cleared = virt_lines[1] and virt_lines[1][1] and virt_lines[1][1][2]
+    assert.equals("HemisNote", hl_cleared, "After clear selection should use HemisNote again")
+
+    env.cleanup()
+  end)
+end)
