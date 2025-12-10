@@ -15,18 +15,26 @@ local function setup_highlights()
   vim.api.nvim_set_hl(0, "HemisNote", { fg = "#4682B4", italic = true, default = true })
   vim.api.nvim_set_hl(0, "HemisNoteStale", { fg = "#808080", italic = true, default = true })
   vim.api.nvim_set_hl(0, "HemisNoteMarker", { fg = "#4682B4", bold = true, default = true })
+  vim.api.nvim_set_hl(0, "HemisNoteSelected", { fg = "#FFD700", italic = true, bold = true, default = true })
 end
 
 setup_highlights()
 
 -- Format note text as virtual lines for display
 -- Server provides formattedLines and iconHint
-local function format_note_lines(note)
+-- is_selected: whether this note is currently selected
+local function format_note_lines(note, is_selected)
   local lines = {}
 
-  -- Check staleness: iconHint from backend, or stale flag set by render_note
-  local is_stale = (note.iconHint or note.icon_hint) == "stale" or note.stale
-  local hl = is_stale and "HemisNoteStale" or "HemisNote"
+  -- Determine highlight: selected > stale > normal
+  local hl
+  if is_selected then
+    hl = "HemisNoteSelected"
+  elseif (note.iconHint or note.icon_hint) == "stale" or note.stale then
+    hl = "HemisNoteStale"
+  else
+    hl = "HemisNote"
+  end
 
   -- Backend returns formattedLines (camelCase)
   local formatted = note.formattedLines or note.formatted_lines
@@ -49,7 +57,8 @@ function M.clear(bufnr)
 end
 
 -- Render a single note at its display position
-function M.render_note(bufnr, note, display_line, is_stale)
+-- is_selected: whether this note is currently selected (for highlight)
+function M.render_note(bufnr, note, display_line, is_stale, is_selected)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   local line = (display_line or note.line or 1) - 1 -- Convert to 0-indexed
@@ -68,7 +77,7 @@ function M.render_note(bufnr, note, display_line, is_stale)
     note_with_stale = vim.tbl_extend("force", note, { stale = is_stale })
   end
 
-  local virt_lines = format_note_lines(note_with_stale)
+  local virt_lines = format_note_lines(note_with_stale, is_selected)
 
   if #virt_lines == 0 then
     return nil
@@ -80,8 +89,14 @@ function M.render_note(bufnr, note, display_line, is_stale)
     -- Single line indicator at end of line
     -- Backend uses camelCase: displayMarker
     local marker = note.displayMarker or note.display_marker or "[note]"
-    local is_stale = (note_with_stale.iconHint or note_with_stale.icon_hint) == "stale" or note_with_stale.stale
-    local hl = is_stale and "HemisNoteStale" or "HemisNoteMarker"
+    local hl
+    if is_selected then
+      hl = "HemisNoteSelected"
+    elseif (note_with_stale.iconHint or note_with_stale.icon_hint) == "stale" or note_with_stale.stale then
+      hl = "HemisNoteStale"
+    else
+      hl = "HemisNoteMarker"
+    end
     return vim.api.nvim_buf_set_extmark(bufnr, M.ns_id, line, 0, {
       virt_text = { { marker, hl } },
       virt_text_pos = "eol",
@@ -118,7 +133,8 @@ local function get_note_display_position(note)
 end
 
 -- Render all notes for buffer
-function M.render_notes(bufnr, notes)
+-- selected_note_id: ID of the currently selected note (for highlight)
+function M.render_notes(bufnr, notes, selected_note_id)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   -- Clear existing marks
@@ -131,7 +147,8 @@ function M.render_notes(bufnr, notes)
   -- Render each note at its server-computed display position
   for _, note in ipairs(notes) do
     local display_line, is_stale = get_note_display_position(note)
-    M.render_note(bufnr, note, display_line, is_stale)
+    local is_selected = selected_note_id ~= nil and note.id == selected_note_id
+    M.render_note(bufnr, note, display_line, is_stale, is_selected)
   end
 end
 
@@ -229,7 +246,8 @@ function M.clear_cache(bufnr)
 end
 
 -- Update a single note's position (called from event handler)
-function M.update_note_position(bufnr, note_id, new_line, stale)
+-- selected_note_id: ID of currently selected note for highlight
+function M.update_note_position(bufnr, note_id, new_line, stale, selected_note_id)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
   local cache = M.note_cache[bufnr]
@@ -253,7 +271,7 @@ function M.update_note_position(bufnr, note_id, new_line, stale)
   for _, n in pairs(cache) do
     table.insert(notes, n)
   end
-  M.render_notes(bufnr, notes)
+  M.render_notes(bufnr, notes, selected_note_id)
 end
 
 return M

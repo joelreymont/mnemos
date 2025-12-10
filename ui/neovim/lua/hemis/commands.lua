@@ -35,7 +35,8 @@ function M.refresh()
     end
 
     M.buffer_notes = notes_list or {}
-    display.render_notes(nil, M.buffer_notes)
+    local selected_id = M.selected_note and M.selected_note.id or nil
+    display.render_notes(nil, M.buffer_notes, selected_id)
     display.cache_notes(nil, M.buffer_notes)
     -- Force redraw to ensure extmarks appear immediately
     vim.cmd("redraw")
@@ -68,7 +69,8 @@ function M.refresh_sync(timeout_ms, debug_t0)
         vim.notify(string.format("[DEBUG %.3fs] Calling display.render_notes (in refresh_sync callback)", os.clock() - debug_t0), vim.log.levels.INFO)
       end
 
-      display.render_notes(nil, M.buffer_notes)
+      local selected_id = M.selected_note and M.selected_note.id or nil
+      display.render_notes(nil, M.buffer_notes, selected_id)
       display.cache_notes(nil, M.buffer_notes)
 
       if debug_t0 then
@@ -447,9 +449,55 @@ function M.list_notes()
   end)
 end
 
--- Search notes
-function M.search()
-  vim.ui.input({ prompt = "Search: " }, function(query)
+-- Search notes in current file
+function M.search_file()
+  vim.ui.input({ prompt = "Search notes in file: " }, function(query)
+    if not query or query == "" then
+      return
+    end
+
+    -- Filter buffer_notes by query
+    local matches = {}
+    for _, note in ipairs(M.buffer_notes or {}) do
+      local text = (note.text or "") .. " " .. (note.summary or "")
+      if text:lower():find(query:lower(), 1, true) then
+        table.insert(matches, note)
+      end
+    end
+
+    if #matches == 0 then
+      vim.notify("No notes match: " .. query, vim.log.levels.INFO)
+      return
+    end
+
+    -- Show picker
+    local items = {}
+    for _, note in ipairs(matches) do
+      local short_id = note.shortId or (note.id or ""):sub(1, 8)
+      local summary = note.summary or (note.text or ""):sub(1, 50)
+      table.insert(items, {
+        label = string.format("[%s] L%d: %s", short_id, note.line or 0, summary),
+        note = note,
+      })
+    end
+
+    vim.ui.select(items, {
+      prompt = "Notes matching '" .. query .. "':",
+      format_item = function(item) return item.label end,
+    }, function(selected)
+      if selected then
+        vim.schedule(function()
+          vim.api.nvim_win_set_cursor(0, { selected.note.line, (selected.note.column or 1) - 1 })
+          M.set_selected_note(selected.note)
+        end)
+      end
+    end)
+  end)
+end
+
+-- Search notes and files in project
+function M.search_project()
+  vim.ui.input({ prompt = "Search project: " }, function(query)
     if not query or query == "" then
       return
     end
@@ -660,7 +708,8 @@ function M.help()
     prefix .. "R  - Reattach stale note",
     prefix .. "d  - Delete note at cursor",
     prefix .. "e  - Edit note at cursor",
-    prefix .. "f  - Search notes/files",
+    prefix .. "f  - Search notes in file",
+    prefix .. "F  - Search project (notes/files)",
     prefix .. "p  - Index project",
     prefix .. "k  - Insert note link",
     prefix .. "b  - Show backlinks",
@@ -687,11 +736,14 @@ function M.get_selected_note()
   return M.selected_note
 end
 
--- Set selected note and update status line
+-- Set selected note and update display
 function M.set_selected_note(note)
   M.selected_note = note
   -- Trigger status line refresh
   vim.cmd("redrawstatus")
+  -- Re-render notes to update highlight
+  local selected_id = note and note.id or nil
+  display.render_notes(vim.api.nvim_get_current_buf(), M.buffer_notes, selected_id)
 end
 
 -- Select note at cursor or from picker
@@ -1067,7 +1119,8 @@ function M.setup_keymaps()
     { "d", M.delete_note, "Delete note" },
     { "e", M.edit_note, "Edit note" },
     { "E", M.edit_note_buffer, "Edit note (buffer)" },
-    { "f", M.search, "Search" },
+    { "f", M.search_file, "Search notes in file" },
+    { "F", M.search_project, "Search project" },
     { "p", M.index_project, "Index project" },
     { "k", M.insert_link, "Insert link" },
     { "b", M.show_backlinks, "Show backlinks" },

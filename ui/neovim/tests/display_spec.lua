@@ -779,3 +779,116 @@ impl Default for Config {
     end)
   end)
 end)
+
+describe("hemis selected note highlighting", function()
+  local buf
+
+  before_each(function()
+    buf = helpers.setup_test_buffer()
+    vim.bo[buf].filetype = "rust"
+  end)
+
+  after_each(function()
+    helpers.cleanup()
+  end)
+
+  it("uses HemisNoteSelected highlight for selected note", function()
+    local display = require("hemis.display")
+    local notes = {
+      { id = "note-1", line = 1, column = 0, text = "First note" },
+      { id = "note-2", line = 2, column = 0, text = "Second note" },
+    }
+
+    -- Render with note-1 selected
+    display.render_notes(buf, notes, "note-1")
+    helpers.wait()
+
+    local state = helpers.capture_display_state(buf)
+    assert.equals(2, #state.extmarks)
+
+    -- Find the note at line 1 (selected)
+    local selected_mark = nil
+    local unselected_mark = nil
+    for _, mark in ipairs(state.extmarks) do
+      if mark.line == 1 then
+        selected_mark = mark
+      else
+        unselected_mark = mark
+      end
+    end
+
+    -- Selected note should use HemisNoteSelected
+    local has_selected_hl = false
+    for _, hl in ipairs(selected_mark.hl_groups) do
+      if hl == "HemisNoteSelected" then
+        has_selected_hl = true
+      end
+    end
+    assert.truthy(has_selected_hl, "Selected note should use HemisNoteSelected highlight")
+
+    -- Unselected note should use HemisNote
+    local has_normal_hl = false
+    for _, hl in ipairs(unselected_mark.hl_groups) do
+      if hl == "HemisNote" then
+        has_normal_hl = true
+      end
+    end
+    assert.truthy(has_normal_hl, "Unselected note should use HemisNote highlight")
+  end)
+
+  it("selected highlight takes precedence over stale", function()
+    local display = require("hemis.display")
+    local notes = {
+      { id = "note-1", line = 1, column = 0, text = "Stale but selected", iconHint = "stale" },
+    }
+
+    -- Render with note-1 selected (even though it's stale)
+    display.render_notes(buf, notes, "note-1")
+    helpers.wait()
+
+    local state = helpers.capture_display_state(buf)
+    assert.equals(1, #state.extmarks)
+
+    -- Should use HemisNoteSelected, not HemisNoteStale
+    local has_selected_hl = false
+    local has_stale_hl = false
+    for _, hl in ipairs(state.extmarks[1].hl_groups) do
+      if hl == "HemisNoteSelected" then
+        has_selected_hl = true
+      end
+      if hl == "HemisNoteStale" then
+        has_stale_hl = true
+      end
+    end
+    assert.truthy(has_selected_hl, "Selected takes precedence - should use HemisNoteSelected")
+    assert.is_false(has_stale_hl, "Selected takes precedence - should not use HemisNoteStale")
+  end)
+
+  it("no selected highlight when selected_note_id is nil", function()
+    local display = require("hemis.display")
+    local notes = {
+      { id = "note-1", line = 1, column = 0, text = "Normal note" },
+    }
+
+    -- Render without selection
+    display.render_notes(buf, notes, nil)
+    helpers.wait()
+
+    local state = helpers.capture_display_state(buf)
+    assert.equals(1, #state.extmarks)
+
+    -- Should use HemisNote, not HemisNoteSelected
+    local has_selected_hl = false
+    local has_normal_hl = false
+    for _, hl in ipairs(state.extmarks[1].hl_groups) do
+      if hl == "HemisNoteSelected" then
+        has_selected_hl = true
+      end
+      if hl == "HemisNote" then
+        has_normal_hl = true
+      end
+    end
+    assert.is_false(has_selected_hl, "Should not use HemisNoteSelected when no selection")
+    assert.truthy(has_normal_hl, "Should use HemisNote when no selection")
+  end)
+end)
