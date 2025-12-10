@@ -16,9 +16,12 @@ local function get_cursor_position()
   }
 end
 
--- Get current file path
+-- Get current file path (canonicalized to resolve symlinks on macOS)
 local function get_current_file()
-  return vim.fn.expand("%:p")
+  local path = vim.fn.expand("%:p")
+  -- Resolve symlinks using realpath (macOS: /var -> /private/var)
+  local resolved = vim.fn.resolve(path)
+  return resolved
 end
 
 -- Get buffer content as a single string
