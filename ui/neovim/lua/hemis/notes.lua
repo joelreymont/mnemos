@@ -149,6 +149,24 @@ function M.list_by_node(node_path, callback)
   rpc.request("notes/list-by-node", params, callback)
 end
 
+-- Index current file only
+function M.index_file(callback)
+  local file = get_current_file()
+  local content = get_buffer_content()
+  local params = {
+    file = file,
+    content = content,
+  }
+  rpc.request("index/add-file", params, function(err, result)
+    if callback then
+      callback(err, result)
+    end
+    if not err then
+      vim.notify("Indexed: " .. vim.fn.fnamemodify(file, ":t"), vim.log.levels.INFO)
+    end
+  end)
+end
+
 -- Index project
 -- Server computes projectRoot from file via git::find_root()
 -- If include_ai is true, also run AI analysis

@@ -532,24 +532,28 @@ function M.search_project()
         })
       end
 
-      -- vim.schedule ensures picker opens in main event loop with proper focus
-      -- (we're inside an async RPC callback here)
-      vim.schedule(function()
-        vim.ui.select(items, {
-          prompt = "Search results for '" .. query .. "':",
-          format_item = function(item) return item.label end,
-        }, function(selected)
-          if selected then
-            vim.schedule(function()
-              -- Open the file and go to line
-              if selected.file then
-                vim.cmd("edit " .. vim.fn.fnameescape(selected.file))
-              end
-              vim.api.nvim_win_set_cursor(0, { selected.line, selected.col })
-            end)
-          end
-        end)
+      -- Call vim.ui.select directly in RPC callback (like list_notes does)
+      vim.ui.select(items, {
+        prompt = "Search results for '" .. query .. "':",
+        format_item = function(item) return item.label end,
+      }, function(selected)
+        if selected then
+          vim.schedule(function()
+            -- Open the file and go to line
+            if selected.file then
+              vim.cmd("edit " .. vim.fn.fnameescape(selected.file))
+            end
+            vim.api.nvim_win_set_cursor(0, { selected.line, selected.col })
+          end)
+        end
       end)
+
+      -- Workaround: After picker opens, force insert mode to ensure focus
+      -- This fixes an issue where the picker doesn't receive remote-send input
+      -- when opened from within a vim.ui.input callback chain
+      vim.defer_fn(function()
+        vim.cmd("startinsert")
+      end, 50)
     end)
   end)
 end
@@ -587,6 +591,11 @@ function M.insert_link(opts)
       end)
     end)
   end)
+end
+
+-- Index current file only
+function M.index_file()
+  notes.index_file()
 end
 
 -- Index project
@@ -719,34 +728,95 @@ local function resolve_prefix(prefix)
   return prefix:gsub("<leader>", leader_name)
 end
 
--- Show help
+-- Show help in styled floating window (like which-key)
 function M.help()
   local prefix = resolve_prefix(config.get("keymap_prefix") or "<leader>h")
-  local help = {
-    "Hemis Keybindings",
-    "",
-    prefix .. "a  - Add note at cursor",
-    prefix .. "A  - Add multi-line note",
-    prefix .. "l  - List notes for file",
-    prefix .. "r  - Refresh notes display",
-    prefix .. "R  - Reattach stale note",
-    prefix .. "d  - Delete note at cursor",
-    prefix .. "e  - Edit note at cursor",
-    prefix .. "f  - Search notes in file",
-    prefix .. "F  - Search project (notes/files)",
-    prefix .. "p  - Index project",
-    prefix .. "k  - Insert note link",
-    prefix .. "b  - Show backlinks",
-    prefix .. "s  - Select note",
-    prefix .. "x  - Explain region (visual)",
-    prefix .. "?  - Show this help",
-    "",
-    ":HemisStatus       - Show backend status",
-    ":HemisShutdown     - Stop backend",
-    ":HemisExplainRegion - Copy region for LLM",
+
+  -- Define keybindings: { key, description }
+  local bindings = {
+    { "a", "Add note at cursor" },
+    { "A", "Add multi-line note" },
+    { "l", "List notes for file" },
+    { "r", "Refresh notes display" },
+    { "R", "Reattach stale note" },
+    { "d", "Delete note at cursor" },
+    { "e", "Edit note at cursor" },
+    { "E", "Edit note (buffer)" },
+    { "f", "Search notes in file" },
+    { "F", "Search project (notes/files)" },
+    { "p", "Index project" },
+    { "P", "Index file" },
+    { "k", "Insert note link" },
+    { "b", "Show backlinks" },
+    { "s", "Select note" },
+    { "t", "Status" },
+    { "q", "Shutdown backend" },
+    { "x", "Explain region (visual)" },
+    { "X", "Explain region detailed (visual)" },
+    { "?", "Show this help" },
   }
 
-  vim.notify(table.concat(help, "\n"), vim.log.levels.INFO)
+  -- Build lines for display
+  local lines = { "Hemis Keybindings", "" }
+  for _, b in ipairs(bindings) do
+    table.insert(lines, string.format("  %s%s  %s", prefix, b[1], b[2]))
+  end
+
+  -- Calculate window size
+  local max_width = 0
+  for _, line in ipairs(lines) do
+    max_width = math.max(max_width, #line)
+  end
+  local width = math.min(max_width + 4, 60)
+  local height = #lines
+
+  -- Create buffer
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.api.nvim_set_option_value("modifiable", false, { buf = buf })
+  vim.api.nvim_set_option_value("bufhidden", "wipe", { buf = buf })
+
+  -- Calculate position (centered)
+  local ui = vim.api.nvim_list_uis()[1]
+  local row = math.floor((ui.height - height) / 2)
+  local col = math.floor((ui.width - width) / 2)
+
+  -- Create floating window
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    width = width,
+    height = height,
+    row = row,
+    col = col,
+    style = "minimal",
+    border = "rounded",
+    title = " Hemis ",
+    title_pos = "center",
+  })
+
+  -- Apply highlights
+  vim.api.nvim_set_option_value("winhl", "Normal:NormalFloat,FloatBorder:FloatBorder", { win = win })
+
+  -- Highlight title
+  vim.api.nvim_buf_add_highlight(buf, -1, "Title", 0, 0, -1)
+
+  -- Highlight keys (the prefix + key part)
+  local prefix_len = #prefix
+  for i = 3, #lines do  -- Skip title and blank line
+    -- Highlight the key portion
+    vim.api.nvim_buf_add_highlight(buf, -1, "Special", i - 1, 2, 2 + prefix_len + 1)
+  end
+
+  -- Close on any key
+  vim.keymap.set("n", "<Esc>", function()
+    vim.api.nvim_win_close(win, true)
+  end, { buffer = buf, nowait = true })
+  vim.keymap.set("n", "q", function()
+    vim.api.nvim_win_close(win, true)
+  end, { buffer = buf, nowait = true })
+  vim.keymap.set("n", "<CR>", function()
+    vim.api.nvim_win_close(win, true)
+  end, { buffer = buf, nowait = true })
 end
 
 -- Shutdown backend
@@ -1112,6 +1182,7 @@ function M.setup_commands()
   vim.api.nvim_create_user_command("HemisEditNoteBuffer", M.edit_note_buffer, {})
   vim.api.nvim_create_user_command("HemisSearchFile", M.search_file, {})
   vim.api.nvim_create_user_command("HemisSearchProject", M.search_project, {})
+  vim.api.nvim_create_user_command("HemisIndexFile", M.index_file, {})
   vim.api.nvim_create_user_command("HemisIndexProject", M.index_project, {})
   vim.api.nvim_create_user_command("HemisInsertLink", M.insert_link, {})
   vim.api.nvim_create_user_command("HemisBacklinks", M.show_backlinks, {})
@@ -1147,6 +1218,7 @@ function M.setup_keymaps()
     { "f", M.search_file, "Search notes in file" },
     { "F", M.search_project, "Search project" },
     { "p", M.index_project, "Index project" },
+    { "P", M.index_file, "Index file" },
     { "k", M.insert_link, "Insert link" },
     { "b", M.show_backlinks, "Show backlinks" },
     { "s", M.select_note, "Select note" },
