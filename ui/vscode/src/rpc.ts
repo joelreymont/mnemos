@@ -53,6 +53,42 @@ export class RpcClient {
     return fs.existsSync(this.getSocketPath());
   }
 
+  /**
+   * Check log file for startup errors and return user-friendly message, or null.
+   */
+  private checkStartupError(): string | null {
+    const logPath = this.getLogPath();
+    if (!fs.existsSync(logPath)) {
+      return null;
+    }
+    try {
+      const content = fs.readFileSync(logPath, 'utf-8');
+      const lines = content.split('\n');
+      const tail = lines.slice(-10).join('\n');
+
+      if (tail.includes('newer than this version') || tail.includes('schema version')) {
+        return `Database schema is incompatible.
+
+Your database was created by a newer version of Hemis.
+Please upgrade Hemis or use a different database file.
+
+To use a fresh database:
+  rm ~/.hemis/hemis.db
+
+Check ${logPath} for details.`;
+      }
+      if (tail.includes('Error:') || tail.includes('FATAL') || tail.includes('panic')) {
+        return `Backend failed to start.
+
+Check ${logPath} for details:
+${tail}`;
+      }
+    } catch {
+      // Ignore read errors
+    }
+    return null;
+  }
+
   private readLockPid(): number | null {
     const lockPath = this.getLockPath();
     if (!fs.existsSync(lockPath)) {
@@ -188,6 +224,11 @@ export class RpcClient {
       // Wait for socket to appear
       if (!await this.waitForSocket(5000)) {
         debug('Connection: timeout waiting for socket');
+        // Check log for startup errors (e.g., schema version mismatch)
+        const startupErr = this.checkStartupError();
+        if (startupErr) {
+          throw new Error(startupErr);
+        }
         throw new Error('Server failed to create socket');
       }
 

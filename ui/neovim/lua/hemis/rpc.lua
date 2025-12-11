@@ -53,6 +53,57 @@ local function get_lock_path()
   return get_hemis_dir() .. "/hemis.lock"
 end
 
+local function get_log_path()
+  return get_hemis_dir() .. "/hemis.log"
+end
+
+-- Read last N lines from log file for startup error messages
+local function read_log_tail(max_lines)
+  local log_path = get_log_path()
+  local f = io.open(log_path, "r")
+  if not f then
+    return nil
+  end
+  local content = f:read("*a")
+  f:close()
+  if not content or content == "" then
+    return nil
+  end
+  -- Get last N lines
+  local lines = {}
+  for line in content:gmatch("[^\n]+") do
+    table.insert(lines, line)
+  end
+  local start_idx = math.max(1, #lines - max_lines + 1)
+  local result = {}
+  for i = start_idx, #lines do
+    table.insert(result, lines[i])
+  end
+  return table.concat(result, "\n")
+end
+
+-- Check log for schema/startup errors and return user-friendly message
+local function check_startup_error()
+  local tail = read_log_tail(10)
+  if not tail then
+    return nil
+  end
+  -- Check for schema version error
+  if tail:match("newer than this version") or tail:match("schema version") then
+    return "Database schema is incompatible.\n\n"
+      .. "Your database was created by a newer version of Hemis.\n"
+      .. "Please upgrade Hemis or use a different database file.\n\n"
+      .. "To use a fresh database:\n"
+      .. "  rm ~/.hemis/hemis.db\n\n"
+      .. "Check ~/.hemis/hemis.log for details."
+  end
+  -- Check for other fatal errors
+  if tail:match("Error:") or tail:match("FATAL") or tail:match("panic") then
+    return "Backend failed to start.\n\nCheck ~/.hemis/hemis.log for details:\n" .. tail
+  end
+  return nil
+end
+
 -- Logging (schedule to avoid "fast event context" errors in libuv callbacks)
 local function log(level, msg)
   local levels = { debug = 1, info = 2, warn = 3, error = 4 }
@@ -373,7 +424,16 @@ function M.ensure_connected_start_server(callback)
       if not appeared then
         remove_lock()
         M.connecting = false
-        callback("Server failed to create socket")
+        -- Check log for startup errors (e.g., schema version mismatch)
+        local startup_err = check_startup_error()
+        if startup_err then
+          vim.schedule(function()
+            vim.notify("[hemis] " .. startup_err, vim.log.levels.ERROR)
+          end)
+          callback("Backend startup failed - check log")
+        else
+          callback("Server failed to create socket")
+        end
         return
       end
 

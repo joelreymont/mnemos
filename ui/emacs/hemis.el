@@ -253,6 +253,29 @@ EVENT-TYPE is a string like \"note-created\" or \"*\" for all events."
   "Return the path to the Hemis log file."
   (expand-file-name "hemis.log" hemis-dir))
 
+(defun hemis--check-startup-error ()
+  "Check log file for startup errors and return user-friendly message, or nil."
+  (let ((log-path (hemis--log-path)))
+    (when (file-exists-p log-path)
+      (with-temp-buffer
+        (insert-file-contents log-path)
+        ;; Get last 10 lines
+        (goto-char (point-max))
+        (forward-line -10)
+        (let ((tail (buffer-substring-no-properties (point) (point-max))))
+          (cond
+           ((string-match "newer than this version\\|schema version" tail)
+            (concat "Database schema is incompatible.\n\n"
+                    "Your database was created by a newer version of Hemis.\n"
+                    "Please upgrade Hemis or use a different database file.\n\n"
+                    "To use a fresh database:\n"
+                    "  rm ~/.hemis/hemis.db\n\n"
+                    "Check " log-path " for details."))
+           ((string-match "Error:\\|FATAL\\|panic" tail)
+            (concat "Backend failed to start.\n\n"
+                    "Check " log-path " for details:\n" tail))
+           (t nil)))))))
+
 (defun hemis--socket-exists-p ()
   "Return non-nil if the socket file exists."
   (file-exists-p (hemis--socket-path)))
@@ -363,7 +386,11 @@ Use `hemis-shutdown' to stop it (sends shutdown RPC)."
               (hemis--start-server)
               (unless (hemis--wait-for-socket 5)
                 (ignore-errors (delete-file (hemis--lock-path)))
-                (error "Hemis: server failed to create socket"))
+                ;; Check log for startup errors (e.g., schema version mismatch)
+                (let ((startup-err (hemis--check-startup-error)))
+                  (if startup-err
+                      (error "Hemis: %s" startup-err)
+                    (error "Hemis: server failed to create socket"))))
               (sleep-for 0.1)
               (let ((proc (hemis--connect-socket)))
                 (unless proc
@@ -372,7 +399,11 @@ Use `hemis-shutdown' to stop it (sends shutdown RPC)."
           ;; Someone else is starting the server, wait for socket
           (message "Hemis: waiting for server to start...")
           (unless (hemis--wait-for-socket 5)
-            (error "Hemis: timeout waiting for server"))
+            ;; Check log for startup errors
+            (let ((startup-err (hemis--check-startup-error)))
+              (if startup-err
+                  (error "Hemis: %s" startup-err)
+                (error "Hemis: timeout waiting for server"))))
           (sleep-for 0.1)
           (let ((proc (hemis--connect-socket)))
             (unless proc
