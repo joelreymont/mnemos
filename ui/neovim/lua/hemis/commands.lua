@@ -532,19 +532,23 @@ function M.search_project()
         })
       end
 
-      vim.ui.select(items, {
-        prompt = "Search results for '" .. query .. "':",
-        format_item = function(item) return item.label end,
-      }, function(selected)
-        if selected then
-          vim.schedule(function()
-            -- Open the file and go to line
-            if selected.file then
-              vim.cmd("edit " .. vim.fn.fnameescape(selected.file))
-            end
-            vim.api.nvim_win_set_cursor(0, { selected.line, selected.col })
-          end)
-        end
+      -- vim.schedule ensures picker opens in main event loop with proper focus
+      -- (we're inside an async RPC callback here)
+      vim.schedule(function()
+        vim.ui.select(items, {
+          prompt = "Search results for '" .. query .. "':",
+          format_item = function(item) return item.label end,
+        }, function(selected)
+          if selected then
+            vim.schedule(function()
+              -- Open the file and go to line
+              if selected.file then
+                vim.cmd("edit " .. vim.fn.fnameescape(selected.file))
+              end
+              vim.api.nvim_win_set_cursor(0, { selected.line, selected.col })
+            end)
+          end
+        end)
       end)
     end)
   end)
