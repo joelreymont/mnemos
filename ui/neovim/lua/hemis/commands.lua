@@ -580,7 +580,8 @@ function M.insert_link(opts)
         if choice and idx then
           local note = result[idx]
           local desc = note.summary or (note.text or ""):sub(1, 40)
-          local link = string.format("[[%s][%s]]", desc, note.id)
+          local short_id = note.shortId or (note.id or ""):sub(1, 8)
+          local link = string.format("[[%s][%s]]", desc, short_id)
           vim.api.nvim_put({ link }, "c", true, true)
         end
       end)
