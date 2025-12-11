@@ -551,9 +551,13 @@ function M.search_project()
       -- Workaround: After picker opens, force insert mode to ensure focus
       -- This fixes an issue where the picker doesn't receive remote-send input
       -- when opened from within a vim.ui.input callback chain
+      -- Use multiple deferred calls to ensure the picker is ready
       vim.defer_fn(function()
         vim.cmd("startinsert")
       end, 50)
+      vim.defer_fn(function()
+        vim.cmd("startinsert")
+      end, 200)
     end)
   end)
 end
