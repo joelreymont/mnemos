@@ -513,20 +513,36 @@ function M.search_project()
         return
       end
 
-      -- Show results in quickfix
-      -- Backend guarantees display_label is always present in search results
+      -- Show results in floating picker
       local items = {}
       for _, hit in ipairs(result) do
+        -- Get relative filename for display
+        local filename = hit.file or ""
+        local basename = vim.fn.fnamemodify(filename, ":t")
+        local line = hit.line or 1
+        local label = hit.display_label or ""
         table.insert(items, {
-          filename = hit.file,
-          lnum = hit.line or 1,
+          label = string.format("%s:%d %s", basename, line, label),
+          file = hit.file,
+          line = line,
           col = hit.column or 0,
-          text = hit.display_label,
         })
       end
 
-      vim.fn.setqflist(items)
-      vim.cmd("copen")
+      vim.ui.select(items, {
+        prompt = "Search results for '" .. query .. "':",
+        format_item = function(item) return item.label end,
+      }, function(selected)
+        if selected then
+          vim.schedule(function()
+            -- Open the file and go to line
+            if selected.file then
+              vim.cmd("edit " .. vim.fn.fnameescape(selected.file))
+            end
+            vim.api.nvim_win_set_cursor(0, { selected.line, selected.col })
+          end)
+        end
+      end)
     end)
   end)
 end
