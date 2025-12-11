@@ -418,7 +418,7 @@ function M.list_notes()
       local summary = note.summary or (note.text or ""):sub(1, 50)
       local stale = note.stale and " [STALE]" or ""
       table.insert(items, {
-        label = string.format("[%s] L%d: %s%s", short_id, note.line or 0, summary, stale),
+        label = string.format("[%s] %s%s", short_id, summary, stale),
         note = note,
       })
     end
@@ -476,7 +476,7 @@ function M.search_file()
       local short_id = note.shortId or (note.id or ""):sub(1, 8)
       local summary = note.summary or (note.text or ""):sub(1, 50)
       table.insert(items, {
-        label = string.format("[%s] L%d: %s", short_id, note.line or 0, summary),
+        label = string.format("[%s] %s", short_id, summary),
         note = note,
       })
     end
@@ -791,7 +791,7 @@ function M.select_note()
   for _, n in ipairs(M.buffer_notes) do
     local short_id = n.shortId or (n.id or ""):sub(1, 8)
     local summary = n.summary or (n.text or ""):sub(1, 40)
-    table.insert(items, string.format("[%s] L%d: %s", short_id, n.line or 0, summary))
+    table.insert(items, string.format("[%s] %s", short_id, summary))
   end
 
   vim.ui.select(items, { prompt = "Select note:" }, function(_, idx)
