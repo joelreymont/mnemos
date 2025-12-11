@@ -520,9 +520,12 @@ function M.search_project()
         local filename = hit.file or ""
         local basename = vim.fn.fnamemodify(filename, ":t")
         local line = hit.line or 1
-        local label = hit.display_label or ""
+        -- Use text field (actual line content) for display
+        local text = hit.text or hit.display_label or ""
+        -- Trim whitespace from text
+        text = text:gsub("^%s+", ""):gsub("%s+$", "")
         table.insert(items, {
-          label = string.format("%s:%d %s", basename, line, label),
+          label = string.format("%s:%d %s", basename, line, text),
           file = hit.file,
           line = line,
           col = hit.column or 0,
