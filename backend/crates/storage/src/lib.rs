@@ -1,10 +1,19 @@
 //! storage: SQLite connection and migrations.
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use log::warn;
 use rusqlite::Connection;
 
+/// Current schema version. Increment when making schema changes.
+/// - v1: Initial schema
+/// - v2: Added content_hash, node_text_hash, binary embeddings
+pub const SCHEMA_VERSION: i64 = 2;
+
 const SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS schema_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
 CREATE TABLE IF NOT EXISTS notes (
   id TEXT PRIMARY KEY,
   file TEXT,
@@ -87,8 +96,85 @@ CREATE TABLE IF NOT EXISTS project_meta (
 pub fn connect(path: &str) -> Result<Connection> {
     let conn = Connection::open(path)?;
     configure_pragmas(&conn)?;
-    migrate(&conn)?;
+    check_and_migrate(&conn)?;
     Ok(conn)
+}
+
+/// Get the schema version from the database, or None if not set.
+fn get_schema_version(conn: &Connection) -> Result<Option<i64>> {
+    // First check if schema_meta table exists
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_meta'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+
+    if !table_exists {
+        return Ok(None);
+    }
+
+    let version: Option<i64> = conn
+        .query_row(
+            "SELECT CAST(value AS INTEGER) FROM schema_meta WHERE key = 'version'",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+
+    Ok(version)
+}
+
+/// Set the schema version in the database.
+fn set_schema_version(conn: &Connection, version: i64) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?1)",
+        [version.to_string()],
+    )?;
+    Ok(())
+}
+
+/// Check schema version and migrate if needed.
+fn check_and_migrate(conn: &Connection) -> Result<()> {
+    // Check version BEFORE running schema to catch incompatible databases early
+    let db_version = get_schema_version(conn)?;
+
+    if let Some(v) = db_version {
+        if v > SCHEMA_VERSION {
+            // Database is from a newer version of hemis - fail before modifying anything
+            bail!(
+                "Database schema version {} is newer than this version of hemis (schema {}). \
+                Please upgrade hemis or use a different database file.",
+                v,
+                SCHEMA_VERSION
+            );
+        }
+    }
+
+    // Now safe to run schema (creates tables if not exist)
+    conn.execute_batch(SCHEMA)?;
+
+    match db_version {
+        None => {
+            // Fresh database or pre-versioning database
+            // Run all migrations and set version
+            migrate(conn)?;
+            set_schema_version(conn, SCHEMA_VERSION)?;
+        }
+        Some(v) if v < SCHEMA_VERSION => {
+            // Database needs migration
+            migrate(conn)?;
+            set_schema_version(conn, SCHEMA_VERSION)?;
+        }
+        Some(_) => {
+            // Version matches, still run migrations to ensure columns exist
+            // (idempotent operations)
+            migrate(conn)?;
+        }
+    }
+
+    Ok(())
 }
 
 fn configure_pragmas(conn: &Connection) -> Result<()> {
@@ -591,4 +677,94 @@ pub fn count_note_versions(conn: &Connection, note_id: &str) -> Result<i64> {
         |row| row.get(0),
     )
     .map_err(|e| e.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_fresh_database_sets_version() {
+        let tmp = NamedTempFile::new().unwrap();
+        let conn = connect(tmp.path().to_str().unwrap()).unwrap();
+
+        let version = get_schema_version(&conn).unwrap();
+        assert_eq!(version, Some(SCHEMA_VERSION));
+    }
+
+    #[test]
+    fn test_existing_database_migrates() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+
+        // Create a database with old schema (no schema_meta, no content_hash)
+        {
+            let conn = Connection::open(path).unwrap();
+            conn.execute_batch(
+                r#"
+                CREATE TABLE files (
+                    file TEXT PRIMARY KEY,
+                    project_root TEXT,
+                    content TEXT,
+                    updated_at INTEGER
+                );
+                INSERT INTO files (file, project_root, content, updated_at)
+                VALUES ('/test/file.rs', '/test', 'fn main() {}', 123);
+                "#,
+            )
+            .unwrap();
+        }
+
+        // Now connect with new code - should migrate
+        let conn = connect(path).unwrap();
+
+        // Version should be set
+        let version = get_schema_version(&conn).unwrap();
+        assert_eq!(version, Some(SCHEMA_VERSION));
+
+        // content_hash column should exist (migration ran)
+        let has_content_hash: bool = conn
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('files') WHERE name = 'content_hash'",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        assert!(has_content_hash, "content_hash column should exist after migration");
+    }
+
+    #[test]
+    fn test_newer_database_fails() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+
+        // Create a database with a future schema version
+        {
+            let conn = Connection::open(path).unwrap();
+            conn.execute_batch(
+                r#"
+                CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT);
+                INSERT INTO schema_meta (key, value) VALUES ('version', '999');
+                "#,
+            )
+            .unwrap();
+        }
+
+        // Connecting should fail with clear error
+        let result = connect(path);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("999") && err.contains("newer"),
+            "Error should mention version mismatch: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_schema_version_constant_exported() {
+        // Ensure SCHEMA_VERSION is accessible for version reporting
+        assert!(SCHEMA_VERSION > 0);
+    }
 }

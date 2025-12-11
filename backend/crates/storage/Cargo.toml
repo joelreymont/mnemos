@@ -11,3 +11,6 @@ anyhow = { workspace = true }
 rusqlite = { workspace = true }
 chrono = { workspace = true }
 log = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
