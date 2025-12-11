@@ -428,23 +428,31 @@ function M.list_notes()
       return item.label
     end
 
-    vim.ui.select(items, {
-      prompt = "Notes in " .. vim.fn.expand("%:t") .. ":",
-      format_item = format_item,
-    }, function(selected)
-      if selected then
-        -- Jump to note location
-        local note = selected.note
-        if note and note.line then
-          vim.schedule(function()
-            vim.api.nvim_win_set_cursor(0, { note.line, (note.column or 1) - 1 })
-            -- Select this note
-            M.set_selected_note(note)
-          end)
-        else
-          vim.notify("Selected note has no line info", vim.log.levels.WARN)
+    -- Schedule picker creation so we're back in the main loop (outside RPC callback)
+    -- Remote-send input is ignored while still inside the RPC callback stack.
+    vim.schedule(function()
+      vim.ui.select(items, {
+        prompt = "Notes in " .. vim.fn.expand("%:t") .. ":",
+        format_item = format_item,
+      }, function(selected)
+        if selected then
+          -- Jump to note location
+          local note = selected.note
+          if note and note.line then
+            vim.schedule(function()
+              vim.api.nvim_win_set_cursor(0, { note.line, (note.column or 1) - 1 })
+              -- Select this note
+              M.set_selected_note(note)
+            end)
+          else
+            vim.notify("Selected note has no line info", vim.log.levels.WARN)
+          end
         end
-      end
+      end)
+
+      -- Signal automation that the picker is ready for key input
+      vim.cmd("redraw")
+      vim.api.nvim_exec_autocmds("User", { pattern = "HemisListNotesPickerReady" })
     end)
   end)
 end
@@ -481,16 +489,24 @@ function M.search_file()
       })
     end
 
-    vim.ui.select(items, {
-      prompt = "Notes matching '" .. query .. "':",
-      format_item = function(item) return item.label end,
-    }, function(selected)
-      if selected then
-        vim.schedule(function()
-          vim.api.nvim_win_set_cursor(0, { selected.note.line, (selected.note.column or 1) - 1 })
-          M.set_selected_note(selected.note)
-        end)
-      end
+    -- Schedule picker creation so we're back in the main loop (outside vim.ui.input callback)
+    -- Remote-send input is ignored while still inside the callback stack.
+    vim.schedule(function()
+      vim.ui.select(items, {
+        prompt = "Notes matching '" .. query .. "':",
+        format_item = function(item) return item.label end,
+      }, function(selected)
+        if selected then
+          vim.schedule(function()
+            vim.api.nvim_win_set_cursor(0, { selected.note.line, (selected.note.column or 1) - 1 })
+            M.set_selected_note(selected.note)
+          end)
+        end
+      end)
+
+      -- Signal automation that the picker is ready for key input
+      vim.cmd("redraw")
+      vim.api.nvim_exec_autocmds("User", { pattern = "HemisSearchFilePickerReady" })
     end)
   end)
 end
@@ -532,32 +548,28 @@ function M.search_project()
         })
       end
 
-      -- Call vim.ui.select directly in RPC callback (like list_notes does)
-      vim.ui.select(items, {
-        prompt = "Search results for '" .. query .. "':",
-        format_item = function(item) return item.label end,
-      }, function(selected)
-        if selected then
-          vim.schedule(function()
-            -- Open the file and go to line
-            if selected.file then
-              vim.cmd("edit " .. vim.fn.fnameescape(selected.file))
-            end
-            vim.api.nvim_win_set_cursor(0, { selected.line, selected.col })
-          end)
-        end
-      end)
+      -- Schedule picker creation so we're back in the main loop (outside nested callbacks)
+      -- Remote-send input is ignored while still inside the vim.ui.input/RPC callback stack.
+      vim.schedule(function()
+        vim.ui.select(items, {
+          prompt = "Search results for '" .. query .. "':",
+          format_item = function(item) return item.label end,
+        }, function(selected)
+          if selected then
+            vim.schedule(function()
+              -- Open the file and go to line
+              if selected.file then
+                vim.cmd("edit " .. vim.fn.fnameescape(selected.file))
+              end
+              vim.api.nvim_win_set_cursor(0, { selected.line, selected.col })
+            end)
+          end
+        end)
 
-      -- Workaround: After picker opens, force insert mode to ensure focus
-      -- This fixes an issue where the picker doesn't receive remote-send input
-      -- when opened from within a vim.ui.input callback chain
-      -- Use multiple deferred calls to ensure the picker is ready
-      vim.defer_fn(function()
-        vim.cmd("startinsert")
-      end, 50)
-      vim.defer_fn(function()
-        vim.cmd("startinsert")
-      end, 200)
+        -- Signal automation that the picker is ready for key input
+        vim.cmd("redraw")
+        vim.api.nvim_exec_autocmds("User", { pattern = "HemisSearchProjectPickerReady" })
+      end)
     end)
   end)
 end
@@ -584,14 +596,22 @@ function M.insert_link(opts)
         table.insert(items, string.format("%s (%s)", desc, short_id))
       end
 
-      vim.ui.select(items, { prompt = "Select note:" }, function(choice, idx)
-        if choice and idx then
-          local note = result[idx]
-          local desc = note.summary or (note.text or ""):sub(1, 40)
-          local short_id = note.shortId or (note.id or ""):sub(1, 8)
-          local link = string.format("[[%s][%s]]", desc, short_id)
-          vim.api.nvim_put({ link }, "c", true, true)
-        end
+      -- Schedule picker creation so we're back in the main loop (outside nested callbacks)
+      -- Remote-send input is ignored while still inside the vim.ui.input/RPC callback stack.
+      vim.schedule(function()
+        vim.ui.select(items, { prompt = "Select note:" }, function(choice, idx)
+          if choice and idx then
+            local note = result[idx]
+            local desc = note.summary or (note.text or ""):sub(1, 40)
+            local short_id = note.shortId or (note.id or ""):sub(1, 8)
+            local link = string.format("[[%s][%s]]", desc, short_id)
+            vim.api.nvim_put({ link }, "c", true, true)
+          end
+        end)
+
+        -- Signal automation that the picker is ready for key input
+        vim.cmd("redraw")
+        vim.api.nvim_exec_autocmds("User", { pattern = "HemisInsertLinkPickerReady" })
       end)
     end)
   end)
