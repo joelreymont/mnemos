@@ -686,7 +686,7 @@ function M.reattach_note()
   end)
 end
 
--- Show backlinks for selected note
+-- Show backlinks for selected note (uses picker like list_notes)
 function M.show_backlinks()
   if not M.selected_note then
     vim.notify("No note selected", vim.log.levels.WARN)
@@ -706,42 +706,51 @@ function M.show_backlinks()
       return
     end
 
-    -- Create backlinks buffer
-    local buf = vim.api.nvim_create_buf(false, true)
-    -- Backend guarantees display_marker is always present
-    local marker = note.display_marker
-
-    local lines = { string.format("Backlinks to note %s", marker), string.format("(%d notes link to this note)", #result), "" }
-
-    for i, n in ipairs(result) do
-      -- Backend guarantees display_marker and summary are always present
-      local n_marker = n.display_marker
-      table.insert(lines, string.format("  %d %s L%d,C%d", i - 1, n_marker, n.line or 0, n.column or 0))
-
-      local text = n.summary
-      for line in text:gmatch("[^\n]+") do
-        table.insert(lines, "    " .. line)
-      end
-      table.insert(lines, "")
+    -- Build picker items
+    local items = {}
+    for _, n in ipairs(result) do
+      local short_id = n.shortId or (n.id or ""):sub(1, 8)
+      local summary = n.summary or (n.text or ""):sub(1, 50)
+      local file = n.file and vim.fn.fnamemodify(n.file, ":t") or "unknown"
+      table.insert(items, {
+        label = string.format("[%s] %s:%d - %s", short_id, file, n.line or 0, summary),
+        note = n,
+      })
     end
 
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.bo[buf].buftype = "nofile"
-    vim.bo[buf].modifiable = false
-    vim.api.nvim_buf_set_name(buf, "Hemis Backlinks")
+    local function format_item(item)
+      return item.label
+    end
 
-    -- Open in split
-    vim.cmd("split")
-    vim.api.nvim_win_set_buf(0, buf)
+    -- Schedule picker creation so we're back in the main loop
+    vim.schedule(function()
+      local marker = note.display_marker or note.shortId or (note.id or ""):sub(1, 8)
+      vim.ui.select(items, {
+        prompt = string.format("Backlinks to %s (%d):", marker, #items),
+        format_item = format_item,
+      }, function(selected)
+        if selected then
+          local n = selected.note
+          if n and n.file then
+            vim.schedule(function()
+              -- Open file if different
+              local current_file = vim.fn.expand("%:p")
+              if n.file ~= current_file then
+                vim.cmd("edit " .. vim.fn.fnameescape(n.file))
+              end
+              -- Jump to note location
+              if n.line then
+                vim.api.nvim_win_set_cursor(0, { n.line, (n.column or 1) - 1 })
+              end
+              -- Select this note
+              M.set_selected_note(n)
+            end)
+          end
+        end
+      end)
 
-    -- Store notes for navigation
-    vim.b[buf].hemis_notes = result
-
-    -- Keymaps
-    vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = buf })
-    vim.keymap.set("n", "<CR>", function()
-      M.visit_note_from_list(buf)
-    end, { buffer = buf })
+      signal_picker_ready("HemisBacklinksPickerReady")
+    end)
   end)
 end
 
