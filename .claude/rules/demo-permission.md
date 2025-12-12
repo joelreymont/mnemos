@@ -1,6 +1,6 @@
 # Demo Permission Rule
 
-**NEVER run the demo automation without EXPLICIT user permission.**
+**Only run demo automation when the user explicitly instructs you to run it.**
 
 The demo driver (`hemis-demo`) controls keyboard and mouse. Running it without permission:
 - Interrupts the user's work
@@ -10,15 +10,15 @@ The demo driver (`hemis-demo`) controls keyboard and mouse. Running it without p
 ## Required
 
 Before running ANY demo command (`swift run hemis-demo`, etc.):
-1. STOP and ASK: "May I run the demo?"
-2. WAIT for explicit "yes" or approval
-3. Do NOT assume permission from phrases like "run demo" - the user may be telling you about running it themselves
+1. If the user explicitly told you to run the demo (e.g., “run the emacs demo”), treat that as permission for one invocation.
+2. Otherwise, STOP and ASK: "May I run the demo?"
+3. Do NOT assume permission from vague statements; only explicit run requests count.
 
 ## Permission is ONE-TIME ONLY
 
-**Each permission grants exactly ONE demo invocation.**
+**Each explicit run request grants exactly ONE demo invocation.**
 
-After running a demo (whether it succeeds or fails), you MUST ask for permission again before running another. Previous permission does NOT carry over.
+After running a demo (whether it succeeds or fails), you MUST ask again before running another unless the user issues a new explicit run instruction.
 
 ## This applies to
 
