@@ -1486,6 +1486,110 @@ Handles :json-false which is truthy in Emacs."
       (ignore-errors (delete-file (expand-file-name "hemis.lock" tmp-dir)))
       (ignore-errors (delete-directory tmp-dir t)))))
 
+;;; Select Note Tests
+
+(ert-deftest hemis-select-note-from-picker ()
+  "Test selecting a note via picker when no note at point."
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (insert "fn main() {}\n")
+      (set-visited-file-name "/tmp/select.rs" t t)
+      (setq comment-start "// ")
+      (goto-char (point-min))
+      ;; Mock to return one note in file
+      (cl-letf (((symbol-function 'hemis--request)
+                 (lambda (method &optional _params)
+                   (pcase method
+                     ("notes/list-for-file"
+                      '((notes . [((id . "select-test") (shortId . "select12")
+                                   (file . "/tmp/select.rs") (line . 1) (column . 0)
+                                   (text . "Test note for selection"))])))
+                     (_ nil))))
+                ((symbol-function 'completing-read)
+                 (lambda (&rest _args)
+                   "[select12] L1: Test note for selection")))
+        ;; Select note - should use picker since no note at point
+        (hemis-select-note)
+        ;; Verify note was selected
+        (should hemis--selected-note)
+        (should (equal (hemis--note-get hemis--selected-note 'id) "select-test"))))))
+
+(ert-deftest hemis-select-note-no-notes ()
+  "Test select note shows message when no notes in file."
+  (hemis-test-with-mocked-backend
+    ;; Clear any stale selection from previous tests
+    (setq hemis--selected-note nil)
+    (with-temp-buffer
+      (insert "fn main() {}\n")
+      (set-visited-file-name "/tmp/empty.rs" t t)
+      (let ((message-shown nil))
+        (cl-letf (((symbol-function 'hemis--request)
+                   (lambda (method &optional _params)
+                     (pcase method
+                       ("notes/list-for-file" nil)
+                       (_ nil))))
+                  ((symbol-function 'message)
+                   (lambda (fmt &rest _args)
+                     (when (string-match-p "No notes" fmt)
+                       (setq message-shown t)))))
+          (hemis-select-note)
+          (should message-shown)
+          (should-not hemis--selected-note))))))
+
+(ert-deftest hemis-select-note-picker-multiple ()
+  "Test select note with picker when multiple notes exist."
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (insert "fn main() {}\nfn foo() {}\n")
+      (set-visited-file-name "/tmp/multi.rs" t t)
+      (goto-char (point-min))
+      (forward-line 1)  ;; Position on line 2, no overlay here
+      (let ((picker-called nil))
+        (cl-letf (((symbol-function 'hemis--request)
+                   (lambda (method &optional _params)
+                     (pcase method
+                       ("notes/list-for-file"
+                        '((notes . [((id . "note1") (shortId . "note1234") (line . 1) (text . "First note"))
+                                    ((id . "note2") (shortId . "note5678") (line . 2) (text . "Second note"))])))
+                       (_ nil))))
+                  ((symbol-function 'completing-read)
+                   (lambda (&rest _args)
+                     (setq picker-called t)
+                     "[note1234] L1: First note")))
+          (hemis-select-note)
+          (should picker-called)
+          (should hemis--selected-note))))))
+
+(ert-deftest hemis-select-note-integration ()
+  "Integration test: create note, then select it."
+  (hemis-test-with-backend
+    (let ((test-file (expand-file-name "select-int.rs" test-dir)))
+      (with-temp-file test-file
+        (insert hemis-test-demo-code))
+      (with-temp-buffer
+        (insert hemis-test-demo-code)
+        (set-visited-file-name test-file t t)
+        (setq comment-start "// ")
+        (hemis-notes-mode 1)
+        (let ((hemis--project-root-override test-dir))
+          ;; Create a note
+          (goto-char (point-min))
+          (forward-line 6)  ;; Line 7
+          (let* ((created (hemis-add-note "Select integration test"))
+                 (note-id (hemis-test--note-id created)))
+            (should (stringp note-id))
+            ;; Clear selection
+            (hemis-clear-selection)
+            (should-not hemis--selected-note)
+            ;; Select the note using picker (simulate selecting first item)
+            (cl-letf (((symbol-function 'completing-read)
+                       (lambda (prompt choices &rest _)
+                         ;; Return the first choice
+                         (caar choices))))
+              (hemis-select-note))
+            ;; Should have selected our note
+            (should hemis--selected-note)))))))
+
 (ert-deftest hemis-goto-symbol-navigate ()
   "Test full goto-symbol flow: index, search, navigate to line."
   (hemis-test-with-backend
