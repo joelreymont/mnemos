@@ -610,23 +610,71 @@ function M.search_project()
 end
 
 -- Insert note link
--- Inserts link to selected note. If no note selected, shows error.
--- opts.file can override the current file (useful from edit buffers with no file)
-function M.insert_link(opts)
-  opts = opts or {}
-
-  if not M.selected_note then
-    vim.notify("No note selected - select a note first with SPC h s", vim.log.levels.WARN)
+-- Prompts for search query, shows picker with matching notes, inserts link to selected note
+function M.insert_link()
+  -- Use vim.fn.input for search query (works with remote-send, no textlock issues)
+  local query = vim.fn.input("Link search query: ")
+  if query == "" then
     return
   end
 
-  local note = M.selected_note
-  local desc = note.summary or (note.text or ""):sub(1, 40)
-  -- Use full ID (36-char UUID) - backend regex requires this for backlinks
-  local id = note.id or ""
-  local link = string.format("[[%s][%s]]", desc, id)
-  vim.notify("Inserting link: " .. link, vim.log.levels.INFO)
-  vim.api.nvim_put({ link }, "c", true, true)
+  -- Search notes in project
+  notes.search_project(query, { include_notes = true }, function(err, result)
+    if err then
+      vim.notify("Search failed: " .. (err.message or "unknown"), vim.log.levels.ERROR)
+      return
+    end
+
+    -- Filter to only note results
+    local note_hits = {}
+    for _, hit in ipairs(result or {}) do
+      if hit.kind == "note" and hit.noteId then
+        table.insert(note_hits, hit)
+      end
+    end
+
+    if #note_hits == 0 then
+      vim.notify("No notes found for: " .. query, vim.log.levels.INFO)
+      return
+    end
+
+    -- Build picker items
+    local items = {}
+    for _, hit in ipairs(note_hits) do
+      local file = hit.file and vim.fn.fnamemodify(hit.file, ":t") or "unknown"
+      local summary = hit.noteSummary or hit.text or ""
+      table.insert(items, {
+        label = string.format("%s:%d - %s", file, hit.line or 0, summary:sub(1, 50)),
+        hit = hit,
+      })
+    end
+
+    local function format_item(item)
+      return item.label
+    end
+
+    -- Show picker
+    vim.schedule(function()
+      vim.ui.select(items, {
+        prompt = string.format("Insert link to (%d notes):", #items),
+        format_item = format_item,
+      }, function(selected)
+        if selected then
+          local hit = selected.hit
+          local desc = hit.noteSummary or hit.text or "note"
+          desc = desc:sub(1, 40)
+          -- Use full noteId (36-char UUID) for backlinks to work
+          local id = hit.noteId or ""
+          local link = string.format("[[%s][%s]]", desc, id)
+          vim.schedule(function()
+            vim.api.nvim_put({ link }, "c", true, true)
+          end)
+        end
+      end)
+
+      signal_picker_ready("HemisInsertLinkPickerReady")
+    end)
+  end)
 end
 
 -- Index current file only
