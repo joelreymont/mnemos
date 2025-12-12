@@ -19,6 +19,49 @@ M.explain_region_in_progress = false
 -- Generation counter to invalidate queued timer callbacks
 M._status_generation = 0
 
+-- Signal picker ready only after verifying conditions are met.
+-- This replaces blind "schedule N times" with actual verification.
+-- For dressing.nvim/Telescope pickers: we need insert mode in a floating window.
+local function signal_picker_ready(event_name, max_attempts)
+  max_attempts = max_attempts or 20
+  local attempts = 0
+
+  local function check_and_signal()
+    attempts = attempts + 1
+
+    -- Must be scheduled to escape any textlock
+    vim.schedule(function()
+      local mode = vim.fn.mode()
+      local win = vim.api.nvim_get_current_win()
+      local win_config = vim.api.nvim_win_get_config(win)
+
+      -- For dressing/Telescope: insert mode in a floating window
+      local is_insert = mode:match("^[iI]") ~= nil
+      local is_floating = win_config.relative ~= nil and win_config.relative ~= ""
+
+      -- Debug: log state on each attempt
+      if os.getenv("HEMIS_DEBUG") then
+        vim.notify(string.format("[picker-ready] attempt=%d mode=%s floating=%s win=%d",
+          attempts, mode, tostring(is_floating), win), vim.log.levels.DEBUG)
+      end
+
+      if is_insert and is_floating then
+        -- Ready! Signal automation
+        vim.cmd("redraw")
+        vim.api.nvim_exec_autocmds("User", { pattern = event_name })
+      elseif attempts < max_attempts then
+        -- Not ready yet, try again next tick
+        vim.schedule(check_and_signal)
+      else
+        -- Give up after max attempts, fire anyway (fallback)
+        vim.cmd("redraw")
+        vim.api.nvim_exec_autocmds("User", { pattern = event_name })
+      end
+    end)
+  end
+
+  check_and_signal()
+end
 
 -- Refresh notes display (async)
 function M.refresh()
@@ -429,7 +472,6 @@ function M.list_notes()
     end
 
     -- Schedule picker creation so we're back in the main loop (outside RPC callback)
-    -- Remote-send input is ignored while still inside the RPC callback stack.
     vim.schedule(function()
       vim.ui.select(items, {
         prompt = "Notes in " .. vim.fn.expand("%:t") .. ":",
@@ -450,9 +492,8 @@ function M.list_notes()
         end
       end)
 
-      -- Signal automation that the picker is ready for key input
-      vim.cmd("redraw")
-      vim.api.nvim_exec_autocmds("User", { pattern = "HemisListNotesPickerReady" })
+      -- Verify picker is ready (insert mode + floating window) before signaling
+      signal_picker_ready("HemisListNotesPickerReady")
     end)
   end)
 end
@@ -489,8 +530,7 @@ function M.search_file()
       })
     end
 
-    -- Schedule picker creation so we're back in the main loop (outside vim.ui.input callback)
-    -- Remote-send input is ignored while still inside the callback stack.
+    -- Schedule once, then verify picker readiness via polling
     vim.schedule(function()
       vim.ui.select(items, {
         prompt = "Notes matching '" .. query .. "':",
@@ -504,72 +544,79 @@ function M.search_file()
         end
       end)
 
-      -- Signal automation that the picker is ready for key input
-      vim.cmd("redraw")
-      vim.api.nvim_exec_autocmds("User", { pattern = "HemisSearchFilePickerReady" })
+      -- Verify picker is ready (insert mode + floating window) before signaling
+      signal_picker_ready("HemisSearchFilePickerReady")
     end)
   end)
 end
 
 -- Search notes and files in project
+-- IMPORTANT: Uses vim.fn.input() instead of vim.ui.input() to avoid textlock issues.
+-- vim.ui.input's callback holds textlock, and any RPC call inside it causes
+-- remote-send keystrokes to be dropped from the typeahead queue.
+-- vim.fn.input() is blocking but releases textlock when it returns.
 function M.search_project()
-  vim.ui.input({ prompt = "Search project: " }, function(query)
-    if not query or query == "" then
+  -- Use blocking vim.fn.input() - textlock is released when it returns
+  local ok, query = pcall(vim.fn.input, "Search project: ")
+  if not ok or not query or query == "" then
+    -- Clear command line
+    vim.cmd("echo ''")
+    return
+  end
+  -- Clear command line
+  vim.cmd("echo ''")
+
+  -- Now we're in a clean state with no textlock
+  -- Use async RPC with vim.schedule for the picker
+  notes.search_project(query, { include_notes = true }, function(err, result)
+    if err then
+      vim.notify("Search failed", vim.log.levels.ERROR)
       return
     end
 
-    notes.search_project(query, { include_notes = true }, function(err, result)
-      if err then
-        vim.notify("Search failed", vim.log.levels.ERROR)
-        return
-      end
+    if not result or #result == 0 then
+      vim.notify("No results", vim.log.levels.INFO)
+      return
+    end
 
-      if not result or #result == 0 then
-        vim.notify("No results", vim.log.levels.INFO)
-        return
-      end
+    -- Show results in floating picker
+    local items = {}
+    for _, hit in ipairs(result) do
+      -- Get relative filename for display
+      local filename = hit.file or ""
+      local basename = vim.fn.fnamemodify(filename, ":t")
+      local line = hit.line or 1
+      -- Use text field (actual line content) for display
+      local text = hit.text or hit.display_label or ""
+      -- Trim whitespace from text
+      text = text:gsub("^%s+", ""):gsub("%s+$", "")
+      table.insert(items, {
+        label = string.format("%s:%d %s", basename, line, text),
+        file = hit.file,
+        line = line,
+        col = hit.column or 0,
+      })
+    end
 
-      -- Show results in floating picker
-      local items = {}
-      for _, hit in ipairs(result) do
-        -- Get relative filename for display
-        local filename = hit.file or ""
-        local basename = vim.fn.fnamemodify(filename, ":t")
-        local line = hit.line or 1
-        -- Use text field (actual line content) for display
-        local text = hit.text or hit.display_label or ""
-        -- Trim whitespace from text
-        text = text:gsub("^%s+", ""):gsub("%s+$", "")
-        table.insert(items, {
-          label = string.format("%s:%d %s", basename, line, text),
-          file = hit.file,
-          line = line,
-          col = hit.column or 0,
-        })
-      end
-
-      -- Schedule picker creation so we're back in the main loop (outside nested callbacks)
-      -- Remote-send input is ignored while still inside the vim.ui.input/RPC callback stack.
-      vim.schedule(function()
-        vim.ui.select(items, {
-          prompt = "Search results for '" .. query .. "':",
-          format_item = function(item) return item.label end,
-        }, function(selected)
-          if selected then
-            vim.schedule(function()
-              -- Open the file and go to line
-              if selected.file then
-                vim.cmd("edit " .. vim.fn.fnameescape(selected.file))
-              end
-              vim.api.nvim_win_set_cursor(0, { selected.line, selected.col })
-            end)
-          end
-        end)
-
-        -- Signal automation that the picker is ready for key input
-        vim.cmd("redraw")
-        vim.api.nvim_exec_autocmds("User", { pattern = "HemisSearchProjectPickerReady" })
+    -- vim.schedule to escape fast-event context from RPC callback
+    vim.schedule(function()
+      vim.ui.select(items, {
+        prompt = "Search results for '" .. query .. "':",
+        format_item = function(item) return item.label end,
+      }, function(selected)
+        if selected then
+          vim.schedule(function()
+            -- Open the file and go to line
+            if selected.file then
+              vim.cmd("edit " .. vim.fn.fnameescape(selected.file))
+            end
+            vim.api.nvim_win_set_cursor(0, { selected.line, selected.col })
+          end)
+        end
       end)
+
+      -- Signal picker is ready for automation
+      signal_picker_ready("HemisSearchProjectPickerReady")
     end)
   end)
 end
@@ -596,9 +643,10 @@ function M.insert_link(opts)
         table.insert(items, string.format("%s (%s)", desc, short_id))
       end
 
-      -- Schedule picker creation so we're back in the main loop (outside nested callbacks)
-      -- Remote-send input is ignored while still inside the vim.ui.input/RPC callback stack.
-      vim.schedule(function()
+      -- Use schedule_clean instead of double vim.schedule to ensure we're in a clean
+      -- event context. The RPC callback arrives via libuv fast-event, and vim.ui.input
+      -- holds textlock. schedule_clean uses timer + vim.schedule to escape both.
+      schedule_clean(function()
         vim.ui.select(items, { prompt = "Select note:" }, function(choice, idx)
           if choice and idx then
             local note = result[idx]
@@ -609,10 +657,9 @@ function M.insert_link(opts)
           end
         end)
 
-        -- Signal automation that the picker is ready for key input
-        vim.cmd("redraw")
-        vim.api.nvim_exec_autocmds("User", { pattern = "HemisInsertLinkPickerReady" })
-      end)
+        -- Verify picker is ready (insert mode + floating window) before signaling
+        signal_picker_ready("HemisInsertLinkPickerReady")
+      end, 100)
     end)
   end)
 end
