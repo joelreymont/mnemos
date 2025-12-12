@@ -316,6 +316,8 @@ function M.edit_note()
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].buftype = "nofile"
   vim.bo[buf].filetype = "markdown"
+  -- Store source file for insert_link to use
+  vim.b[buf].hemis_source_file = file
 
   local function save()
     local new_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -618,8 +620,11 @@ function M.insert_link()
     return
   end
 
-  -- Search notes in project
-  notes.search_project(query, { include_notes = true }, function(err, result)
+  -- Get file for projectRoot - use source file if in edit buffer
+  local file = vim.b.hemis_source_file or vim.fn.expand("%:p")
+
+  -- Search notes in project (pass file explicitly)
+  notes.search_project(query, { include_notes = true, file = file }, function(err, result)
     if err then
       vim.notify("Search failed: " .. (err.message or "unknown"), vim.log.levels.ERROR)
       return

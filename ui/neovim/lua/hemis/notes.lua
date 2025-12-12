@@ -192,7 +192,7 @@ function M.search_project(query, opts, callback)
   opts = opts or {}
   local params = {
     query = query,
-    file = get_current_file(), -- Server computes projectRoot
+    file = opts.file or get_current_file(), -- Server computes projectRoot
     includeNotes = opts.include_notes ~= false,
   }
   rpc.request("hemis/search", params, callback)
