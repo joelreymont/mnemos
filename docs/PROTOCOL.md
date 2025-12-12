@@ -1,22 +1,24 @@
 # Hemis Protocol v1 (JSON-RPC 2.0)
 
-Transport: **stdio** (UTF-8). Accepts either newline-delimited JSON objects or LSP-style `Content-Length` framed messages. Responses mirror the framing used by the client.  
+Transport: **Unix domain socket** at `~/.hemis/hemis.sock`. Uses LSP-style `Content-Length` framing.
 Protocol: **JSON-RPC 2.0**.
 
 ## Note Object
 
 ```jsonc
 {
-  "id": "string",
+  "id": "uuid-string",
+  "shortId": "8-char-prefix",
   "file": "/abs/path/to/file",
   "projectRoot": "/abs/path/to/project",
   "commitSha": "git commit hex (optional)",
   "blobSha": "git blob hash (optional)",
+  "nodeTextHash": "sha256 of anchor node text",
   "stale": false,
   "line": 42,
   "column": 0,
-  "nodePath": ["function_definition", 0, "parameters", 1],   // optional
-  "tags": ["todo", "refactor"],                              // optional
+  "nodePath": "function_definition.parameters",
+  "tags": ["todo", "refactor"],
   "text": "Full note body",
   "summary": "Short preview",
   "createdAt": 1732000000,
@@ -26,156 +28,119 @@ Protocol: **JSON-RPC 2.0**.
 
 ## Methods
 
-- `notes/list-for-file` → list notes for a file
-- `notes/list-project` → list notes for a project
-- `notes/create` → create a new note
-- `notes/update` → update an existing note
-- `notes/delete` → delete a note
-- `notes/get` → fetch a single note by id
-- `notes/search` → naive text search across notes
-- `notes/list-by-node` → list notes for a specific nodePath
-- `notes/backlinks` → find notes that link to a given note
-- `index/add-file` → store file content (for search)
-- `index/search` → naive text search across indexed files
-- `shutdown` → cleanly terminate the backend
-- `hemis/open-project` → select a project root
-- `hemis/explain-region` → return a snippet for a file range (LLM-ready hook)
-- `hemis/search` → semantic/text search (scores; blends notes when includeNotes=true, accepts optional `vector` for semantic query)
-- `hemis/save-snapshot` → write a snapshot summary (version, counts, timestamps)
-- `hemis/load-snapshot` → load a snapshot file
-- `hemis/index-project` → index all project files under `projectRoot`
-- `hemis/status` → get counts of notes, files, embeddings
-- `hemis/version` → get backend version and protocol version
+### Notes
 
-Notes attach to files, git versions, node paths, and tags. Backend returns JSON objects.
+| Method | Description |
+|--------|-------------|
+| `notes/create` | Create a new note at cursor position |
+| `notes/get` | Fetch a single note by ID |
+| `notes/update` | Update note text/tags |
+| `notes/delete` | Delete a note |
+| `notes/list-for-file` | List notes for a file (with position tracking) |
+| `notes/list-project` | List all notes in a project |
+| `notes/list-by-node` | List notes for a specific node path |
+| `notes/search` | Text search across notes |
+| `notes/backlinks` | Find notes that link to a given note |
+| `notes/reattach` | Reattach a stale note to a new position |
+| `notes/buffer-update` | Update positions for real-time tracking |
+| `notes/get-at-position` | Get note at specific line/column |
+| `notes/anchor` | Get anchor info for a position |
+| `notes/link-suggestions` | Suggest notes to link to |
+| `notes/history` | Get version history for a note |
+| `notes/get-version` | Get specific version of a note |
+| `notes/restore-version` | Restore note to previous version |
+| `notes/explain-and-create` | AI explain and create note |
 
 ### Index
 
-- `index/add-file` stores a file’s content for text search.
-- `index/search` searches indexed files for a substring and returns hits with file/line/column/text.
+| Method | Description |
+|--------|-------------|
+| `index/add-file` | Index a file's content |
+| `index/search` | Search indexed file content |
 
-### Notes
-Notes are stored as Markdown and may include external links as well as references to other notes/files.
-Links to other notes use the format `[[DESCRIPTION][ID]]`; the ID stays stable even if the description changes.
-A double `[[` in the Emacs UI triggers a note search to help insert these links.
+### Hemis
 
-#### `notes/create`
+| Method | Description |
+|--------|-------------|
+| `hemis/status` | Get backend status (note/file counts) |
+| `hemis/search` | Combined search (notes + files) |
+| `hemis/index-project` | Index all project files |
+| `hemis/explain-region` | Get code context for a region |
+| `hemis/project-meta` | Get project metadata |
+| `hemis/open-project` | Set active project root |
+| `hemis/save-snapshot` | Save database snapshot |
+| `hemis/load-snapshot` | Load database snapshot |
+| `hemis/display-config` | Get display configuration |
+| `hemis/note-templates` | Get note templates |
+| `hemis/suggest-tags` | Suggest tags for a note |
+| `hemis/graph` | Get note link graph |
+| `hemis/tasks` | List background tasks |
+| `hemis/task-status` | Get task status |
+| `hemis/task-list` | List all tasks |
+| `hemis/code-references` | Find code references |
+| `hemis/file-context` | Get file context |
+| `hemis/buffer-context` | Get buffer context |
+| `hemis/summarize-file` | AI summarize file |
 
-Request params:
+## Example: Create Note
 
+Request:
 ```json
 {
-  "file": "/abs/path/file.rs",
-  "projectRoot": "/abs/path",
-  "line": 10,
-  "column": 2,
-  "nodePath": ["function_item", "parameters"], // optional
-  "commit": "HEAD sha",                        // optional (auto-detected if omitted)
-  "blob": "blob sha",                          // optional (auto-detected if omitted)
-  "text": "note text",
-  "tags": ["todo", "rust"]                     // optional
-}
-```
-
-Response: note object.
-
-#### `notes/list-for-file`
-
-```json
-{
-  "file": "/abs/path/file.rs",
-  "projectRoot": "/abs/path",
-  "commit": "HEAD sha",     // optional; used to compute stale flag
-  "blob": "blob sha",       // optional; used to compute stale flag
-  "includeStale": true      // optional; notes always returned with stale=true/false flag
-}
-```
-
-Notes are always returned with a `stale` boolean flag. A note is stale when its stored `commitSha`/`blobSha` differ from the provided `commit`/`blob` params. The `includeStale` param is accepted but currently ignored (all notes returned).
-
-Response: array of note objects.
-
-#### `notes/list-by-node`
-
-Same filters as `list-for-file`, plus:
-
-```json
-{ "nodePath": ["function_item", "parameters"] }
-```
-
-#### `notes/get`
-
-```json
-{ "id": "note-id" }
-```
-
-Response: note object.
-
-#### `notes/delete`
-
-```json
-{ "id": "note-id" }
-```
-
-Response:
-
-```json
-{ "ok": true }
-```
-
-#### `notes/update`
-
-```json
-{ "id": "note-id", "text": "new text", "tags": ["tag"] }
-```
-
-Response: updated note object.
-
-#### `notes/backlinks`
-
-Find all notes that link to a given note (reverse link traversal).
-
-```json
-{ "id": "note-id" }
-```
-
-Response: array of note objects that contain `[[...][note-id]]` links.
-
-### System Methods
-
-#### `hemis/version`
-
-Get backend version info.
-
-```json
-{}
-```
-
-Response:
-
-```json
-{
-  "protocolVersion": 1,
-  "gitHash": "abc123"
-}
-```
-
-#### `hemis/status`
-
-Get current counts.
-
-```json
-{}
-```
-
-Response:
-
-```json
-{
-  "counts": {
-    "notes": 42,
-    "files": 100,
-    "embeddings": 50
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "notes/create",
+  "params": {
+    "file": "/path/to/file.rs",
+    "line": 42,
+    "column": 0,
+    "text": "TODO: refactor this function",
+    "content": "... file content for anchor computation ..."
   }
 }
 ```
+
+Response:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "shortId": "550e8400",
+    "file": "/path/to/file.rs",
+    "line": 42,
+    "column": 0,
+    "text": "TODO: refactor this function",
+    "stale": false,
+    "createdAt": 1732000000,
+    "updatedAt": 1732000000
+  }
+}
+```
+
+## Example: List Notes for File
+
+Request:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "notes/list-for-file",
+  "params": {
+    "file": "/path/to/file.rs",
+    "content": "... current buffer content ...",
+    "includeStale": true
+  }
+}
+```
+
+The `content` parameter enables real-time position tracking. The server returns notes with updated `line` values based on current buffer state.
+
+## Staleness
+
+Notes track the code they're attached to via `nodeTextHash` (SHA256 of the anchor node's text). When the hash changes, `stale: true` is set. Use `notes/reattach` to re-anchor a stale note to a new position.
+
+## Note Links
+
+Notes can link to other notes using `[[description][uuid]]` syntax. The `notes/backlinks` method finds notes that link to a given note ID.

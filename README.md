@@ -5,36 +5,39 @@ Hemis attaches persistent notes to code locations, anchored to Tree-sitter nodes
 ## Features
 
 - Notes anchored to AST nodes (functions, classes, etc.)
-- Git-aware staleness detection
-- Full-text and semantic search
-- Note linking with `[[description][id]]` syntax
+- Git-aware staleness detection with reattachment
+- Full-text search across notes and code
+- Note linking with `[[description][id]]` syntax and backlinks
+- AI-powered code explanations (optional)
 - Project-wide indexing
+- Selected note model for precise operations
 
 ## Architecture
 
 ```
-┌─────────────┐     stdio/JSON-RPC     ┌─────────────┐
-│   Emacs     │◄──────────────────────►│             │
-│   hemis.el  │                        │             │
-└─────────────┘                        │             │
-                                       │   Backend   │
-┌─────────────┐     stdio/JSON-RPC     │   (Rust)    │
-│   Neovim    │◄──────────────────────►│             │
-│   hemis.lua │                        │             │
-└─────────────┘                        │             │
-                                       │             │
-┌─────────────┐     stdio/JSON-RPC     │             │
-│   VS Code   │◄──────────────────────►│             │
-│   extension │                        └──────┬──────┘
-└─────────────┘                               │
-                                              ▼
-                                       ┌─────────────┐
-                                       │   SQLite    │
-                                       │   Database  │
-                                       └─────────────┘
+┌─────────────┐                        ┌─────────────────────────────┐
+│   Emacs     │     Unix Socket        │                             │
+│   hemis.el  │◄──────────────────────►│                             │
+└─────────────┘                        │                             │
+               ~/.hemis/hemis.sock     │   Backend Server            │
+┌─────────────┐     Unix Socket        │   (Single Process)          │
+│   Neovim    │◄──────────────────────►│                             │
+│   hemis.lua │                        │   - Reference counting      │
+└─────────────┘                        │   - Grace period shutdown   │
+                                       │   - Version checking        │
+┌─────────────┐     Unix Socket        │                             │
+│   VS Code   │◄──────────────────────►│                             │
+│   extension │                        └──────────────┬──────────────┘
+└─────────────┘                                       │
+                                                      ▼
+                                               ┌─────────────┐
+                                               │   SQLite    │
+                                               │  ~/.hemis/  │
+                                               │  hemis.db   │
+                                               └─────────────┘
 ```
 
-Each editor runs its own backend process, but they share the same database file at `~/.hemis/hemis.db`. Notes created in one editor appear in the other after refresh.
+All editors connect to a single backend process via Unix domain socket. The first editor to need the backend starts it; subsequent editors connect. Backend shuts down after 30s with no connections.
 
 ## Database Location
 
@@ -45,8 +48,6 @@ To use a different location (e.g., for project-specific databases):
 ```bash
 export HEMIS_DB_PATH=/path/to/custom.db
 ```
-
-Or configure it in your editor settings.
 
 ## Quick Start
 
@@ -73,28 +74,51 @@ See the setup guide for your editor:
 
 All editors use a consistent `<prefix> h` pattern:
 
-| Action | Emacs | Neovim | VS Code |
-|--------|-------|--------|---------|
-| Add note | `C-c h a` | `<leader>ha` | `Ctrl+Shift+H A` |
-| List notes | `C-c h l` | `<leader>hl` | `Ctrl+Shift+H L` |
-| Refresh | `C-c h r` | `<leader>hr` | `Ctrl+Shift+H R` |
-| Search | `C-c h s` | `<leader>hs` | `Ctrl+Shift+H S` |
-| Index file | `C-c h i` | `<leader>hi` | `Ctrl+Shift+H I` |
-| Index project | `C-c h p` | `<leader>hp` | `Ctrl+Shift+H P` |
-| Insert link | `C-c h k` | `<leader>hk` | `Ctrl+Shift+H K` |
-| Help | `C-c h ?` | `<leader>h?` | - |
+| Action | Emacs | Neovim | Description |
+|--------|-------|--------|-------------|
+| Add note | `C-c h a` | `<leader>ha` | Add note at cursor |
+| Add note (multiline) | - | `<leader>hA` | Add multiline note |
+| Select note | `C-c h s` | `<leader>hs` | Select note at cursor |
+| List notes | `C-c h l` | `<leader>hl` | List notes in file |
+| Refresh | `C-c h r` | `<leader>hr` | Refresh note display |
+| Edit note | `C-c h e` | `<leader>he` | Edit selected note |
+| Edit note (buffer) | `C-c h E` | `<leader>hE` | Edit in full buffer |
+| Delete note | `C-c h d` | `<leader>hd` | Delete selected note |
+| Reattach note | `C-c h R` | `<leader>hR` | Reattach stale note |
+| Search file | - | `<leader>hf` | Search notes in file |
+| Search project | `C-c h f` | `<leader>hF` | Search project |
+| Index file | - | `<leader>hP` | Index current file |
+| Index project | `C-c h p` | `<leader>hp` | Index entire project |
+| Insert link | `C-c h k` | `<leader>hk` | Insert note link |
+| Show backlinks | `C-c h b` | `<leader>hb` | Show notes linking here |
+| Explain region | `C-c h x` | `<leader>hx` | Explain code (visual) |
+| Explain (detailed) | `C-c h X` | `<leader>hX` | Detailed AI explanation |
+| Status | `C-c h S` | `<leader>ht` | Show backend status |
+| Help | `C-c h ?` | `<leader>h?` | Show keybindings |
+
+## AI Features
+
+Hemis can use AI to generate code explanations. Set the provider:
+
+```bash
+export HEMIS_AI_PROVIDER=claude  # or codex, none
+```
+
+Use `<leader>hx` (visual mode) to explain selected code.
 
 ## Testing
 
 ```bash
-# Run all tests (Rust + Emacs ERT)
-./scripts/run-rust-tests.sh
-
-# Rust tests only
+# Rust tests
 cargo test
 
 # Neovim tests (requires plenary.nvim)
-nvim --headless -c "PlenaryBustedDirectory ui/neovim/tests/ {minimal_init = 'ui/neovim/tests/minimal_init.lua'}"
+cd ui/neovim && nvim --headless -u tests/minimal_init.lua \
+  -c "PlenaryBustedDirectory tests/ {minimal_init = 'tests/minimal_init.lua'}"
+
+# Emacs tests
+emacs -Q --batch -L ui/emacs -l hemis.el \
+  -L ui/emacs/tests -l hemis-test.el -f ert-run-tests-batch-and-exit
 ```
 
 ## Project Structure
@@ -103,11 +127,18 @@ nvim --headless -c "PlenaryBustedDirectory ui/neovim/tests/ {minimal_init = 'ui/
 hemis/
   backend/              # Rust JSON-RPC server
     src/
-    crates/             # notes, index, storage, git, rpc
-    tests/
+    crates/
+      git/              # Git operations (libgit2/CLI)
+      index/            # Text indexing and search
+      notes/            # Note model and SQLite access
+      rpc/              # JSON-RPC framing
+      storage/          # SQLite helpers, migrations
+      treesitter/       # Tree-sitter parsing
+    tools/
+      hemis_mcp/        # MCP server for Claude Code
   ui/
     emacs/              # Emacs client (hemis.el)
-    neovim/             # Neovim client (hemis.lua)
+    neovim/             # Neovim client (lua)
     vscode/             # VS Code extension
   docs/
     PROTOCOL.md         # JSON-RPC protocol spec
@@ -118,7 +149,7 @@ hemis/
 
 ## Protocol
 
-The backend speaks JSON-RPC 2.0 over stdio with Content-Length framing (LSP-style). See [docs/PROTOCOL.md](docs/PROTOCOL.md) for the full API.
+The backend speaks JSON-RPC 2.0 over Unix domain socket (`~/.hemis/hemis.sock`). See [docs/PROTOCOL.md](docs/PROTOCOL.md) for the full API.
 
 ## License
 
