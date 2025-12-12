@@ -598,8 +598,10 @@ function M.search_project()
       })
     end
 
-    -- vim.schedule to escape fast-event context from RPC callback
-    vim.schedule(function()
+    -- Use vim.defer_fn with a small delay to completely break from any inherited
+    -- context (command-line teardown, RPC callback, libuv fast-event).
+    -- This timer-based approach creates a clean event loop iteration.
+    vim.defer_fn(function()
       vim.ui.select(items, {
         prompt = "Search results for '" .. query .. "':",
         format_item = function(item) return item.label end,
@@ -617,7 +619,7 @@ function M.search_project()
 
       -- Signal picker is ready for automation
       signal_picker_ready("HemisSearchProjectPickerReady")
-    end)
+    end, 50)  -- 50ms delay to ensure clean context
   end)
 end
 
@@ -643,10 +645,10 @@ function M.insert_link(opts)
         table.insert(items, string.format("%s (%s)", desc, short_id))
       end
 
-      -- Use schedule_clean instead of double vim.schedule to ensure we're in a clean
-      -- event context. The RPC callback arrives via libuv fast-event, and vim.ui.input
-      -- holds textlock. schedule_clean uses timer + vim.schedule to escape both.
-      schedule_clean(function()
+      -- Use vim.defer_fn with delay to escape from RPC callback context.
+      -- The RPC callback arrives via libuv fast-event, and vim.ui.input
+      -- holds textlock. Timer breaks us out of both contexts.
+      vim.defer_fn(function()
         vim.ui.select(items, { prompt = "Select note:" }, function(choice, idx)
           if choice and idx then
             local note = result[idx]
