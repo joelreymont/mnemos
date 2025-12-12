@@ -2,6 +2,14 @@
 
 Docs: `docs/`
 
+## Rules
+
+Behavior rules are in:
+- **Global**: `~/.claude/rules/` (zero-tolerance, workflow, oracle, file-org, cost-control)
+- **Local**: `.claude/rules/` (demo-permission)
+
+This file contains project-specific technical info only.
+
 ## MCP Tools
 | Task | Tool | Params |
 |------|------|--------|
@@ -12,9 +20,6 @@ Docs: `docs/`
 | AI | `ask_oracle` | `question` |
 
 Bash OK for: git commit/push/pull, hemis CLI, deps
-
-## Demo Automation
-`hemis-demo` controls keyboard/mouse. **Explicit permission required for each run.**
 
 ## Test Suites
 | Suite | Command |
@@ -40,7 +45,8 @@ Bash OK for: git commit/push/pull, hemis CLI, deps
 
 ## Demo Driver
 `cd ../hemis-demo && swift run hemis-demo <script> --show-labels`
-Scripts: neovim, reattach | Options: --prepare-only, --skip-setup, --countdown N, --record
+Scripts: full, neovim, reattach | Options: --editor neovim|emacs|vscode, --prepare-only, --skip-setup, --countdown N, --record
+See `.claude/rules/demo-permission.md` for permission requirements.
 
 ## MCP Development
 Add tools to `backend/tools/hemis_mcp/src/main.rs`. Update this file when adding.
