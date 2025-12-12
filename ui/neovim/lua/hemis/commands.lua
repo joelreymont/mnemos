@@ -622,8 +622,9 @@ function M.insert_link(opts)
 
   local note = M.selected_note
   local desc = note.summary or (note.text or ""):sub(1, 40)
-  local short_id = note.shortId or (note.id or ""):sub(1, 8)
-  local link = string.format("[[%s][%s]]", desc, short_id)
+  -- Use full ID (36-char UUID) - backend regex requires this for backlinks
+  local id = note.id or ""
+  local link = string.format("[[%s][%s]]", desc, id)
   vim.notify("Inserting link: " .. link, vim.log.levels.INFO)
   vim.api.nvim_put({ link }, "c", true, true)
 end
