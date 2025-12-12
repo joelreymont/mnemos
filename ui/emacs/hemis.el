@@ -979,9 +979,10 @@ With prefix arg or USE-AI non-nil, use AI to explain."
       (when ai-info
         (insert (format "%s\n" (alist-get 'statusDisplay ai-info))))
       (insert "\n")
-      (if explanation
-          (insert explanation)
-        (insert snippet))
+      (cond
+       (explanation (insert explanation))
+       (snippet (insert snippet))
+       (t (insert "(No explanation available)")))
       (goto-char (point-min))
       (view-mode 1)
       (display-buffer (current-buffer)))))
