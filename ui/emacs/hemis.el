@@ -1023,15 +1023,16 @@ If DETAILED is non-nil, request a more thorough explanation."
          (_ (when detailed
               (setq params (append params '((detailed . t))))))
          (resp (hemis--request "hemis/explain-region" params))
-         (explanation (alist-get 'explanation resp))
-         (ai-info (alist-get 'ai resp)))
+         ;; Response is plist with keyword keys from jsonrpc
+         (explanation (plist-get resp :explanation))
+         (ai-info (plist-get resp :ai)))
     (if (not explanation)
         (progn
           (message "No AI explanation available")
           nil)
       ;; Create note at region start with AI explanation
       (goto-char beg)
-      (let* ((status-display (alist-get 'statusDisplay ai-info))
+      (let* ((status-display (plist-get ai-info :statusDisplay))
              (note-text (if status-display
                             (format "%s %s" status-display explanation)
                           explanation))

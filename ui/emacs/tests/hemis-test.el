@@ -61,8 +61,12 @@
           (hemis--process nil)
           (hemis--conn nil)
           (hemis--server-process nil)
-          (hemis-backend-env (list (concat "HEMIS_DIR=" test-dir)
-                                   (concat "HEMIS_DB_PATH=" test-dir "/hemis.db")))
+          ;; Include AI provider if set, so AI tests can work
+          (hemis-backend-env (append
+                              (list (concat "HEMIS_DIR=" test-dir)
+                                    (concat "HEMIS_DB_PATH=" test-dir "/hemis.db"))
+                              (when (getenv "HEMIS_AI_PROVIDER")
+                                (list (concat "HEMIS_AI_PROVIDER=" (getenv "HEMIS_AI_PROVIDER"))))))
           ;; Expand backend path NOW before test changes default-directory
           (hemis-backend (expand-file-name
                           (or (getenv "HEMIS_BACKEND")
@@ -306,18 +310,18 @@ This mirrors Neovim's explain_region_e2e_spec.lua behavior."
                      (push (cons method params) request-log)
                      (pcase method
                        ("hemis/explain-region"
-                        '((content . "let config = load_config();")
-                          (explanation . "This code loads configuration from the default config loader.")
-                          (ai . ((statusDisplay . "[AI]")
-                                 (model . "test-model")))))
+                        ;; Return plist format like real jsonrpc does
+                        '(:content "let config = load_config();"
+                          :explanation "This code loads configuration from the default config loader."
+                          :ai (:statusDisplay "[AI]" :model "test-model")))
                        ("notes/create"
                         (setq note-created t)
                         (setq note-text-captured (cdr (assoc 'text params)))
-                        '((id . "ai-note-id")
-                          (file . "/tmp/explain-ai.rs")
-                          (line . 2)
-                          (column . 0)
-                          (text . "mock")))
+                        '(:id "ai-note-id"
+                          :file "/tmp/explain-ai.rs"
+                          :line 2
+                          :column 0
+                          :text "mock"))
                        (_ nil))))
                   ((symbol-function 'hemis--make-note-overlay)
                    (lambda (_note) nil)))
@@ -342,7 +346,8 @@ This mirrors Neovim's explain_region_e2e_spec.lua behavior."
                    (lambda (method &optional _params)
                      (pcase method
                        ("hemis/explain-region"
-                        '((content . "fn main() {}")))
+                        ;; Return plist without :explanation (AI unavailable)
+                        '(:content "fn main() {}"))
                        (_ nil))))
                   ((symbol-function 'message)
                    (lambda (fmt &rest _args)
@@ -364,16 +369,99 @@ This mirrors Neovim's explain_region_e2e_spec.lua behavior."
                      (pcase method
                        ("hemis/explain-region"
                         (setq detailed-flag (cdr (assoc 'detailed params)))
-                        '((content . "fn main() {}")
-                          (explanation . "Detailed explanation here")
-                          (ai . ((statusDisplay . "[AI]")))))
+                        ;; Return plist format like real jsonrpc does
+                        '(:content "fn main() {}"
+                          :explanation "Detailed explanation here"
+                          :ai (:statusDisplay "[AI]")))
                        ("notes/create"
-                        '((id . "detailed-note")))
+                        '(:id "detailed-note"))
                        (_ nil))))
                   ((symbol-function 'hemis--make-note-overlay)
                    (lambda (_note) nil)))
           (hemis-explain-region-ai-detailed (point-min) (point-max))
           (should (eq t detailed-flag)))))))
+
+(ert-deftest hemis-explain-region-ai-integration ()
+  "Integration test: explain-region-ai creates note with real backend.
+Tests the FULL flow that the demo uses - this would catch real bugs."
+  :tags '(:integration)
+  (hemis-test-with-backend
+    (let ((test-file (expand-file-name "explain-ai-int.rs" test-dir)))
+      (with-temp-file test-file
+        (insert hemis-test-demo-code))
+      (with-temp-buffer
+        (insert hemis-test-demo-code)
+        (set-visited-file-name test-file t t)
+        (setq comment-start "// ")
+        (hemis-notes-mode 1)
+        (let ((hemis--project-root-override test-dir))
+          ;; Select lines 2-4 (the interesting code)
+          (goto-char (point-min))
+          (forward-line 1)
+          (let ((start (line-beginning-position)))
+            (forward-line 3)
+            (let ((end (line-end-position)))
+              ;; Call explain-region-ai (with AI if configured, without if not)
+              ;; The key test is that when AI IS available, a note IS created
+              (condition-case err
+                  (progn
+                    (hemis-explain-region-ai start end)
+                    ;; If we get here without "No AI explanation" error,
+                    ;; verify a note was actually created
+                    (let* ((result (hemis--request "notes/list-for-file"
+                                                   `((file . ,test-file)
+                                                     (projectRoot . ,test-dir)
+                                                     (content . ,hemis-test-demo-code))))
+                           (notes (hemis-test--unwrap-notes result)))
+                      ;; Should have at least one note from the AI explanation
+                      (should (>= (length notes) 1))
+                      ;; Verify the note has AI-related content
+                      ;; Note: jsonrpc returns plists, so try both access methods
+                      (let* ((note (car notes))
+                             (text (or (plist-get note :text)
+                                       (alist-get 'text note)
+                                       (cdr (assoc 'text note)))))
+                        (should (stringp text))
+                        ;; AI notes should have statusDisplay prefix like [AI] or [Claude]
+                        (should (string-match-p "^\\[" text)))))
+                (user-error
+                 ;; If "No AI explanation available", AI isn't configured - skip
+                 (when (string-match-p "No AI explanation" (error-message-string err))
+                   (ert-skip "AI provider not configured")))))))))))
+
+(ert-deftest hemis-explain-region-ai-creates-overlay ()
+  "Integration test: explain-region-ai creates visible overlay.
+This tests what the demo visually expects to see."
+  :tags '(:integration)
+  (hemis-test-with-backend
+    (let ((test-file (expand-file-name "explain-overlay.rs" test-dir)))
+      (with-temp-file test-file
+        (insert hemis-test-demo-code))
+      (with-temp-buffer
+        (insert hemis-test-demo-code)
+        (set-visited-file-name test-file t t)
+        (setq comment-start "// ")
+        (hemis-notes-mode 1)
+        (let ((hemis--project-root-override test-dir))
+          ;; Clear any existing overlays
+          (hemis--clear-note-overlays)
+          (should (= 0 (hemis-test--count-note-overlays)))
+          ;; Select region
+          (goto-char (point-min))
+          (forward-line 1)
+          (let ((start (line-beginning-position)))
+            (forward-line 2)
+            (let ((end (line-end-position)))
+              (condition-case err
+                  (progn
+                    (hemis-explain-region-ai start end)
+                    ;; Verify overlay was created
+                    (should (>= (hemis-test--count-note-overlays) 1))
+                    ;; Verify overlay is at the right location (line 2)
+                    (should (hemis-test--overlay-at-line 2)))
+                (user-error
+                 (when (string-match-p "No AI explanation" (error-message-string err))
+                   (ert-skip "AI provider not configured")))))))))))
 
 (ert-deftest hemis-list-notes-renders-buffer ()
   (hemis-test-with-mocked-backend
