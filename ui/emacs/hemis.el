@@ -991,14 +991,60 @@ With DETAILED non-nil, request a more thorough explanation."
       (display-buffer (current-buffer)))))
 
 (defun hemis-explain-region-ai (beg end)
-  "Request an AI-powered explanation for the region from BEG to END."
+  "Request an AI-powered explanation for the region from BEG to END.
+Creates a note at the region start with the AI explanation."
   (interactive "r")
-  (hemis-explain-region beg end t nil))
+  (hemis--explain-region-create-note beg end nil))
 
 (defun hemis-explain-region-ai-detailed (beg end)
-  "Request a detailed AI-powered explanation for the region from BEG to END."
+  "Request a detailed AI-powered explanation for the region from BEG to END.
+Creates a note at the region start with the detailed AI explanation."
   (interactive "r")
-  (hemis-explain-region beg end t t))
+  (hemis--explain-region-create-note beg end t))
+
+(defun hemis--explain-region-create-note (beg end detailed)
+  "Request AI explanation for region BEG to END and create a note.
+If DETAILED is non-nil, request a more thorough explanation."
+  (unless (and (buffer-file-name) beg end)
+    (user-error "No region or file to explain"))
+  (message "AI thinking...")
+  (let* ((file (buffer-file-name))
+         (start-line (line-number-at-pos beg))
+         (end-line (line-number-at-pos end))
+         (content (buffer-substring-no-properties (point-min) (point-max)))
+         (project-root (hemis--project-root))
+         (params `((file . ,file)
+                   (startLine . ,start-line)
+                   (endLine . ,end-line)
+                   (content . ,content)
+                   (useAI . t)))
+         (_ (when project-root
+              (setq params (append params `((projectRoot . ,project-root))))))
+         (_ (when detailed
+              (setq params (append params '((detailed . t))))))
+         (resp (hemis--request "hemis/explain-region" params))
+         (explanation (alist-get 'explanation resp))
+         (ai-info (alist-get 'ai resp)))
+    (if (not explanation)
+        (progn
+          (message "No AI explanation available")
+          nil)
+      ;; Create note at region start with AI explanation
+      (goto-char beg)
+      (let* ((status-display (alist-get 'statusDisplay ai-info))
+             (note-text (if status-display
+                            (format "%s %s" status-display explanation)
+                          explanation))
+             (anchor (hemis--note-anchor))
+             (note-params (append (hemis--buffer-params t)
+                                  `((line . ,(plist-get anchor :line))
+                                    (column . ,(plist-get anchor :column))
+                                    (text . ,note-text)))))
+        (let ((note (hemis--request "notes/create" note-params)))
+          (hemis--debug "explain-region: created note id=%s" (hemis--note-get note 'id))
+          (hemis--make-note-overlay note)
+          (message "Hemis: AI note created.")
+          note)))))
 
 (defun hemis-refresh-notes ()
   "Fetch and render all notes for the current buffer.
