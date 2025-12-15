@@ -1850,4 +1850,75 @@ Handles :json-false which is truthy in Emacs."
                                      (line-beginning-position)
                                      (line-end-position))))))))))
 
+;;; Event System Tests
+
+(ert-deftest hemis-events-on-registers-handler ()
+  "Test that hemis--events-on registers a handler."
+  (let ((hemis--events-handlers (make-hash-table :test 'equal)))
+    (hemis--events-on "note-created" #'ignore)
+    (should (eq (gethash "note-created" hemis--events-handlers) #'ignore))))
+
+(ert-deftest hemis-events-filter-dispatches-to-handler ()
+  "Test that hemis--events-filter parses JSON and calls the right handler."
+  (let ((hemis--events-handlers (make-hash-table :test 'equal))
+        (hemis--events-buffer "")
+        (received-events nil))
+    (hemis--events-on "note-created"
+                      (lambda (event)
+                        (push event received-events)))
+    ;; Simulate receiving a complete JSON line
+    (hemis--events-filter nil "{\"type\":\"note-created\",\"noteId\":\"abc\"}\n")
+    (should (= 1 (length received-events)))
+    (should (equal "note-created" (alist-get 'type (car received-events))))
+    (should (equal "abc" (alist-get 'noteId (car received-events))))))
+
+(ert-deftest hemis-events-filter-calls-catch-all ()
+  "Test that hemis--events-filter calls catch-all handler."
+  (let ((hemis--events-handlers (make-hash-table :test 'equal))
+        (hemis--events-buffer "")
+        (catch-all-events nil))
+    (hemis--events-on "*" (lambda (event) (push event catch-all-events)))
+    (hemis--events-filter nil "{\"type\":\"any-event\"}\n")
+    (should (= 1 (length catch-all-events)))
+    (should (equal "any-event" (alist-get 'type (car catch-all-events))))))
+
+(ert-deftest hemis-events-filter-handles-partial-data ()
+  "Test that hemis--events-filter buffers partial JSON."
+  (let ((hemis--events-handlers (make-hash-table :test 'equal))
+        (hemis--events-buffer "")
+        (received-events nil))
+    (hemis--events-on "test" (lambda (event) (push event received-events)))
+    ;; Send partial data (no newline)
+    (hemis--events-filter nil "{\"type\":\"test\"")
+    (should (= 0 (length received-events)))
+    (should (equal "{\"type\":\"test\"" hemis--events-buffer))
+    ;; Complete the message
+    (hemis--events-filter nil ",\"data\":1}\n")
+    (should (= 1 (length received-events)))
+    (should (equal "test" (alist-get 'type (car received-events))))))
+
+(ert-deftest hemis-events-filter-handles-multiple-events ()
+  "Test that hemis--events-filter handles multiple events in one chunk."
+  (let ((hemis--events-handlers (make-hash-table :test 'equal))
+        (hemis--events-buffer "")
+        (received-events nil))
+    (hemis--events-on "event" (lambda (event) (push event received-events)))
+    ;; Send multiple events at once
+    (hemis--events-filter nil "{\"type\":\"event\",\"n\":1}\n{\"type\":\"event\",\"n\":2}\n")
+    (should (= 2 (length received-events)))
+    ;; Events are pushed, so reverse order
+    (should (= 2 (alist-get 'n (car received-events))))
+    (should (= 1 (alist-get 'n (cadr received-events))))))
+
+(ert-deftest hemis-events-filter-ignores-invalid-json ()
+  "Test that hemis--events-filter handles invalid JSON gracefully."
+  (let ((hemis--events-handlers (make-hash-table :test 'equal))
+        (hemis--events-buffer "")
+        (received-events nil))
+    (hemis--events-on "test" (lambda (event) (push event received-events)))
+    ;; Send invalid JSON followed by valid JSON
+    (hemis--events-filter nil "not valid json\n{\"type\":\"test\"}\n")
+    ;; Should have received the valid event
+    (should (= 1 (length received-events)))))
+
 (provide 'hemis-test)
