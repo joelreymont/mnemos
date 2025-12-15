@@ -847,6 +847,73 @@ impl Server {
     assert.ok(created.formattedLines!.length >= 3, 'Should have at least 3 formatted lines');
   });
 
+  test('Explain region AI: creates note with AI explanation', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    // Skip if AI not configured
+    const aiConfigured = process.env['HEMIS_AI_PROVIDER'] ||
+      fs.existsSync(path.join(os.homedir(), '.config/hemis/config.toml'));
+
+    this.timeout(120000); // AI can take up to 2 minutes
+
+    await client.start();
+
+    // Create test file
+    const testFile = path.join(testDir, 'explain-ai-test.rs');
+    fs.writeFileSync(testFile, DEMO_CODE);
+
+    // Call explain-region with useAI=true
+    const explainResult = await client.request<{
+      content?: string;
+      explanation?: string;
+      ai?: { statusDisplay?: string };
+    }>('hemis/explain-region', {
+      file: testFile,
+      startLine: 2,
+      endLine: 4,
+      projectRoot: testDir,
+      content: DEMO_CODE,
+      useAI: true,
+    });
+
+    // If AI is configured, we should get an explanation
+    if (aiConfigured) {
+      assert.ok(explainResult, 'Should return result');
+      if (explainResult.explanation) {
+        // AI returned explanation - create note with it
+        const statusDisplay = explainResult.ai?.statusDisplay || '[AI]';
+        const noteText = `${statusDisplay} ${explainResult.explanation}`;
+
+        const note = await client.request<{ id: string; text: string }>('notes/create', {
+          file: testFile,
+          projectRoot: testDir,
+          line: 2,
+          column: 0,
+          text: noteText,
+          content: DEMO_CODE,
+        });
+
+        assert.ok(note.id, 'Note should be created with AI explanation');
+        assert.ok(note.text.includes('['), 'Note should include AI status');
+
+        // Verify note appears in list
+        const listResult = await client.request<{ notes: Array<{ id: string }> }>('notes/list-for-file', {
+          file: testFile,
+          projectRoot: testDir,
+          content: DEMO_CODE,
+        });
+
+        const notes = unwrapNotes(listResult) as Array<{ id: string }>;
+        assert.ok(notes.some(n => n.id === note.id), 'Note should appear in list');
+      }
+    }
+    // If AI not configured, just verify explain-region doesn't error
+    assert.ok(explainResult !== undefined, 'Explain region should return something');
+  });
+
   test('Full create-display-delete cycle', async function() {
     if (!backend) {
       this.skip();

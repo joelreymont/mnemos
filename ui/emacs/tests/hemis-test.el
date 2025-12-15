@@ -285,6 +285,96 @@
           (goto-char (point-min))
           (should (search-forward "stub" nil t)))))))
 
+;;; Explain Region AI E2E Tests
+;;; Tests that explain-region-ai creates notes like Neovim does
+
+(ert-deftest hemis-explain-region-ai-creates-note ()
+  "Test that explain-region-ai creates a note with AI explanation.
+This mirrors Neovim's explain_region_e2e_spec.lua behavior."
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (insert "fn main() {\n    let config = load_config();\n    server.start();\n}\n")
+      (set-visited-file-name "/tmp/explain-ai.rs" t t)
+      (setq comment-start "// ")
+      (goto-char (point-min))
+      (forward-line 1)
+      (let ((note-created nil)
+            (note-text-captured nil)
+            (request-log nil))
+        (cl-letf (((symbol-function 'hemis--request)
+                   (lambda (method &optional params)
+                     (push (cons method params) request-log)
+                     (pcase method
+                       ("hemis/explain-region"
+                        '((content . "let config = load_config();")
+                          (explanation . "This code loads configuration from the default config loader.")
+                          (ai . ((statusDisplay . "[AI]")
+                                 (model . "test-model")))))
+                       ("notes/create"
+                        (setq note-created t)
+                        (setq note-text-captured (cdr (assoc 'text params)))
+                        '((id . "ai-note-id")
+                          (file . "/tmp/explain-ai.rs")
+                          (line . 2)
+                          (column . 0)
+                          (text . "mock")))
+                       (_ nil))))
+                  ((symbol-function 'hemis--make-note-overlay)
+                   (lambda (_note) nil)))
+          (hemis-explain-region-ai (line-beginning-position) (line-end-position))
+          (let ((explain-call (assoc "hemis/explain-region" request-log)))
+            (should explain-call)
+            (should (eq t (cdr (assoc 'useAI (cdr explain-call))))))
+          (should note-created)
+          (should (stringp note-text-captured))
+          (should (string-match-p "\\[AI\\]" note-text-captured))
+          (should (string-match-p "loads configuration" note-text-captured)))))))
+
+(ert-deftest hemis-explain-region-ai-no-explanation ()
+  "Test that explain-region-ai shows message when AI returns no explanation."
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (insert "fn main() {}\n")
+      (set-visited-file-name "/tmp/no-explain.rs" t t)
+      (goto-char (point-min))
+      (let ((message-shown nil))
+        (cl-letf (((symbol-function 'hemis--request)
+                   (lambda (method &optional _params)
+                     (pcase method
+                       ("hemis/explain-region"
+                        '((content . "fn main() {}")))
+                       (_ nil))))
+                  ((symbol-function 'message)
+                   (lambda (fmt &rest _args)
+                     (when (string-match-p "No AI explanation" fmt)
+                       (setq message-shown t)))))
+          (hemis-explain-region-ai (point-min) (point-max))
+          (should message-shown))))))
+
+(ert-deftest hemis-explain-region-ai-detailed ()
+  "Test that explain-region-ai-detailed passes detailed flag."
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (insert "fn main() {}\n")
+      (set-visited-file-name "/tmp/detailed.rs" t t)
+      (goto-char (point-min))
+      (let ((detailed-flag nil))
+        (cl-letf (((symbol-function 'hemis--request)
+                   (lambda (method &optional params)
+                     (pcase method
+                       ("hemis/explain-region"
+                        (setq detailed-flag (cdr (assoc 'detailed params)))
+                        '((content . "fn main() {}")
+                          (explanation . "Detailed explanation here")
+                          (ai . ((statusDisplay . "[AI]")))))
+                       ("notes/create"
+                        '((id . "detailed-note")))
+                       (_ nil))))
+                  ((symbol-function 'hemis--make-note-overlay)
+                   (lambda (_note) nil)))
+          (hemis-explain-region-ai-detailed (point-min) (point-max))
+          (should (eq t detailed-flag)))))))
+
 (ert-deftest hemis-list-notes-renders-buffer ()
   (hemis-test-with-mocked-backend
     (with-temp-buffer
