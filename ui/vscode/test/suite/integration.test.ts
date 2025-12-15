@@ -379,6 +379,37 @@ suite('Integration Test Suite', () => {
     assert.ok(version2.protocolVersion, 'Should get version after reconnect');
   });
 
+  test('RPC client can search notes for link insertion', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    await client.start();
+
+    // Create a note that we'll search for
+    const created = await client.request<{ id: string; text: string }>('notes/create', {
+      file: '/tmp/link-search-test.rs',
+      projectRoot: '/tmp',
+      line: 1,
+      column: 0,
+      text: 'Unique searchable note for linking',
+    });
+
+    assert.ok(created.id, 'Note should be created');
+
+    // Search for the note using notes/search (used by link insertion)
+    const results = await client.request<Array<{ id: string; text: string; summary?: string }>>('notes/search', {
+      query: 'Unique searchable',
+    });
+
+    assert.ok(Array.isArray(results), 'Search should return array');
+    assert.ok(results.length >= 1, 'Should find at least one note');
+    assert.ok(results.some(r => r.id === created.id), 'Should find the created note');
+  });
+
   test('RPC client can query backlinks', async function() {
     if (!backend) {
       this.skip();
@@ -962,5 +993,196 @@ impl Server {
 
     const notesAfterDelete = unwrapNotes(listAfterDelete) as Array<{ id: string }>;
     assert.strictEqual(notesAfterDelete.length, 0, 'Should have 0 notes after delete');
+  });
+});
+
+// Goto-Symbol E2E Tests (mirrors Neovim visual_e2e_spec.lua)
+// Tests the full goto-symbol flow: index -> search -> navigate
+suite('Goto-Symbol E2E Tests', () => {
+  const backend = findBackend();
+  let testDir: string;
+  let client: TestRpcClient;
+
+  // Extended demo code matching Neovim's visual_e2e_spec.lua
+  const GOTO_SYMBOL_CODE = `fn main() {
+    let config = load_config();
+    let server = Server::new(config);
+    server.start();
+}
+
+fn load_config() -> Config {
+    Config::default()
+}
+
+struct Server {
+    config: Config,
+}
+
+impl Server {
+    fn new(config: Config) -> Self {
+        Self { config }
+    }
+
+    fn start(&self) {
+        println!("Starting server...");
+    }
+}
+
+struct Config {
+    port: u16,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { port: 8080 }
+    }
+}
+`;
+
+  setup(async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    testDir = createTestDir();
+    client = new TestRpcClient(testDir, backend);
+  });
+
+  teardown(async () => {
+    if (client) {
+      await client.shutdown();
+    }
+    if (testDir) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      cleanupTestDir(testDir);
+    }
+  });
+
+  test('GOTO-SYMBOL: fn load_config returns line 7', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    await client.start();
+
+    const testFile = path.join(testDir, 'goto-symbol.rs');
+    fs.writeFileSync(testFile, GOTO_SYMBOL_CODE);
+
+    // Index the file
+    await client.request('index/add-file', {
+      file: testFile,
+      projectRoot: testDir,
+      content: GOTO_SYMBOL_CODE,
+    });
+
+    // Search for symbol
+    const results = await client.request<Array<{ file: string; line: number; text: string }>>('index/search', {
+      query: 'fn load_config',
+      projectRoot: testDir,
+    });
+
+    assert.ok(Array.isArray(results), 'Should return array');
+    assert.ok(results.length > 0, 'Should find at least one result');
+    assert.strictEqual(results[0].line, 7, 'fn load_config should be on line 7');
+    assert.ok(results[0].text.includes('fn load_config'), 'Result text should contain query');
+  });
+
+  test('GOTO-SYMBOL: impl Server returns line 15', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    await client.start();
+
+    const testFile = path.join(testDir, 'goto-symbol2.rs');
+    fs.writeFileSync(testFile, GOTO_SYMBOL_CODE);
+
+    await client.request('index/add-file', {
+      file: testFile,
+      projectRoot: testDir,
+      content: GOTO_SYMBOL_CODE,
+    });
+
+    const results = await client.request<Array<{ line: number }>>('index/search', {
+      query: 'impl Server',
+      projectRoot: testDir,
+    });
+
+    assert.ok(results.length > 0, 'Should find impl Server');
+    assert.strictEqual(results[0].line, 15, 'impl Server should be on line 15');
+  });
+
+  test('GOTO-SYMBOL: fn new returns line 16', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    await client.start();
+
+    const testFile = path.join(testDir, 'goto-symbol3.rs');
+    fs.writeFileSync(testFile, GOTO_SYMBOL_CODE);
+
+    await client.request('index/add-file', {
+      file: testFile,
+      projectRoot: testDir,
+      content: GOTO_SYMBOL_CODE,
+    });
+
+    const results = await client.request<Array<{ line: number }>>('index/search', {
+      query: 'fn new',
+      projectRoot: testDir,
+    });
+
+    assert.ok(results.length > 0, 'Should find fn new');
+    assert.strictEqual(results[0].line, 16, 'fn new should be on line 16');
+  });
+
+  test('GOTO-SYMBOL: handles symlink path canonicalization', async function() {
+    if (!backend) {
+      this.skip();
+      return;
+    }
+
+    this.timeout(10000);
+
+    // Use /tmp which is symlinked on macOS to /private/tmp
+    const tmpDir = fs.mkdtempSync(path.join('/tmp', 'hemis-goto-symlink-'));
+    const testFile = path.join(tmpDir, 'app.rs');
+    const tmpClient = new TestRpcClient(tmpDir, backend!);
+
+    try {
+      fs.writeFileSync(testFile, GOTO_SYMBOL_CODE);
+
+      await tmpClient.start();
+
+      // Index with non-canonical path
+      await tmpClient.request('index/add-file', {
+        file: testFile,
+        projectRoot: tmpDir,
+        content: GOTO_SYMBOL_CODE,
+      });
+
+      // Search with non-canonical path
+      const results = await tmpClient.request<Array<{ line: number }>>('index/search', {
+        query: 'fn load_config',
+        projectRoot: tmpDir,
+      });
+
+      assert.ok(results.length > 0, 'Should find results even with symlinked path');
+      assert.strictEqual(results[0].line, 7, 'fn load_config should be on line 7');
+    } finally {
+      await tmpClient.shutdown();
+      cleanupTestDir(tmpDir);
+    }
   });
 });
