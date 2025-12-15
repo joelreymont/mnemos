@@ -948,9 +948,10 @@ Shows picker if multiple notes at same position."
       (message "Hemis: note reattached")
       (hemis-refresh-notes))))
 
-(defun hemis-explain-region (beg end &optional use-ai)
+(defun hemis-explain-region (beg end &optional use-ai detailed)
   "Request an explanation for the region from BEG to END.
-With prefix arg or USE-AI non-nil, use AI to explain."
+With prefix arg or USE-AI non-nil, use AI to explain.
+With DETAILED non-nil, request a more thorough explanation."
   (interactive "r\nP")
   (unless (and (buffer-file-name) beg end)
     (user-error "No region or file to explain"))
@@ -967,6 +968,8 @@ With prefix arg or USE-AI non-nil, use AI to explain."
               (setq params (append params `((projectRoot . ,project-root))))))
          (_ (when use-ai
               (setq params (append params '((useAI . t))))))
+         (_ (when detailed
+              (setq params (append params '((detailed . t))))))
          (resp (hemis--request "hemis/explain-region" params))
          (snippet (alist-get 'content resp))
          (explanation (alist-get 'explanation resp))
@@ -990,7 +993,12 @@ With prefix arg or USE-AI non-nil, use AI to explain."
 (defun hemis-explain-region-ai (beg end)
   "Request an AI-powered explanation for the region from BEG to END."
   (interactive "r")
-  (hemis-explain-region beg end t))
+  (hemis-explain-region beg end t nil))
+
+(defun hemis-explain-region-ai-detailed (beg end)
+  "Request a detailed AI-powered explanation for the region from BEG to END."
+  (interactive "r")
+  (hemis-explain-region beg end t t))
 
 (defun hemis-refresh-notes ()
   "Fetch and render all notes for the current buffer.
@@ -1444,8 +1452,8 @@ Shows picker if multiple notes at same position."
     (define-key map (kbd "C-c h E") #'hemis-edit-note-buffer)
     (define-key map (kbd "C-c h d") #'hemis-delete-note-at-point)
     (define-key map (kbd "C-c h b") #'hemis-show-backlinks)
-    (define-key map (kbd "C-c h x") #'hemis-explain-region)
-    (define-key map (kbd "C-c h X") #'hemis-explain-region-ai)
+    (define-key map (kbd "C-c h x") #'hemis-explain-region-ai)
+    (define-key map (kbd "C-c h X") #'hemis-explain-region-ai-detailed)
     (define-key map (kbd "C-c h R") #'hemis-reattach-note)
     (define-key map (kbd "C-c h S") #'hemis-status)
     (define-key map (kbd "C-c h s") #'hemis-select-note)
@@ -1468,8 +1476,8 @@ Shows picker if multiple notes at same position."
     (define-key hemis-notes-mode-map (kbd "C-c h E") #'hemis-edit-note-buffer)
     (define-key hemis-notes-mode-map (kbd "C-c h d") #'hemis-delete-note-at-point)
     (define-key hemis-notes-mode-map (kbd "C-c h b") #'hemis-show-backlinks)
-    (define-key hemis-notes-mode-map (kbd "C-c h x") #'hemis-explain-region)
-    (define-key hemis-notes-mode-map (kbd "C-c h X") #'hemis-explain-region-ai)
+    (define-key hemis-notes-mode-map (kbd "C-c h x") #'hemis-explain-region-ai)
+    (define-key hemis-notes-mode-map (kbd "C-c h X") #'hemis-explain-region-ai-detailed)
     (define-key hemis-notes-mode-map (kbd "C-c h R") #'hemis-reattach-note)
     (define-key hemis-notes-mode-map (kbd "C-c h S") #'hemis-status)
     (define-key hemis-notes-mode-map (kbd "C-c h s") #'hemis-select-note)
@@ -1582,8 +1590,8 @@ Shows picker if multiple notes at same position."
   C-c h p    Index entire project
   C-c h f    Search project (files and notes)
   C-c h k    Insert a link to another note
-  C-c h x    Explain selected region
-  C-c h X    Explain region with AI
+  C-c h x    Explain region with AI
+  C-c h X    Explain region with AI (detailed)
   C-c h S    Show status (note/file counts)
   C-c h s    Select note at cursor or from list
   C-c h ESC  Clear note selection
