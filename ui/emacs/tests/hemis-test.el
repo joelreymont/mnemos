@@ -292,6 +292,54 @@
 ;;; Explain Region AI E2E Tests
 ;;; Tests that explain-region-ai creates notes like Neovim does
 
+(ert-deftest hemis-explain-region-ai-shows-timer-message ()
+  "Test that explain-region-ai shows 'AI thinking... 0s' message."
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (insert "fn main() {}\n")
+      (set-visited-file-name "/tmp/timer-test.rs" t t)
+      (goto-char (point-min))
+      (let ((messages-shown nil))
+        (cl-letf (((symbol-function 'hemis--request)
+                   (lambda (method &optional _params)
+                     (pcase method
+                       ("hemis/explain-region"
+                        '(:explanation "test" :ai (:statusDisplay "[AI]")))
+                       ("notes/create"
+                        '(:id "test-id")))))
+                  ((symbol-function 'hemis--make-note-overlay) #'ignore)
+                  ((symbol-function 'message)
+                   (lambda (fmt &rest args)
+                     (push (apply #'format fmt args) messages-shown))))
+          (hemis-explain-region-ai (point-min) (point-max))
+          ;; Should have shown "AI thinking... 0s"
+          (should (cl-some (lambda (m) (string-match-p "AI thinking\\.\\.\\. 0s" m))
+                           messages-shown)))))))
+
+(ert-deftest hemis-explain-region-ai-detailed-shows-timer-message ()
+  "Test that explain-region-ai-detailed shows 'AI thinking deeply... 0s' message."
+  (hemis-test-with-mocked-backend
+    (with-temp-buffer
+      (insert "fn main() {}\n")
+      (set-visited-file-name "/tmp/timer-test2.rs" t t)
+      (goto-char (point-min))
+      (let ((messages-shown nil))
+        (cl-letf (((symbol-function 'hemis--request)
+                   (lambda (method &optional _params)
+                     (pcase method
+                       ("hemis/explain-region"
+                        '(:explanation "test" :ai (:statusDisplay "[AI]")))
+                       ("notes/create"
+                        '(:id "test-id")))))
+                  ((symbol-function 'hemis--make-note-overlay) #'ignore)
+                  ((symbol-function 'message)
+                   (lambda (fmt &rest args)
+                     (push (apply #'format fmt args) messages-shown))))
+          (hemis-explain-region-ai-detailed (point-min) (point-max))
+          ;; Should have shown "AI thinking deeply... 0s"
+          (should (cl-some (lambda (m) (string-match-p "AI thinking deeply\\.\\.\\. 0s" m))
+                           messages-shown)))))))
+
 (ert-deftest hemis-explain-region-ai-creates-note ()
   "Test that explain-region-ai creates a note with AI explanation.
 This mirrors Neovim's explain_region_e2e_spec.lua behavior."

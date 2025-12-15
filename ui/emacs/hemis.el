@@ -1002,13 +1002,41 @@ Creates a note at the region start with the detailed AI explanation."
   (interactive "r")
   (hemis--explain-region-create-note beg end t))
 
+;; AI timer for explain-region
+(defvar hemis--ai-timer nil "Timer for AI thinking message.")
+(defvar hemis--ai-start-time nil "Start time for AI request.")
+(defvar hemis--ai-message nil "Base message for AI timer.")
+
+(defun hemis--ai-timer-update ()
+  "Update AI thinking message with elapsed time."
+  (when hemis--ai-start-time
+    (let ((elapsed (truncate (float-time (time-subtract (current-time) hemis--ai-start-time)))))
+      (message "%s %ds" hemis--ai-message elapsed))))
+
+(defun hemis--ai-timer-start (msg)
+  "Start AI timer with MSG."
+  (hemis--ai-timer-stop)
+  (setq hemis--ai-message msg
+        hemis--ai-start-time (current-time))
+  (message "%s 0s" msg)
+  (setq hemis--ai-timer (run-with-timer 1 1 #'hemis--ai-timer-update)))
+
+(defun hemis--ai-timer-stop ()
+  "Stop AI timer."
+  (when hemis--ai-timer
+    (cancel-timer hemis--ai-timer)
+    (setq hemis--ai-timer nil))
+  (setq hemis--ai-start-time nil
+        hemis--ai-message nil))
+
 (defun hemis--explain-region-create-note (beg end detailed)
   "Request AI explanation for region BEG to END and create a note.
 If DETAILED is non-nil, request a more thorough explanation."
   (unless (and (buffer-file-name) beg end)
     (user-error "No region or file to explain"))
-  (message "AI thinking...")
-  (let* ((file (buffer-file-name))
+  (hemis--ai-timer-start (if detailed "AI thinking deeply..." "AI thinking..."))
+  (unwind-protect
+      (let* ((file (buffer-file-name))
          (start-line (line-number-at-pos beg))
          (end-line (line-number-at-pos end))
          (content (buffer-substring-no-properties (point-min) (point-max)))
@@ -1046,6 +1074,7 @@ If DETAILED is non-nil, request a more thorough explanation."
           (hemis--make-note-overlay note)
           (message "Hemis: AI note created.")
           note)))))
+    (hemis--ai-timer-stop))
 
 (defun hemis-refresh-notes ()
   "Fetch and render all notes for the current buffer.
