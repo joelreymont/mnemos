@@ -1972,4 +1972,82 @@ Handles :json-false which is truthy in Emacs."
     ;; Should have received the valid event
     (should (= 1 (length received-events)))))
 
+;;; Follow-link Tests
+
+(ert-deftest hemis-follow-link-pattern-matches-basic ()
+  "Test that link pattern matches [[desc][uuid]] format."
+  (let ((link-re "\\[\\[[^]]*\\]\\[\\([a-f0-9-]+\\)\\]\\]")
+        (test-uuid "12345678-1234-1234-1234-123456789abc"))
+    ;; Link in middle of line
+    (let ((line (concat "See [[target note][" test-uuid "]] for details")))
+      (should (string-match link-re line))
+      (should (equal test-uuid (match-string 1 line))))
+    ;; Link at start of line
+    (let ((line (concat "[[first][" test-uuid "]] is important")))
+      (should (string-match link-re line))
+      (should (equal test-uuid (match-string 1 line))))))
+
+(ert-deftest hemis-follow-link-pattern-multiple-links ()
+  "Test finding multiple links in a line."
+  (let ((link-re "\\[\\[[^]]*\\]\\[\\([a-f0-9-]+\\)\\]\\]")
+        (uuid1 "11111111-1111-1111-1111-111111111111")
+        (uuid2 "22222222-2222-2222-2222-222222222222"))
+    (let ((line (concat "[[one][" uuid1 "]] and [[two][" uuid2 "]]")))
+      ;; Find first link
+      (should (string-match link-re line))
+      (should (equal uuid1 (match-string 1 line)))
+      ;; Find second link
+      (should (string-match link-re line (match-end 0)))
+      (should (equal uuid2 (match-string 1 line))))))
+
+(ert-deftest hemis-follow-link-pattern-no-link ()
+  "Test that pattern doesn't match non-link text."
+  (let ((link-re "\\[\\[[^]]*\\]\\[\\([a-f0-9-]+\\)\\]\\]"))
+    (should-not (string-match link-re "No links here"))
+    (should-not (string-match link-re "[[broken link"))
+    (should-not (string-match link-re "[single][brackets]"))))
+
+(ert-deftest hemis-follow-link-finds-link-at-cursor ()
+  "Test finding the correct link when cursor is at different positions."
+  (let ((link-re "\\[\\[[^]]*\\]\\[\\([a-f0-9-]+\\)\\]\\]")
+        (uuid1 "11111111-1111-1111-1111-111111111111")
+        (uuid2 "22222222-2222-2222-2222-222222222222"))
+    (let ((line (concat "[[first][" uuid1 "]] middle [[second][" uuid2 "]]")))
+      ;; Helper to find link at column
+      (cl-flet ((find-link-at-col
+                 (col)
+                 (let ((pos 0)
+                       (found-id nil))
+                   (while (and (not found-id)
+                               (string-match link-re line pos))
+                     (let ((start (match-beginning 0))
+                           (end (match-end 0))
+                           (id (match-string 1 line)))
+                       (when (and (>= col start) (<= col end))
+                         (setq found-id id))
+                       (setq pos end)))
+                   found-id)))
+        ;; Cursor on first link
+        (should (equal uuid1 (find-link-at-col 5)))
+        ;; Cursor on second link
+        (should (equal uuid2 (find-link-at-col 60)))
+        ;; Cursor between links
+        (should-not (find-link-at-col 50))))))
+
+(ert-deftest hemis-follow-link-empty-description ()
+  "Test link with empty description."
+  (let ((link-re "\\[\\[[^]]*\\]\\[\\([a-f0-9-]+\\)\\]\\]")
+        (uuid "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
+    (let ((line (concat "[[" "][" uuid "]]")))
+      (should (string-match link-re line))
+      (should (equal uuid (match-string 1 line))))))
+
+(ert-deftest hemis-follow-link-special-chars-description ()
+  "Test link with special characters in description."
+  (let ((link-re "\\[\\[[^]]*\\]\\[\\([a-f0-9-]+\\)\\]\\]")
+        (uuid "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
+    (let ((line (concat "[[foo: bar (baz)][" uuid "]]")))
+      (should (string-match link-re line))
+      (should (equal uuid (match-string 1 line))))))
+
 (provide 'hemis-test)

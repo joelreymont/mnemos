@@ -1510,4 +1510,55 @@ impl Server {
       assert.equals(0, extmarks_after_delete, "Should have 0 extmarks after delete")
     end)
   end)
+
+  describe("commands.follow_link", function()
+    it("parses link and gets note by id", function()
+      local env = get_test_env()
+      local done = false
+      local connect_ok = false
+      local note_id = nil
+      local fetched_note = nil
+
+      env.rpc.start(function(ok)
+        if not ok then
+          done = true
+          return
+        end
+        connect_ok = true
+
+        -- Create target note
+        env.rpc.request("notes/create", {
+          file = env.file,
+          line = 2,
+          column = 4,
+          text = "Target note for follow",
+          projectRoot = env.dir,
+        }, function(err, res)
+          if not res then
+            done = true
+            return
+          end
+          note_id = res.id
+
+          -- Now fetch the note by ID (what follow_link does internally)
+          env.rpc.request("notes/get", {
+            id = note_id,
+          }, function(err2, note)
+            fetched_note = note
+            done = true
+          end)
+        end)
+      end)
+
+      helpers.wait_for(function() return done end, 5000)
+      env.cleanup()
+
+      assert.truthy(connect_ok, "Backend connection failed")
+      assert.is_not_nil(note_id, "Note should be created")
+      assert.is_not_nil(fetched_note, "Should fetch note by ID")
+      assert.equals(note_id, fetched_note.id)
+      assert.equals(env.file, fetched_note.file)
+      assert.equals(2, fetched_note.line)
+    end)
+  end)
 end)

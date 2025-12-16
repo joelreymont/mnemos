@@ -228,4 +228,103 @@ suite('Stubbed Tests - No Backend Required', () => {
       assert.strictEqual(result, '// Fallback text');
     });
   });
+
+  suite('Follow Link Pattern Parsing', () => {
+    // Same link pattern used in commands.ts for followLinkCommand
+    const linkPattern = /\[\[[^\]]*\]\[([a-f0-9-]+)\]\]/g;
+
+    test('link pattern matches [[desc][uuid]] format', () => {
+      const testUuid = '12345678-1234-1234-1234-123456789abc';
+
+      // Link in middle of line
+      const line1 = `See [[target note][${testUuid}]] for details`;
+      const match1 = linkPattern.exec(line1);
+      assert.ok(match1);
+      assert.strictEqual(match1[1], testUuid);
+
+      // Reset lastIndex for global regex
+      linkPattern.lastIndex = 0;
+
+      // Link at start of line
+      const line2 = `[[first][${testUuid}]] is important`;
+      const match2 = linkPattern.exec(line2);
+      assert.ok(match2);
+      assert.strictEqual(match2[1], testUuid);
+    });
+
+    test('link pattern finds multiple links', () => {
+      linkPattern.lastIndex = 0;
+      const uuid1 = '11111111-1111-1111-1111-111111111111';
+      const uuid2 = '22222222-2222-2222-2222-222222222222';
+      const line = `[[one][${uuid1}]] and [[two][${uuid2}]]`;
+
+      // Find first link
+      const match1 = linkPattern.exec(line);
+      assert.ok(match1);
+      assert.strictEqual(match1[1], uuid1);
+
+      // Find second link
+      const match2 = linkPattern.exec(line);
+      assert.ok(match2);
+      assert.strictEqual(match2[1], uuid2);
+    });
+
+    test('link pattern does not match non-links', () => {
+      linkPattern.lastIndex = 0;
+      assert.strictEqual(linkPattern.exec('No links here'), null);
+
+      linkPattern.lastIndex = 0;
+      assert.strictEqual(linkPattern.exec('[[broken link'), null);
+
+      linkPattern.lastIndex = 0;
+      assert.strictEqual(linkPattern.exec('[single][brackets]'), null);
+    });
+
+    test('finds correct link at cursor position', () => {
+      const uuid1 = '11111111-1111-1111-1111-111111111111';
+      const uuid2 = '22222222-2222-2222-2222-222222222222';
+      const line = `[[first][${uuid1}]] middle [[second][${uuid2}]]`;
+
+      // Helper to find link at column (matches logic in followLinkCommand)
+      function findLinkAtCol(lineStr: string, col: number): string | null {
+        const pattern = /\[\[[^\]]*\]\[([a-f0-9-]+)\]\]/g;
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(lineStr)) !== null) {
+          const start = match.index;
+          const end = start + match[0].length;
+          if (col >= start && col < end) {
+            return match[1];
+          }
+        }
+        return null;
+      }
+
+      // Cursor on first link (col 5 is inside [[first][...]])
+      assert.strictEqual(findLinkAtCol(line, 5), uuid1);
+
+      // Cursor on second link (col 60 is inside [[second][...]])
+      assert.strictEqual(findLinkAtCol(line, 60), uuid2);
+
+      // Cursor between links (col 50 is in " middle ")
+      assert.strictEqual(findLinkAtCol(line, 50), null);
+    });
+
+    test('link with empty description', () => {
+      linkPattern.lastIndex = 0;
+      const uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+      const line = `[[` + `][${uuid}]]`;
+      const match = linkPattern.exec(line);
+      assert.ok(match);
+      assert.strictEqual(match[1], uuid);
+    });
+
+    test('link with special characters in description', () => {
+      linkPattern.lastIndex = 0;
+      const uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+      const line = `[[foo: bar (baz)][${uuid}]]`;
+      const match = linkPattern.exec(line);
+      assert.ok(match);
+      assert.strictEqual(match[1], uuid);
+    });
+  });
 });

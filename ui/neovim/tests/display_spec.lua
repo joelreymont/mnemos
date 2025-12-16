@@ -894,3 +894,89 @@ describe("hemis selected note highlighting", function()
     assert.truthy(has_normal_hl, "Should use HemisNote when no selection")
   end)
 end)
+
+-- Tests for follow_link link pattern parsing
+describe("hemis follow_link", function()
+  it("link pattern matches [[desc][uuid]] format", function()
+    local link_pattern = "%[%[.-%]%[([%x%-]+)%]%]"
+    local test_uuid = "12345678-1234-1234-1234-123456789abc"
+
+    -- Test: link in middle of line
+    local line1 = "See [[target note][" .. test_uuid .. "]] for details"
+    local s, e, id = line1:find(link_pattern)
+    assert.is_not_nil(s)
+    assert.equals(test_uuid, id)
+
+    -- Test: link at start of line
+    local line2 = "[[first][" .. test_uuid .. "]] is important"
+    s, e, id = line2:find(link_pattern)
+    assert.is_not_nil(s)
+    assert.equals(test_uuid, id)
+
+    -- Test: multiple links - finds first
+    local uuid2 = "abcdef01-2345-6789-abcd-ef0123456789"
+    local line3 = "[[one][" .. test_uuid .. "]] and [[two][" .. uuid2 .. "]]"
+    s, e, id = line3:find(link_pattern)
+    assert.equals(test_uuid, id)
+    -- Find second link
+    s, e, id = line3:find(link_pattern, e + 1)
+    assert.equals(uuid2, id)
+
+    -- Test: no link
+    local line4 = "No links here"
+    s, e, id = line4:find(link_pattern)
+    assert.is_nil(s)
+  end)
+
+  it("finds correct link when cursor is on it", function()
+    local link_pattern = "%[%[.-%]%[([%x%-]+)%]%]"
+    local uuid1 = "11111111-1111-1111-1111-111111111111"
+    local uuid2 = "22222222-2222-2222-2222-222222222222"
+    -- [[first][uuid1]] = 47 chars, " middle " = 8 chars, [[second][uuid2]] = 48 chars
+    local line = "[[first][" .. uuid1 .. "]] middle [[second][" .. uuid2 .. "]]"
+
+    -- Helper to find link at column (1-indexed)
+    local function find_link_at_col(line_str, col)
+      local link_start = 1
+      while true do
+        local s, e, id = line_str:find(link_pattern, link_start)
+        if not s then return nil end
+        if col >= s and col <= e then
+          return id
+        end
+        link_start = e + 1
+      end
+    end
+
+    -- Cursor on first link (col 5 is inside [[first][...]])
+    assert.equals(uuid1, find_link_at_col(line, 5))
+
+    -- Cursor on second link (col 60 is inside [[second][...]])
+    assert.equals(uuid2, find_link_at_col(line, 60))
+
+    -- Cursor between links (col 50 is in " middle ")
+    assert.is_nil(find_link_at_col(line, 50))
+  end)
+
+  it("handles empty description in link", function()
+    local link_pattern = "%[%[.-%]%[([%x%-]+)%]%]"
+    local uuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+    -- Empty description
+    local line = "[[" .. "][" .. uuid .. "]]"
+    local s, e, id = line:find(link_pattern)
+    assert.is_not_nil(s)
+    assert.equals(uuid, id)
+  end)
+
+  it("handles special characters in description", function()
+    local link_pattern = "%[%[.-%]%[([%x%-]+)%]%]"
+    local uuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+    -- Description with special chars
+    local line = "[[foo: bar (baz)][" .. uuid .. "]]"
+    local s, e, id = line:find(link_pattern)
+    assert.is_not_nil(s)
+    assert.equals(uuid, id)
+  end)
+end)
