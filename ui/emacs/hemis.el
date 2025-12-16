@@ -1077,50 +1077,61 @@ Creates a note at the region start with the detailed AI explanation."
 
 (defun hemis--explain-region-create-note (beg end detailed)
   "Request AI explanation for region BEG to END and create a note.
-If DETAILED is non-nil, request a more thorough explanation."
+If DETAILED is non-nil, request a more thorough explanation.
+Uses async request so timer updates are visible."
   (unless (and (buffer-file-name) beg end)
     (user-error "No region or file to explain"))
-  (hemis--ai-timer-start (if detailed "AI thinking deeply..." "AI thinking..."))
-  (unwind-protect
-      (let* ((file (buffer-file-name))
+  (hemis--ensure-connection)
+  ;; Capture context before async call
+  (let* ((buf (current-buffer))
+         (file (buffer-file-name))
          (start-line (line-number-at-pos beg))
          (end-line (line-number-at-pos end))
          (content (buffer-substring-no-properties (point-min) (point-max)))
          (project-root (hemis--project-root))
+         (target-pos beg)
          (params `((file . ,file)
                    (startLine . ,start-line)
                    (endLine . ,end-line)
                    (content . ,content)
-                   (useAI . t)))
-         (_ (when project-root
-              (setq params (append params `((projectRoot . ,project-root))))))
-         (_ (when detailed
-              (setq params (append params '((detailed . t))))))
-         (resp (hemis--request "hemis/explain-region" params))
-         ;; Response is plist with keyword keys from jsonrpc
-         (explanation (plist-get resp :explanation))
-         (ai-info (plist-get resp :ai)))
-    (if (not explanation)
-        (progn
-          (message "No AI explanation available")
-          nil)
-      ;; Create note at region start with AI explanation
-      (goto-char beg)
-      (let* ((status-display (plist-get ai-info :statusDisplay))
-             (note-text (if status-display
-                            (format "%s %s" status-display explanation)
-                          explanation))
-             (anchor (hemis--note-anchor))
-             (note-params (append (hemis--buffer-params t)
-                                  `((line . ,(plist-get anchor :line))
-                                    (column . ,(plist-get anchor :column))
-                                    (text . ,note-text)))))
-        (let ((note (hemis--request "notes/create" note-params)))
-          (hemis--debug "explain-region: created note id=%s" (hemis--note-get note 'id))
-          (hemis--make-note-overlay note)
-          (message "Hemis: AI note created.")
-          note)))))
-    (hemis--ai-timer-stop))
+                   (useAI . t))))
+    (when project-root
+      (setq params (append params `((projectRoot . ,project-root)))))
+    (when detailed
+      (setq params (append params '((detailed . t)))))
+    ;; Start timer - will update while async request runs
+    (hemis--ai-timer-start (if detailed "AI thinking deeply..." "AI thinking..."))
+    ;; Async request allows timer to fire
+    (jsonrpc-async-request
+     hemis--conn "hemis/explain-region" params
+     :success-fn
+     (lambda (resp)
+       (hemis--ai-timer-stop)
+       (let ((explanation (plist-get resp :explanation))
+             (ai-info (plist-get resp :ai)))
+         (if (not explanation)
+             (message "No AI explanation available")
+           (with-current-buffer buf
+             (save-excursion
+               (goto-char target-pos)
+               (let* ((status-display (plist-get ai-info :statusDisplay))
+                      (note-text (if status-display
+                                     (format "%s %s" status-display explanation)
+                                   explanation))
+                      (anchor (hemis--note-anchor))
+                      (note-params (append (hemis--buffer-params t)
+                                           `((line . ,(plist-get anchor :line))
+                                             (column . ,(plist-get anchor :column))
+                                             (text . ,note-text)))))
+                 (let ((note (hemis--request "notes/create" note-params)))
+                   (hemis--debug "explain-region: created note id=%s" (hemis--note-get note 'id))
+                   (hemis--make-note-overlay note)
+                   (message "Hemis: AI note created."))))))))
+     :error-fn
+     (lambda (err)
+       (hemis--ai-timer-stop)
+       (message "AI explain failed: %s" (plist-get err :message)))
+     :timeout hemis-request-timeout)))
 
 (defun hemis-refresh-notes ()
   "Fetch and render all notes for the current buffer.
