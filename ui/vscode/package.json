@@ -221,14 +221,14 @@
       },
       {
         "command": "hemis.followLink",
-        "key": "ctrl+shift+h g",
-        "mac": "cmd+shift+h g",
+        "key": "ctrl+shift+h ]",
+        "mac": "cmd+shift+h ]",
         "when": "editorTextFocus"
       },
       {
         "command": "hemis.navigateBack",
-        "key": "ctrl+shift+h shift+g",
-        "mac": "cmd+shift+h shift+g",
+        "key": "ctrl+shift+h [",
+        "mac": "cmd+shift+h [",
         "when": "editorTextFocus"
       },
       {

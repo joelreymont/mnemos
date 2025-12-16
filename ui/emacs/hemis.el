@@ -1570,7 +1570,8 @@ Shows picker if multiple notes at same position."
     (define-key map (kbd "C-c h p") #'hemis-index-project)
     (define-key map (kbd "C-c h f") #'hemis-search-project)
     (define-key map (kbd "C-c h k") #'hemis-insert-note-link)
-    (define-key map (kbd "C-c h g") #'hemis-follow-link)
+    (define-key map (kbd "C-c h ]") #'hemis-follow-link)
+    (define-key map (kbd "C-c h [") #'hemis-navigate-back)
     (define-key map (kbd "C-c h e") #'hemis-edit-note-at-point)
     (define-key map (kbd "C-c h E") #'hemis-edit-note-buffer)
     (define-key map (kbd "C-c h d") #'hemis-delete-note-at-point)
@@ -1595,7 +1596,8 @@ Shows picker if multiple notes at same position."
     (define-key hemis-notes-mode-map (kbd "C-c h p") #'hemis-index-project)
     (define-key hemis-notes-mode-map (kbd "C-c h f") #'hemis-search-project)
     (define-key hemis-notes-mode-map (kbd "C-c h k") #'hemis-insert-note-link)
-    (define-key hemis-notes-mode-map (kbd "C-c h g") #'hemis-follow-link)
+    (define-key hemis-notes-mode-map (kbd "C-c h ]") #'hemis-follow-link)
+    (define-key hemis-notes-mode-map (kbd "C-c h [") #'hemis-navigate-back)
     (define-key hemis-notes-mode-map (kbd "C-c h e") #'hemis-edit-note-at-point)
     (define-key hemis-notes-mode-map (kbd "C-c h E") #'hemis-edit-note-buffer)
     (define-key hemis-notes-mode-map (kbd "C-c h d") #'hemis-delete-note-at-point)
@@ -1714,7 +1716,8 @@ Shows picker if multiple notes at same position."
   C-c h p    Index entire project
   C-c h f    Search project (files and notes)
   C-c h k    Insert a link to another note
-  C-c h g    Follow link at point
+  C-c h ]    Follow link at point
+  C-c h [    Navigate back
   C-c h x    Explain region with AI
   C-c h X    Explain region with AI (detailed)
   C-c h S    Show status (note/file counts)
