@@ -3,6 +3,9 @@ HISTORY.md
 SESSION.md
 *.log
 *.db
+*.db-shm
+*.db-wal
+*.elc
 target/
 .DS_Store
 SESSION.md.archive
