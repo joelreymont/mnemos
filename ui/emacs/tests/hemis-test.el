@@ -1119,6 +1119,42 @@ Returns list of plists with :line :before-string :face :count :texts."
           (kill-buffer edit-buf))
         (kill-buffer)))))
 
+(ert-deftest hemis-edit-note-buffer-uses-selected-note ()
+  "Test that hemis-edit-note-buffer uses hemis--selected-note if set."
+  (hemis-test-with-mocked-backend
+    (cl-letf (((symbol-function 'hemis--request)
+               (lambda (method &optional _params)
+                 (pcase method
+                   ("notes/update" '((id . "selected-id")))
+                   (_ nil))))
+              ((symbol-function 'hemis-refresh-notes) #'ignore)
+              ;; Mock markdown-mode to avoid marker issues in batch
+              ((symbol-function 'markdown-mode)
+               (lambda () (setq major-mode 'markdown-mode)))
+              ;; Mock pop-to-buffer to avoid window issues in batch
+              ((symbol-function 'pop-to-buffer)
+               (lambda (buf) (set-buffer buf))))
+      (with-current-buffer (get-buffer-create "*Hemis Test Source*")
+        (setq buffer-read-only nil)
+        (erase-buffer)
+        (insert "test source\n")
+        (goto-char (point-min))
+        ;; Set selected note (simulating C-c h s)
+        (setq hemis--selected-note '((id . "selected-note-id")
+                                     (shortId . "sel12345")
+                                     (text . "Selected note text")))
+        (hemis-edit-note-buffer)
+        ;; Should use the selected note, not note at point
+        (let ((edit-buf (get-buffer "*Hemis Edit: sel12345*")))
+          (should edit-buf)
+          (with-current-buffer edit-buf
+            (should (string-match-p "Selected note text" (buffer-string)))
+            (should (equal hemis--edit-buffer-note-id "selected-note-id")))
+          (kill-buffer edit-buf))
+        ;; Clean up
+        (setq hemis--selected-note nil)
+        (kill-buffer)))))
+
 (ert-deftest hemis-edit-buffer-save-updates-note ()
   "Test that saving from edit buffer calls notes/update."
   (hemis-test-with-mocked-backend

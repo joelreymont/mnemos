@@ -1238,9 +1238,9 @@ Shows picker if multiple notes at same position."
   "Edit the note at point in a dedicated buffer.
 Opens a new buffer with the note content for editing longer notes.
 Use C-c C-c to save, C-c C-k to cancel.
-Shows picker if multiple notes at same position."
+Uses selected note if set, otherwise shows picker if multiple notes."
   (interactive)
-  (let* ((note (hemis--note-at-point-with-picker))
+  (let* ((note (or hemis--selected-note (hemis--note-at-point-with-picker)))
          (id (and note (hemis--note-get note 'id)))
          (text (and note (hemis--note-text note))))
     (unless id
