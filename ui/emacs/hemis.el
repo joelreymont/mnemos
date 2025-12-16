@@ -918,6 +918,52 @@ With prefix arg or INCLUDE-AI non-nil, also run AI analysis."
     (delete-char -2)
     (hemis-insert-note-link)))
 
+(defun hemis-follow-link ()
+  "Follow the note link at point.
+Links have the format [[description][uuid]].  Navigate to the linked note."
+  (interactive)
+  (let* ((line (buffer-substring-no-properties
+                (line-beginning-position) (line-end-position)))
+         (col (current-column))
+         (link-re "\\[\\[[^]]*\\]\\[\\([a-f0-9-]+\\)\\]\\]")
+         (found-id nil))
+    ;; Find link at cursor position
+    (save-match-data
+      (let ((pos 0))
+        (while (and (not found-id)
+                    (string-match link-re line pos))
+          (let ((start (match-beginning 0))
+                (end (match-end 0))
+                (id (match-string 1 line)))
+            (when (and (>= col start) (<= col end))
+              (setq found-id id))
+            (setq pos end)))))
+    (unless found-id
+      (user-error "No link at point"))
+    ;; Get the note
+    (let ((note (hemis--request "notes/get" `((id . ,found-id)))))
+      (unless note
+        (user-error "Note not found: %s" found-id))
+      (let ((file (hemis--note-get note 'file))
+            (line (hemis--note-get note 'line)))
+        (unless file
+          (user-error "Note has no file location"))
+        ;; Push mark for navigation back
+        (push-mark nil t)
+        ;; Navigate to note
+        (find-file file)
+        (when line
+          (goto-char (point-min))
+          (forward-line (1- line)))
+        (message "Followed link to: %s"
+                 (or (hemis--note-get note 'summary) found-id))))))
+
+(defun hemis-navigate-back ()
+  "Navigate back after following a link.
+Uses the Emacs mark ring."
+  (interactive)
+  (pop-global-mark))
+
 (defun hemis-open-project (root)
   "Open Hemis project at ROOT and remember it for subsequent RPCs."
   (interactive "DProject root: ")
@@ -1524,6 +1570,7 @@ Shows picker if multiple notes at same position."
     (define-key map (kbd "C-c h p") #'hemis-index-project)
     (define-key map (kbd "C-c h f") #'hemis-search-project)
     (define-key map (kbd "C-c h k") #'hemis-insert-note-link)
+    (define-key map (kbd "C-c h g") #'hemis-follow-link)
     (define-key map (kbd "C-c h e") #'hemis-edit-note-at-point)
     (define-key map (kbd "C-c h E") #'hemis-edit-note-buffer)
     (define-key map (kbd "C-c h d") #'hemis-delete-note-at-point)
@@ -1548,6 +1595,7 @@ Shows picker if multiple notes at same position."
     (define-key hemis-notes-mode-map (kbd "C-c h p") #'hemis-index-project)
     (define-key hemis-notes-mode-map (kbd "C-c h f") #'hemis-search-project)
     (define-key hemis-notes-mode-map (kbd "C-c h k") #'hemis-insert-note-link)
+    (define-key hemis-notes-mode-map (kbd "C-c h g") #'hemis-follow-link)
     (define-key hemis-notes-mode-map (kbd "C-c h e") #'hemis-edit-note-at-point)
     (define-key hemis-notes-mode-map (kbd "C-c h E") #'hemis-edit-note-buffer)
     (define-key hemis-notes-mode-map (kbd "C-c h d") #'hemis-delete-note-at-point)
@@ -1666,6 +1714,7 @@ Shows picker if multiple notes at same position."
   C-c h p    Index entire project
   C-c h f    Search project (files and notes)
   C-c h k    Insert a link to another note
+  C-c h g    Follow link at point
   C-c h x    Explain region with AI
   C-c h X    Explain region with AI (detailed)
   C-c h S    Show status (note/file counts)

@@ -682,6 +682,69 @@ function M.insert_link()
   end)
 end
 
+-- Follow link under cursor - navigate to linked note
+function M.follow_link()
+  -- Get current line and cursor position
+  local line = vim.api.nvim_get_current_line()
+  local col = vim.api.nvim_win_get_cursor(0)[2] + 1 -- 1-indexed
+
+  -- Find all links in line: [[desc][uuid]]
+  -- Pattern matches: [[anything][36-char-uuid]]
+  local link_pattern = "%[%[.-%]%[([%x%-]+)%]%]"
+
+  -- Find which link the cursor is on
+  local link_start = 1
+  local found_id = nil
+  while true do
+    local s, e, id = line:find(link_pattern, link_start)
+    if not s then break end
+    -- Check if cursor is within this link
+    if col >= s and col <= e then
+      found_id = id
+      break
+    end
+    link_start = e + 1
+  end
+
+  if not found_id then
+    vim.notify("No link under cursor", vim.log.levels.INFO)
+    return
+  end
+
+  -- Get the note by ID
+  notes.get(found_id, function(err, note)
+    if err then
+      vim.notify("Failed to get note: " .. (err.message or "unknown"), vim.log.levels.ERROR)
+      return
+    end
+    if not note then
+      vim.notify("Note not found: " .. found_id, vim.log.levels.WARN)
+      return
+    end
+    if not note.file then
+      vim.notify("Note has no file location", vim.log.levels.WARN)
+      return
+    end
+
+    vim.schedule(function()
+      -- Push current position to jumplist before navigating
+      vim.cmd("normal! m'")
+
+      -- Open file and jump to line
+      vim.cmd("edit " .. vim.fn.fnameescape(note.file))
+      if note.line then
+        vim.api.nvim_win_set_cursor(0, { note.line, (note.column or 1) - 1 })
+      end
+      vim.notify("Followed link to: " .. (note.summary or note.id), vim.log.levels.INFO)
+    end)
+  end)
+end
+
+-- Navigate back after following link (uses Vim jumplist)
+function M.navigate_back()
+  vim.cmd("normal! \15") -- Ctrl-O
+end
+
 -- Index current file only
 function M.index_file()
   notes.index_file()
@@ -1281,6 +1344,8 @@ function M.setup_commands()
   vim.api.nvim_create_user_command("HemisIndexFile", M.index_file, {})
   vim.api.nvim_create_user_command("HemisIndexProject", M.index_project, {})
   vim.api.nvim_create_user_command("HemisInsertLink", M.insert_link, {})
+  vim.api.nvim_create_user_command("HemisFollowLink", M.follow_link, {})
+  vim.api.nvim_create_user_command("HemisNavigateBack", M.navigate_back, {})
   vim.api.nvim_create_user_command("HemisBacklinks", M.show_backlinks, {})
   vim.api.nvim_create_user_command("HemisReattachNote", M.reattach_note, {})
   vim.api.nvim_create_user_command("HemisStatus", M.status, {})
@@ -1316,6 +1381,7 @@ function M.setup_keymaps()
     { "p", M.index_project, "Index project" },
     { "P", M.index_file, "Index file" },
     { "k", M.insert_link, "Insert link" },
+    { "g", M.follow_link, "Follow link" },
     { "b", M.show_backlinks, "Show backlinks" },
     { "s", M.select_note, "Select note" },
     { "t", M.status, "Status" },

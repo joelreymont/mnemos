@@ -59,6 +59,14 @@
         "title": "Hemis: Insert Note Link"
       },
       {
+        "command": "hemis.followLink",
+        "title": "Hemis: Follow Link"
+      },
+      {
+        "command": "hemis.navigateBack",
+        "title": "Hemis: Navigate Back"
+      },
+      {
         "command": "hemis.status",
         "title": "Hemis: Show Status"
       },
@@ -209,6 +217,18 @@
         "command": "hemis.insertLink",
         "key": "ctrl+shift+h k",
         "mac": "cmd+shift+h k",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "hemis.followLink",
+        "key": "ctrl+shift+h g",
+        "mac": "cmd+shift+h g",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "hemis.navigateBack",
+        "key": "ctrl+shift+h shift+g",
+        "mac": "cmd+shift+h shift+g",
         "when": "editorTextFocus"
       },
       {

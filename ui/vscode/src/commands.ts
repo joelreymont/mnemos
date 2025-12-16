@@ -17,6 +17,7 @@ import {
   getProjectRoot,
   getProjectMeta,
   reattachNote,
+  getNote,
   Note,
   SearchHit,
 } from './notes';
@@ -463,6 +464,89 @@ export async function statusCommand(): Promise<void> {
   }
 }
 
+// Navigation stack for navigate-back
+const navigationStack: vscode.Location[] = [];
+
+export async function followLinkCommand(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    vscode.window.showErrorMessage('No active editor');
+    return;
+  }
+
+  const line = editor.document.lineAt(editor.selection.active.line).text;
+  const col = editor.selection.active.character;
+
+  // Find link at cursor: [[desc][uuid]]
+  const linkPattern = /\[\[[^\]]*\]\[([a-f0-9-]+)\]\]/g;
+  let match: RegExpExecArray | null;
+  let foundId: string | null = null;
+
+  while ((match = linkPattern.exec(line)) !== null) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (col >= start && col <= end) {
+      foundId = match[1];
+      break;
+    }
+  }
+
+  if (!foundId) {
+    vscode.window.showInformationMessage('No link at cursor');
+    return;
+  }
+
+  try {
+    const note = await getNote(foundId);
+    if (!note) {
+      vscode.window.showWarningMessage(`Note not found: ${foundId}`);
+      return;
+    }
+    if (!note.file) {
+      vscode.window.showWarningMessage('Note has no file location');
+      return;
+    }
+
+    // Push current position to navigation stack
+    navigationStack.push(
+      new vscode.Location(editor.document.uri, editor.selection.active)
+    );
+
+    // Navigate to note
+    const uri = vscode.Uri.file(note.file);
+    const doc = await vscode.workspace.openTextDocument(uri);
+    const targetEditor = await vscode.window.showTextDocument(doc);
+    if (note.line) {
+      const pos = new vscode.Position(note.line - 1, (note.column || 1) - 1);
+      targetEditor.selection = new vscode.Selection(pos, pos);
+      targetEditor.revealRange(new vscode.Range(pos, pos));
+    }
+    vscode.window.showInformationMessage(`Followed link to: ${note.summary || foundId}`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`Failed to follow link: ${message}`);
+  }
+}
+
+export async function navigateBackCommand(): Promise<void> {
+  const location = navigationStack.pop();
+  if (!location) {
+    vscode.window.showInformationMessage('No previous location');
+    return;
+  }
+
+  try {
+    const doc = await vscode.workspace.openTextDocument(location.uri);
+    const editor = await vscode.window.showTextDocument(doc);
+    const pos = location.range.start;
+    editor.selection = new vscode.Selection(pos, pos);
+    editor.revealRange(new vscode.Range(pos, pos));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    vscode.window.showErrorMessage(`Failed to navigate back: ${message}`);
+  }
+}
+
 export async function backlinksCommand(): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
@@ -824,6 +908,8 @@ export function registerCommands(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('hemis.indexProjectAI', indexProjectAICommand),
     vscode.commands.registerCommand('hemis.search', searchCommand),
     vscode.commands.registerCommand('hemis.insertLink', insertLinkCommand),
+    vscode.commands.registerCommand('hemis.followLink', followLinkCommand),
+    vscode.commands.registerCommand('hemis.navigateBack', navigateBackCommand),
     vscode.commands.registerCommand('hemis.status', statusCommand),
     vscode.commands.registerCommand('hemis.projectMeta', projectMetaCommand),
     vscode.commands.registerCommand('hemis.backlinks', backlinksCommand),
