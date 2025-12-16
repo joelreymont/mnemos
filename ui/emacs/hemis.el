@@ -692,6 +692,7 @@ Server guarantees formattedLines is always present."
       (overlay-put marker-ov 'hemis-note-marker t)
       (overlay-put marker-ov 'hemis-note-count 0)
       (overlay-put marker-ov 'hemis-note-ids nil)
+      (overlay-put marker-ov 'hemis-notes nil)
       (overlay-put marker-ov 'hemis-note-texts nil)
       (overlay-put marker-ov 'hemis-note-formatted nil)
       (overlay-put marker-ov 'priority 9999)
@@ -699,6 +700,7 @@ Server guarantees formattedLines is always present."
       (push marker-ov new-list))
     (let* ((count (1+ (or (overlay-get marker-ov 'hemis-note-count) 0)))
            (ids (cons id (overlay-get marker-ov 'hemis-note-ids)))
+           (notes (cons note (overlay-get marker-ov 'hemis-notes)))
            (texts (append (overlay-get marker-ov 'hemis-note-texts)
                           (list text)))
            ;; Collect all formatted lines from all notes at this position
@@ -708,6 +710,7 @@ Server guarantees formattedLines is always present."
            (display (hemis--format-note-texts texts line-bol all-formatted)))
       (overlay-put marker-ov 'hemis-note-count count)
       (overlay-put marker-ov 'hemis-note-ids ids)
+      (overlay-put marker-ov 'hemis-notes notes)
       (overlay-put marker-ov 'hemis-note-texts texts)
       (overlay-put marker-ov 'hemis-note-formatted all-formatted)
       (overlay-put marker-ov 'before-string
@@ -1350,11 +1353,12 @@ show picker for those. Otherwise show picker for all notes in file."
 
 (defun hemis--note-at-overlay (pos)
   "Return the hemis note at POS from overlays, if any."
-  (let ((result nil))
+  (let ((result nil)
+        (line-bol (save-excursion (goto-char pos) (line-beginning-position))))
     (dolist (ov hemis--overlays)
+      ;; Check marker overlays at start of line (zero-width overlays at line-bol)
       (when (and (overlay-get ov 'hemis-note-marker)
-                 (<= (overlay-start ov) pos)
-                 (< pos (overlay-end ov)))
+                 (= (overlay-start ov) line-bol))
         (let ((notes (overlay-get ov 'hemis-notes)))
           (when notes
             (setq result (car notes))))))
@@ -1362,11 +1366,12 @@ show picker for those. Otherwise show picker for all notes in file."
 
 (defun hemis--notes-at-overlay (pos)
   "Return ALL hemis notes at POS from overlays."
-  (let ((result nil))
+  (let ((result nil)
+        (line-bol (save-excursion (goto-char pos) (line-beginning-position))))
     (dolist (ov hemis--overlays)
+      ;; Check marker overlays at start of line (zero-width overlays at line-bol)
       (when (and (overlay-get ov 'hemis-note-marker)
-                 (<= (overlay-start ov) pos)
-                 (< pos (overlay-end ov)))
+                 (= (overlay-start ov) line-bol))
         (let ((notes (overlay-get ov 'hemis-notes)))
           (when notes
             (setq result (append result notes))))))
