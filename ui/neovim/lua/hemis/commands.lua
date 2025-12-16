@@ -936,9 +936,11 @@ function M.help()
   vim.api.nvim_set_option_value("bufhidden", "wipe", { buf = buf })
 
   -- Calculate position (centered)
-  local ui = vim.api.nvim_list_uis()[1]
-  local row = math.floor((ui.height - height) / 2)
-  local col = math.floor((ui.width - width) / 2)
+  local uis = vim.api.nvim_list_uis()
+  local ui_height = uis[1] and uis[1].height or 24
+  local ui_width = uis[1] and uis[1].width or 80
+  local row = math.floor((ui_height - height) / 2)
+  local col = math.floor((ui_width - width) / 2)
 
   -- Create floating window
   local win = vim.api.nvim_open_win(buf, true, {

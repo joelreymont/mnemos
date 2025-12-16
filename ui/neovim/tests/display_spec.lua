@@ -391,31 +391,36 @@ describe("hemis commands", function()
   end)
 
   describe("list_notes", function()
-    it("creates buffer showing notes", function()
+    it("shows picker with notes", function()
       local commands = require("hemis.commands")
       local restore = helpers.mock_rpc({
         ["notes/list-for-file"] = {
-          { id = "1", line = 1, column = 0, text = "Listed note one" },
-          { id = "2", line = 2, column = 0, text = "Listed note two" },
+          { id = "1", shortId = "note1", line = 1, column = 0, text = "Listed note one" },
+          { id = "2", shortId = "note2", line = 2, column = 0, text = "Listed note two" },
         },
       })
+
+      -- Capture vim.ui.select call
+      local select_items = nil
+      local select_opts = nil
+      local original_select = vim.ui.select
+      vim.ui.select = function(items, opts, on_choice)
+        select_items = items
+        select_opts = opts
+        -- Don't call on_choice to avoid blocking
+      end
 
       commands.list_notes()
       helpers.wait(200)
 
-      -- Find the Hemis Notes buffer
-      local found = false
-      for _, b in ipairs(vim.api.nvim_list_bufs()) do
-        local name = vim.api.nvim_buf_get_name(b)
-        if string.find(name, "Hemis Notes") then
-          found = true
-          helpers.assert_buffer_contains(b, "Listed note one")
-          helpers.assert_buffer_contains(b, "Listed note two")
-        end
-      end
-
+      vim.ui.select = original_select
       restore()
-      assert.truthy(found, "Hemis Notes buffer not found")
+
+      -- Verify picker was called with correct items
+      assert.truthy(select_items, "vim.ui.select was not called")
+      assert.equals(2, #select_items)
+      assert.truthy(string.find(select_items[1].label, "Listed note one"))
+      assert.truthy(string.find(select_items[2].label, "Listed note two"))
     end)
   end)
 
@@ -423,26 +428,23 @@ describe("hemis commands", function()
     it("shows keybinding information", function()
       local commands = require("hemis.commands")
 
-      -- Capture notifications
-      local messages = {}
-      local original_notify = vim.notify
-      vim.notify = function(msg, ...)
-        table.insert(messages, msg)
-        return original_notify(msg, ...)
-      end
-
       commands.help()
+      helpers.wait()
 
-      vim.notify = original_notify
-
-      -- Check help content was shown
+      -- Help creates a floating window with a buffer containing keybindings
+      -- Find the help buffer by checking for "Hemis Keybindings" header
       local found = false
-      for _, msg in ipairs(messages) do
-        if string.find(msg, "Hemis") and string.find(msg, "Add note") then
-          found = true
+      for _, b in ipairs(vim.api.nvim_list_bufs()) do
+        if vim.api.nvim_buf_is_valid(b) then
+          local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
+          local content = table.concat(lines, "\n")
+          if string.find(content, "Hemis Keybindings") and string.find(content, "Add note") then
+            found = true
+            break
+          end
         end
       end
-      assert.truthy(found, "Help message not shown")
+      assert.truthy(found, "Help buffer not found with keybinding content")
     end)
   end)
 
