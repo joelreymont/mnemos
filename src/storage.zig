@@ -94,6 +94,7 @@ pub const Database = struct {
         try self.exec(
             \\CREATE TABLE IF NOT EXISTS files (
             \\    path TEXT PRIMARY KEY,
+            \\    content TEXT,
             \\    content_hash TEXT,
             \\    indexed_at TEXT
             \\)
@@ -236,6 +237,14 @@ pub fn countNotes(db: *Database) !i64 {
     return stmt.columnInt(0);
 }
 
+/// Count all indexed files
+pub fn countFiles(db: *Database) !i64 {
+    var stmt = try db.prepare("SELECT COUNT(*) FROM files");
+    defer stmt.deinit();
+    _ = try stmt.step();
+    return stmt.columnInt(0);
+}
+
 /// Get a note by ID
 pub fn getNote(db: *Database, alloc: Allocator, id: []const u8) !?Note {
     var stmt = try db.prepare(
@@ -373,26 +382,28 @@ pub fn clearNotes(db: *Database) !void {
 /// File record
 pub const File = struct {
     path: []const u8,
+    content: []const u8,
     content_hash: []const u8,
     indexed_at: []const u8,
 };
 
 /// Add or update a file in the index
-pub fn addFile(db: *Database, path: []const u8, content_hash: []const u8) !void {
+pub fn addFile(db: *Database, path: []const u8, content: []const u8, content_hash: []const u8) !void {
     var ts_buf: [32]u8 = undefined;
     const ts = std.time.timestamp();
     const timestamp = std.fmt.bufPrint(&ts_buf, "{d}", .{ts}) catch "0";
 
     var stmt = try db.prepare(
-        \\INSERT INTO files (path, content_hash, indexed_at)
-        \\VALUES (?1, ?2, ?3)
-        \\ON CONFLICT(path) DO UPDATE SET content_hash = ?2, indexed_at = ?3
+        \\INSERT INTO files (path, content, content_hash, indexed_at)
+        \\VALUES (?1, ?2, ?3, ?4)
+        \\ON CONFLICT(path) DO UPDATE SET content = ?2, content_hash = ?3, indexed_at = ?4
     );
     defer stmt.deinit();
 
     try stmt.bindText(1, path);
-    try stmt.bindText(2, content_hash);
-    try stmt.bindText(3, timestamp);
+    try stmt.bindText(2, content);
+    try stmt.bindText(3, content_hash);
+    try stmt.bindText(4, timestamp);
 
     _ = try stmt.step();
 }
@@ -400,7 +411,7 @@ pub fn addFile(db: *Database, path: []const u8, content_hash: []const u8) !void 
 /// Get a file record by path
 pub fn getFile(db: *Database, alloc: Allocator, path: []const u8) !?File {
     var stmt = try db.prepare(
-        \\SELECT path, content_hash, indexed_at FROM files WHERE path = ?1
+        \\SELECT path, content, content_hash, indexed_at FROM files WHERE path = ?1
     );
     defer stmt.deinit();
 
@@ -409,8 +420,9 @@ pub fn getFile(db: *Database, alloc: Allocator, path: []const u8) !?File {
     if (try stmt.step()) {
         return File{
             .path = try alloc.dupe(u8, stmt.columnText(0) orelse ""),
-            .content_hash = try alloc.dupe(u8, stmt.columnText(1) orelse ""),
-            .indexed_at = try alloc.dupe(u8, stmt.columnText(2) orelse ""),
+            .content = try alloc.dupe(u8, stmt.columnText(1) orelse ""),
+            .content_hash = try alloc.dupe(u8, stmt.columnText(2) orelse ""),
+            .indexed_at = try alloc.dupe(u8, stmt.columnText(3) orelse ""),
         };
     }
 
@@ -453,7 +465,7 @@ pub fn exportNotesJson(db: *Database, alloc: Allocator) ![]const u8 {
 /// Search files by path pattern
 pub fn searchFiles(db: *Database, alloc: Allocator, query: []const u8) ![]File {
     var stmt = try db.prepare(
-        \\SELECT path, content_hash, indexed_at FROM files
+        \\SELECT path, content, content_hash, indexed_at FROM files
         \\WHERE path LIKE ?1 ORDER BY indexed_at DESC
     );
     defer stmt.deinit();
@@ -469,13 +481,85 @@ pub fn searchFiles(db: *Database, alloc: Allocator, query: []const u8) ![]File {
     while (try stmt.step()) {
         const file = File{
             .path = try alloc.dupe(u8, stmt.columnText(0) orelse ""),
-            .content_hash = try alloc.dupe(u8, stmt.columnText(1) orelse ""),
-            .indexed_at = try alloc.dupe(u8, stmt.columnText(2) orelse ""),
+            .content = try alloc.dupe(u8, stmt.columnText(1) orelse ""),
+            .content_hash = try alloc.dupe(u8, stmt.columnText(2) orelse ""),
+            .indexed_at = try alloc.dupe(u8, stmt.columnText(3) orelse ""),
         };
         try files.append(alloc, file);
     }
 
     return files.toOwnedSlice(alloc);
+}
+
+/// Search hit for content search
+pub const SearchHit = struct {
+    file: []const u8,
+    line: usize,
+    column: usize,
+    text: []const u8,
+};
+
+/// Search all file content for a query, return matching lines
+pub fn searchContent(db: *Database, alloc: Allocator, query: []const u8) ![]SearchHit {
+    if (query.len == 0) return &[_]SearchHit{};
+
+    var stmt = try db.prepare(
+        \\SELECT path, content FROM files
+    );
+    defer stmt.deinit();
+
+    var hits: std.ArrayList(SearchHit) = .{};
+    errdefer hits.deinit(alloc);
+
+    // Convert query to lowercase for case-insensitive matching
+    const query_lower = try std.ascii.allocLowerString(alloc, query);
+    defer alloc.free(query_lower);
+
+    while (try stmt.step()) {
+        const path = stmt.columnText(0) orelse continue;
+        const content = stmt.columnText(1) orelse continue;
+
+        // Search each line for the query
+        var line_num: usize = 1;
+        var line_start: usize = 0;
+        for (content, 0..) |ch, i| {
+            if (ch == '\n' or i == content.len - 1) {
+                const line_end = if (ch == '\n') i else i + 1;
+                const line = content[line_start..line_end];
+
+                // Case-insensitive search
+                const line_lower = std.ascii.allocLowerString(alloc, line) catch continue;
+                defer alloc.free(line_lower);
+
+                if (std.mem.indexOf(u8, line_lower, query_lower)) |col| {
+                    const hit = SearchHit{
+                        .file = try alloc.dupe(u8, path),
+                        .line = line_num,
+                        .column = col,
+                        .text = try alloc.dupe(u8, line),
+                    };
+                    try hits.append(alloc, hit);
+
+                    // Limit results
+                    if (hits.items.len >= 100) break;
+                }
+
+                line_num += 1;
+                line_start = i + 1;
+            }
+        }
+    }
+
+    return hits.toOwnedSlice(alloc);
+}
+
+/// Free search hits
+pub fn freeSearchHits(alloc: Allocator, hits: []const SearchHit) void {
+    for (hits) |hit| {
+        alloc.free(hit.file);
+        alloc.free(hit.text);
+    }
+    alloc.free(hits);
 }
 
 test "database open close" {
@@ -658,23 +742,25 @@ test "file indexing" {
     var db = try Database.open(alloc, ":memory:");
     defer db.close();
 
-    try addFile(&db, "/src/main.zig", "hash123");
-    try addFile(&db, "/src/lib.zig", "hash456");
+    try addFile(&db, "/src/main.zig", "fn main() {}", "hash123");
+    try addFile(&db, "/src/lib.zig", "pub fn lib() {}", "hash456");
 
     const file = try getFile(&db, alloc, "/src/main.zig");
     try std.testing.expect(file != null);
     defer {
         alloc.free(file.?.path);
+        alloc.free(file.?.content);
         alloc.free(file.?.content_hash);
         alloc.free(file.?.indexed_at);
     }
     try std.testing.expectEqualStrings("hash123", file.?.content_hash);
 
     // Update existing
-    try addFile(&db, "/src/main.zig", "newhash");
+    try addFile(&db, "/src/main.zig", "fn main() { updated }", "newhash");
     const updated = try getFile(&db, alloc, "/src/main.zig");
     defer {
         alloc.free(updated.?.path);
+        alloc.free(updated.?.content);
         alloc.free(updated.?.content_hash);
         alloc.free(updated.?.indexed_at);
     }
@@ -685,6 +771,7 @@ test "file indexing" {
     defer {
         for (results) |f| {
             alloc.free(f.path);
+            alloc.free(f.content);
             alloc.free(f.content_hash);
             alloc.free(f.indexed_at);
         }
@@ -1165,18 +1252,20 @@ test "multiple files with same hash" {
     var db = try Database.open(alloc, ":memory:");
     defer db.close();
 
-    try addFile(&db, "/src/file1.zig", "samehash");
-    try addFile(&db, "/src/file2.zig", "samehash");
+    try addFile(&db, "/src/file1.zig", "same content", "samehash");
+    try addFile(&db, "/src/file2.zig", "same content", "samehash");
 
     const file1 = try getFile(&db, alloc, "/src/file1.zig");
     defer {
         alloc.free(file1.?.path);
+        alloc.free(file1.?.content);
         alloc.free(file1.?.content_hash);
         alloc.free(file1.?.indexed_at);
     }
     const file2 = try getFile(&db, alloc, "/src/file2.zig");
     defer {
         alloc.free(file2.?.path);
+        alloc.free(file2.?.content);
         alloc.free(file2.?.content_hash);
         alloc.free(file2.?.indexed_at);
     }
@@ -1198,7 +1287,7 @@ test "search files no matches" {
     var db = try Database.open(alloc, ":memory:");
     defer db.close();
 
-    try addFile(&db, "/src/main.zig", "hash1");
+    try addFile(&db, "/src/main.zig", "fn main() {}", "hash1");
 
     const results = try searchFiles(&db, alloc, "nonexistent");
     defer alloc.free(results);
@@ -1661,16 +1750,18 @@ test "addFile and getFile roundtrip" {
     var db = try Database.open(alloc, ":memory:");
     defer db.close();
 
-    try addFile(&db, "/src/main.zig", "abc123hash");
+    try addFile(&db, "/src/main.zig", "fn main() {}", "abc123hash");
 
     const file = try getFile(&db, alloc, "/src/main.zig");
     try std.testing.expect(file != null);
     defer {
         alloc.free(file.?.path);
+        alloc.free(file.?.content);
         alloc.free(file.?.content_hash);
         alloc.free(file.?.indexed_at);
     }
     try std.testing.expectEqualStrings("/src/main.zig", file.?.path);
+    try std.testing.expectEqualStrings("fn main() {}", file.?.content);
     try std.testing.expectEqualStrings("abc123hash", file.?.content_hash);
 }
 
@@ -1688,14 +1779,15 @@ test "searchFiles finds matching paths" {
     var db = try Database.open(alloc, ":memory:");
     defer db.close();
 
-    try addFile(&db, "/src/main.zig", "hash1");
-    try addFile(&db, "/src/lib.zig", "hash2");
-    try addFile(&db, "/test/main.zig", "hash3");
+    try addFile(&db, "/src/main.zig", "fn main() {}", "hash1");
+    try addFile(&db, "/src/lib.zig", "fn lib() {}", "hash2");
+    try addFile(&db, "/test/main.zig", "fn test_main() {}", "hash3");
 
     const results = try searchFiles(&db, alloc, "main");
     defer {
         for (results) |f| {
             alloc.free(f.path);
+            alloc.free(f.content);
             alloc.free(f.content_hash);
             alloc.free(f.indexed_at);
         }

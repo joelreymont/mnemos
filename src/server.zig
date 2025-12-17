@@ -218,9 +218,15 @@ const Server = struct {
     }
 };
 
-/// Get socket path (prefer XDG_RUNTIME_DIR, fallback to ~/.hemis)
+/// Get socket path (prefer HEMIS_DIR, then XDG_RUNTIME_DIR, fallback to ~/.hemis)
 fn getSocketPath(alloc: Allocator) ![]const u8 {
-    // Try XDG_RUNTIME_DIR first
+    // Try HEMIS_DIR first (for tests and custom setups)
+    if (std.process.getEnvVarOwned(alloc, "HEMIS_DIR")) |hemis_dir| {
+        defer alloc.free(hemis_dir);
+        return try std.fmt.allocPrint(alloc, "{s}/hemis.sock", .{hemis_dir});
+    } else |_| {}
+
+    // Try XDG_RUNTIME_DIR
     if (std.process.getEnvVarOwned(alloc, "XDG_RUNTIME_DIR")) |runtime_dir| {
         defer alloc.free(runtime_dir);
         return try std.fmt.allocPrint(alloc, "{s}/hemis.sock", .{runtime_dir});

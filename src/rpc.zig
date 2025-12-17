@@ -12,6 +12,7 @@ const Allocator = mem.Allocator;
 const storage = @import("storage.zig");
 const git = @import("git.zig");
 const treesitter = @import("treesitter.zig");
+const ai = @import("ai.zig");
 
 /// RPC stream for reading/writing framed messages
 pub const Stream = struct {
@@ -204,20 +205,22 @@ fn handleMethod(alloc: Allocator, method: []const u8, request: []const u8, db: ?
     return handler(alloc, request, db);
 }
 
-fn handleStatus(alloc: Allocator, _: []const u8, db: ?*storage.Database) ![]const u8 {
+fn handleStatus(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    const proj = extractNestedString(request, "\"params\"", "\"projectRoot\"");
     const note_count: i64 = if (db) |d| storage.countNotes(d) catch 0 else 0;
+    const file_count: i64 = if (db) |d| storage.countFiles(d) catch 0 else 0;
 
-    // Try to get git info
-    var repo = git.Repository.open(".") catch null;
-    defer if (repo) |*r| r.deinit();
+    const proj_str = proj orelse "None";
 
-    const branch = if (repo) |*r| r.getCurrentBranch(alloc) catch null else null;
-    defer if (branch) |b| alloc.free(b);
-    const branch_str = branch orelse "unknown";
-
-    return try std.fmt.allocPrint(alloc,
-        \\{{"version":"0.1.0","language":"zig","status":"ok","noteCount":{d},"gitBranch":"{s}"}}
-    , .{ note_count, branch_str });
+    if (proj) |p| {
+        return try std.fmt.allocPrint(alloc,
+            \\{{"ok":true,"projectRoot":"{s}","counts":{{"notes":{d},"files":{d},"embeddings":0,"edges":0}},"statusDisplay":"Hemis Status: OK\\nProject: {s}\\nNotes: {d}\\nFiles: {d}\\nEmbeddings: 0"}}
+        , .{ p, note_count, file_count, p, note_count, file_count });
+    } else {
+        return try std.fmt.allocPrint(alloc,
+            \\{{"ok":true,"projectRoot":null,"counts":{{"notes":{d},"files":{d},"embeddings":0,"edges":0}},"statusDisplay":"Hemis Status: OK\\nProject: {s}\\nNotes: {d}\\nFiles: {d}\\nEmbeddings: 0"}}
+        , .{ note_count, file_count, proj_str, note_count, file_count });
+    }
 }
 
 fn handleVersion(alloc: Allocator, _: []const u8, _: ?*storage.Database) ![]const u8 {
@@ -233,12 +236,39 @@ fn handleShutdown(_: Allocator, _: []const u8, _: ?*storage.Database) ![]const u
 fn handleNotesCreate(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
     const database = db orelse return error.NoDatabaseConnection;
 
-    // Extract params
-    const file_path = extractNestedString(request, "\"params\"", "\"filePath\"") orelse
-        return error.MissingFilePath;
-    const content = extractNestedString(request, "\"params\"", "\"content\"") orelse
+    // Extract params (accept both "file" and "filePath" for compat)
+    const file_path = extractNestedString(request, "\"params\"", "\"file\"") orelse
+        extractNestedString(request, "\"params\"", "\"filePath\"") orelse
+        return error.MissingFile;
+
+    // Accept both "text" and "content" for compat, and unescape JSON
+    const raw_text = extractNestedString(request, "\"params\"", "\"text\"") orelse
+        extractNestedString(request, "\"params\"", "\"content\"") orelse
         return error.MissingContent;
+    const text = try unescapeJson(alloc, raw_text);
+    defer alloc.free(text);
+
     const node_path = extractNestedString(request, "\"params\"", "\"nodePath\"");
+    const explicit_hash = extractNestedString(request, "\"params\"", "\"nodeTextHash\"");
+    const line = extractNestedInt(request, "\"params\"", "\"line\"");
+    const column = extractNestedInt(request, "\"params\"", "\"column\"");
+
+    // Compute nodeTextHash from buffer content if not provided
+    var computed_hash_buf: [64]u8 = undefined;
+    const node_text_hash: ?[]const u8 = if (explicit_hash) |h| h else blk: {
+        const raw_content = extractNestedString(request, "\"params\"", "\"content\"");
+        if (raw_content) |rc| {
+            const buf_content = unescapeJson(alloc, rc) catch break :blk null;
+            defer alloc.free(buf_content);
+            if (line) |ln| {
+                if (getLineAt(buf_content, ln)) |line_text| {
+                    computeHash(line_text, &computed_hash_buf);
+                    break :blk &computed_hash_buf;
+                }
+            }
+        }
+        break :blk null;
+    };
 
     // Generate UUID-like ID
     var id_buf: [36]u8 = undefined;
@@ -252,18 +282,121 @@ fn handleNotesCreate(alloc: Allocator, request: []const u8, db: ?*storage.Databa
         .id = id,
         .file_path = file_path,
         .node_path = node_path,
-        .node_text_hash = null,
-        .line_number = null,
-        .content = content,
+        .node_text_hash = node_text_hash,
+        .line_number = line,
+        .content = text,
         .created_at = timestamp,
         .updated_at = timestamp,
     };
 
     try storage.createNote(database, note);
 
+    // Escape text for JSON
+    const escaped_text = escapeJson(alloc, text) catch text;
+    defer if (escaped_text.ptr != text.ptr) alloc.free(escaped_text);
+
+    // Build formattedLines array from text
+    const formatted_lines = try formatTextLines(alloc, text);
+    defer alloc.free(formatted_lines);
+
+    // Generate display fields
+    const short_id = if (id.len >= 8) id[0..8] else id;
+    const summary = getSummary(text);
+    const escaped_summary = escapeJson(alloc, summary) catch summary;
+    defer if (escaped_summary.ptr != summary.ptr) alloc.free(escaped_summary);
+
+    const line_num = line orelse @as(i64, 1);
+    const col_num = column orelse @as(i64, 0);
+
+    const display_marker = try std.fmt.allocPrint(alloc, "[n:{s}]", .{short_id});
+    defer alloc.free(display_marker);
+    const display_label = try std.fmt.allocPrint(alloc, "[Note] {s}", .{escaped_summary});
+    defer alloc.free(display_label);
+    const display_detail = try std.fmt.allocPrint(alloc, "{s}:{d}", .{ file_path, line_num });
+    defer alloc.free(display_detail);
+
+    // Include nodeTextHash in response if computed
+    if (node_text_hash) |hash| {
+        return try std.fmt.allocPrint(alloc,
+            \\{{"id":"{s}","shortId":"{s}","file":"{s}","projectRoot":"","line":{d},"column":{d},"text":"{s}","summary":"{s}","stale":false,"iconHint":"fresh","nodeTextHash":"{s}","formattedLines":{s},"createdAt":"{s}","updatedAt":"{s}","displayMarker":"{s}","displayLabel":"{s}","displayDetail":"{s}"}}
+        , .{ id, short_id, file_path, line_num, col_num, escaped_text, escaped_summary, hash, formatted_lines, timestamp, timestamp, display_marker, display_label, display_detail });
+    }
+
     return try std.fmt.allocPrint(alloc,
-        \\{{"id":"{s}","filePath":"{s}","content":"{s}"}}
-    , .{ id, file_path, escapeJson(alloc, content) catch content });
+        \\{{"id":"{s}","shortId":"{s}","file":"{s}","projectRoot":"","line":{d},"column":{d},"text":"{s}","summary":"{s}","stale":false,"iconHint":"fresh","formattedLines":{s},"createdAt":"{s}","updatedAt":"{s}","displayMarker":"{s}","displayLabel":"{s}","displayDetail":"{s}"}}
+    , .{ id, short_id, file_path, line_num, col_num, escaped_text, escaped_summary, formatted_lines, timestamp, timestamp, display_marker, display_label, display_detail });
+}
+
+/// Format note text into JSON array of lines
+fn formatTextLines(alloc: Allocator, text: []const u8) ![]const u8 {
+    var buf: std.ArrayList(u8) = .{};
+    errdefer buf.deinit(alloc);
+
+    try buf.appendSlice(alloc, "[");
+    var start: usize = 0;
+    var first = true;
+
+    for (text, 0..) |ch, i| {
+        if (ch == '\n') {
+            if (!first) try buf.appendSlice(alloc, ",");
+            first = false;
+            const line = text[start..i];
+            const escaped = escapeJson(alloc, line) catch line;
+            defer if (escaped.ptr != line.ptr) alloc.free(escaped);
+            try buf.appendSlice(alloc, "\"");
+            try buf.appendSlice(alloc, escaped);
+            try buf.appendSlice(alloc, "\"");
+            start = i + 1;
+        }
+    }
+    // Last line
+    if (start <= text.len) {
+        if (!first) try buf.appendSlice(alloc, ",");
+        const line = text[start..];
+        const escaped = escapeJson(alloc, line) catch line;
+        defer if (escaped.ptr != line.ptr) alloc.free(escaped);
+        try buf.appendSlice(alloc, "\"");
+        try buf.appendSlice(alloc, escaped);
+        try buf.appendSlice(alloc, "\"");
+    }
+    try buf.appendSlice(alloc, "]");
+
+    return buf.toOwnedSlice(alloc);
+}
+
+/// Get line at 1-based line number
+fn getLineAt(content: []const u8, target_line: i64) ?[]const u8 {
+    if (target_line < 1) return null;
+    var line_num: i64 = 1;
+    var start: usize = 0;
+
+    for (content, 0..) |ch, i| {
+        if (ch == '\n') {
+            if (line_num == target_line) {
+                return content[start..i];
+            }
+            line_num += 1;
+            start = i + 1;
+        }
+    }
+    // Check last line
+    if (line_num == target_line and start < content.len) {
+        return content[start..];
+    }
+    return null;
+}
+
+fn computeHash(text: []const u8, out: *[64]u8) void {
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    hasher.update(text);
+    var hash_buf: [32]u8 = undefined;
+    hasher.final(&hash_buf);
+
+    const hex_chars = "0123456789abcdef";
+    for (hash_buf, 0..) |byte, j| {
+        out[j * 2] = hex_chars[byte >> 4];
+        out[j * 2 + 1] = hex_chars[byte & 0x0F];
+    }
 }
 
 fn handleNotesListProject(alloc: Allocator, _: []const u8, db: ?*storage.Database) ![]const u8 {
@@ -385,10 +518,15 @@ fn handleNotesListForFile(alloc: Allocator, request: []const u8, db: ?*storage.D
     const file_path = extractNestedString(request, "\"params\"", "\"file\"") orelse
         return error.MissingFile;
 
+    // Get optional content for position tracking
+    const raw_content = extractNestedString(request, "\"params\"", "\"content\"");
+    const content = if (raw_content) |rc| try unescapeJson(alloc, rc) else null;
+    defer if (content) |c| alloc.free(c);
+
     const notes = try storage.getNotesForFile(database, alloc, file_path);
     defer storage.freeNotes(alloc, notes);
 
-    return formatNotesArray(alloc, notes);
+    return formatNotesArrayWithContent(alloc, notes, content);
 }
 
 fn handleNotesListByNode(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
@@ -567,12 +705,42 @@ fn handleFileContext(alloc: Allocator, request: []const u8, db: ?*storage.Databa
 }
 
 fn handleExplainRegion(alloc: Allocator, request: []const u8, _: ?*storage.Database) ![]const u8 {
-    const file = extractNestedString(request, "\"params\"", "\"file\"") orelse
-        return error.MissingFile;
+    // Extract code content from params (passed by editor)
+    const content = extractNestedString(request, "\"params\"", "\"content\"") orelse {
+        // Fallback: try to get file path
+        const file = extractNestedString(request, "\"params\"", "\"file\"") orelse
+            return error.MissingFile;
+        return try std.fmt.allocPrint(alloc,
+            \\{{"file":"{s}","explanation":"No content provided"}}
+        , .{file});
+    };
+
+    // Call AI to explain the code
+    const explanation = ai.explain(alloc, content) catch |err| {
+        return try std.fmt.allocPrint(alloc,
+            \\{{"error":"AI unavailable: {s}"}}
+        , .{@errorName(err)});
+    };
+    defer alloc.free(explanation);
+
+    // Escape the explanation for JSON
+    var escaped: std.ArrayList(u8) = .{};
+    defer escaped.deinit(alloc);
+    const writer = escaped.writer(alloc);
+    for (explanation) |c| {
+        switch (c) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => try writer.writeByte(c),
+        }
+    }
 
     return try std.fmt.allocPrint(alloc,
-        \\{{"file":"{s}","info":"Region info"}}
-    , .{file});
+        \\{{"explanation":"{s}","ai":{{"statusDisplay":"[Claude]"}}}}
+    , .{escaped.items});
 }
 
 fn handleBufferContext(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
@@ -632,9 +800,14 @@ fn handleIndexAddFile(alloc: Allocator, request: []const u8, db: ?*storage.Datab
     const database = db orelse return error.NoDatabaseConnection;
 
     const file_path = extractNestedString(request, "\"params\"", "\"file\"") orelse
+        extractNestedString(request, "\"params\"", "\"path\"") orelse
         return error.MissingFile;
-    const content = extractNestedString(request, "\"params\"", "\"content\"") orelse
+    const raw_content = extractNestedString(request, "\"params\"", "\"content\"") orelse
         return error.MissingContent;
+
+    // Unescape JSON escape sequences in content
+    const content = try unescapeJson(alloc, raw_content);
+    defer alloc.free(content);
 
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
     hasher.update(content);
@@ -648,7 +821,7 @@ fn handleIndexAddFile(alloc: Allocator, request: []const u8, db: ?*storage.Datab
         hash_hex[i * 2 + 1] = hex_chars[byte & 0x0F];
     }
 
-    try storage.addFile(database, file_path, &hash_hex);
+    try storage.addFile(database, file_path, content, &hash_hex);
 
     return try std.fmt.allocPrint(alloc,
         \\{{"file":"{s}","contentHash":"{s}"}}
@@ -661,25 +834,21 @@ fn handleIndexSearch(alloc: Allocator, request: []const u8, db: ?*storage.Databa
     const query = extractNestedString(request, "\"params\"", "\"query\"") orelse
         return error.MissingQuery;
 
-    const files = try storage.searchFiles(database, alloc, query);
-    defer {
-        for (files) |file| {
-            alloc.free(file.path);
-            alloc.free(file.content_hash);
-            alloc.free(file.indexed_at);
-        }
-        alloc.free(files);
-    }
+    const hits = try storage.searchContent(database, alloc, query);
+    defer storage.freeSearchHits(alloc, hits);
 
     var buf: std.ArrayList(u8) = .{};
     errdefer buf.deinit(alloc);
 
     try buf.appendSlice(alloc, "[");
-    for (files, 0..) |file, i| {
+    for (hits, 0..) |hit, i| {
         if (i > 0) try buf.appendSlice(alloc, ",");
+        const escaped_text = escapeJson(alloc, hit.text) catch hit.text;
+        defer if (escaped_text.ptr != hit.text.ptr) alloc.free(escaped_text);
+
         const item = try std.fmt.allocPrint(alloc,
-            \\{{"path":"{s}","contentHash":"{s}","indexedAt":"{s}"}}
-        , .{ file.path, file.content_hash, file.indexed_at });
+            \\{{"file":"{s}","line":{d},"column":{d},"text":"{s}","score":1.0}}
+        , .{ hit.file, hit.line, hit.column, escaped_text });
         defer alloc.free(item);
         try buf.appendSlice(alloc, item);
     }
@@ -877,24 +1046,131 @@ fn handleNotesExplainAndCreate(alloc: Allocator, request: []const u8, db: ?*stor
 }
 
 fn formatNotesArray(alloc: Allocator, notes: []const storage.Note) ![]const u8 {
+    return formatNotesArrayWithContent(alloc, notes, null);
+}
+
+fn formatNotesArrayWithContent(alloc: Allocator, notes: []const storage.Note, content: ?[]const u8) ![]const u8 {
     var buf: std.ArrayList(u8) = .{};
     errdefer buf.deinit(alloc);
 
-    try buf.appendSlice(alloc, "[");
+    // Wrap in {"notes": [...]} to match Rust backend format
+    try buf.appendSlice(alloc, "{\"notes\":[");
     for (notes, 0..) |note, i| {
         if (i > 0) try buf.appendSlice(alloc, ",");
-        const escaped_content = escapeJson(alloc, note.content) catch note.content;
-        defer if (escaped_content.ptr != note.content.ptr) alloc.free(escaped_content);
+        const escaped_text = escapeJson(alloc, note.content) catch note.content;
+        defer if (escaped_text.ptr != note.content.ptr) alloc.free(escaped_text);
+
+        // Generate summary (first line, truncated)
+        const summary = getSummary(note.content);
+        const escaped_summary = escapeJson(alloc, summary) catch summary;
+        defer if (escaped_summary.ptr != summary.ptr) alloc.free(escaped_summary);
+
+        const stored_line = note.line_number orelse 1;
+        const short_id = if (note.id.len >= 8) note.id[0..8] else note.id;
+
+        // Compute displayLine and stale from content if available
+        var is_stale = false;
+        const display_line = if (content) |c| blk: {
+            if (note.node_text_hash) |hash| {
+                if (findLineByHash(c, hash)) |found_line| {
+                    break :blk found_line;
+                } else {
+                    is_stale = true; // Hash not found = stale
+                    break :blk stored_line;
+                }
+            }
+            break :blk stored_line;
+        } else stored_line;
+
+        const stale_str = if (is_stale) "true" else "false";
+        const icon_hint = if (is_stale) "stale" else "fresh";
+
+        // When content is provided, return displayLine as line for compatibility
+        const reported_line = if (content != null) display_line else stored_line;
+
+        // Escape file path for JSON
+        const escaped_file = escapeJson(alloc, note.file_path) catch note.file_path;
+        defer if (escaped_file.ptr != note.file_path.ptr) alloc.free(escaped_file);
+
+        // Build display fields matching Rust
+        const display_marker = try std.fmt.allocPrint(alloc, "[n:{s}]", .{short_id});
+        defer alloc.free(display_marker);
+        const display_label = try std.fmt.allocPrint(alloc, "[Note] {s}", .{escaped_summary});
+        defer alloc.free(display_label);
+        const display_detail = try std.fmt.allocPrint(alloc, "{s}:{d}", .{ escaped_file, reported_line });
+        defer alloc.free(display_detail);
+
+        // nodeTextHash field (optional)
+        const hash_field = if (note.node_text_hash) |h|
+            try std.fmt.allocPrint(alloc, ",\"nodeTextHash\":\"{s}\"", .{h})
+        else
+            try alloc.dupe(u8, "");
+        defer alloc.free(hash_field);
 
         const item = try std.fmt.allocPrint(alloc,
-            \\{{"id":"{s}","filePath":"{s}","content":"{s}"}}
-        , .{ note.id, note.file_path, escaped_content });
+            \\{{"id":"{s}","shortId":"{s}","file":"{s}","projectRoot":"","line":{d},"column":0,"text":"{s}","summary":"{s}","stale":{s},"iconHint":"{s}","displayLine":{d},"createdAt":"{s}","updatedAt":"{s}","displayMarker":"{s}","displayLabel":"{s}","displayDetail":"{s}"{s}}}
+        , .{ note.id, short_id, escaped_file, reported_line, escaped_text, escaped_summary, stale_str, icon_hint, display_line, note.created_at, note.updated_at, display_marker, display_label, display_detail, hash_field });
         defer alloc.free(item);
         try buf.appendSlice(alloc, item);
     }
-    try buf.appendSlice(alloc, "]");
+    try buf.appendSlice(alloc, "]}");
 
     return buf.toOwnedSlice(alloc);
+}
+
+/// Find line number where hash matches a line's SHA256
+fn findLineByHash(content: []const u8, target_hash: []const u8) ?i64 {
+    var line_num: i64 = 1;
+    var start: usize = 0;
+
+    for (content, 0..) |ch, i| {
+        if (ch == '\n') {
+            const line_text = content[start..i];
+            if (hashMatches(line_text, target_hash)) {
+                return line_num;
+            }
+            line_num += 1;
+            start = i + 1;
+        }
+    }
+    // Check last line
+    if (start < content.len) {
+        const line_text = content[start..];
+        if (hashMatches(line_text, target_hash)) {
+            return line_num;
+        }
+    }
+    return null;
+}
+
+fn hashMatches(text: []const u8, target_hash: []const u8) bool {
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    hasher.update(text);
+    var hash_buf: [32]u8 = undefined;
+    hasher.final(&hash_buf);
+
+    const hex_chars = "0123456789abcdef";
+    var hash_hex: [64]u8 = undefined;
+    for (hash_buf, 0..) |byte, j| {
+        hash_hex[j * 2] = hex_chars[byte >> 4];
+        hash_hex[j * 2 + 1] = hex_chars[byte & 0x0F];
+    }
+
+    return mem.eql(u8, &hash_hex, target_hash);
+}
+
+fn getSummary(text: []const u8) []const u8 {
+    // Get first line, max 50 chars
+    var end: usize = 0;
+    for (text, 0..) |c, i| {
+        if (c == '\n') {
+            end = i;
+            break;
+        }
+        end = i + 1;
+    }
+    const first_line = text[0..@min(end, text.len)];
+    return if (first_line.len > 50) first_line[0..50] else first_line;
 }
 
 /// Extract nested string value
@@ -939,14 +1215,8 @@ fn generateId(buf: *[36]u8) []const u8 {
 fn getTimestamp(buf: *[32]u8) []const u8 {
     const ts = std.time.timestamp();
     const secs: u64 = @intCast(ts);
-    // Simple ISO format: seconds since epoch (good enough for now)
-    _ = std.fmt.bufPrint(buf, "{d}", .{secs}) catch return "0";
-    var len: usize = 0;
-    for (buf) |c| {
-        if (c == 0) break;
-        len += 1;
-    }
-    return buf[0..len];
+    // Simple format: seconds since epoch
+    return std.fmt.bufPrint(buf, "{d}", .{secs}) catch "0";
 }
 
 /// Escape JSON string
@@ -974,6 +1244,33 @@ fn escapeJson(alloc: Allocator, s: []const u8) ![]const u8 {
     return buf.toOwnedSlice(alloc);
 }
 
+/// Unescape JSON string escape sequences
+fn unescapeJson(alloc: Allocator, input: []const u8) ![]u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .{};
+    var i: usize = 0;
+    while (i < input.len) {
+        if (input[i] == '\\' and i + 1 < input.len) {
+            switch (input[i + 1]) {
+                'n' => try buf.append(alloc, '\n'),
+                'r' => try buf.append(alloc, '\r'),
+                't' => try buf.append(alloc, '\t'),
+                '"' => try buf.append(alloc, '"'),
+                '\\' => try buf.append(alloc, '\\'),
+                '/' => try buf.append(alloc, '/'),
+                else => {
+                    try buf.append(alloc, input[i]);
+                    try buf.append(alloc, input[i + 1]);
+                },
+            }
+            i += 2;
+        } else {
+            try buf.append(alloc, input[i]);
+            i += 1;
+        }
+    }
+    return buf.toOwnedSlice(alloc);
+}
+
 /// Extract a string value for a given key from JSON
 fn extractString(json_str: []const u8, key: []const u8) ?[]const u8 {
     const key_pos = mem.indexOf(u8, json_str, key) orelse return null;
@@ -986,9 +1283,19 @@ fn extractString(json_str: []const u8, key: []const u8) ?[]const u8 {
     // Must start with quote
     if (after_colon.len == 0 or after_colon[0] != '"') return null;
 
-    // Find end quote
-    const end = mem.indexOf(u8, after_colon[1..], "\"") orelse return null;
-    return after_colon[1..][0..end];
+    // Find end quote, handling escapes
+    var end: usize = 0;
+    var i: usize = 1;
+    while (i < after_colon.len) : (i += 1) {
+        if (after_colon[i] == '\\' and i + 1 < after_colon.len) {
+            i += 1; // Skip escaped char
+        } else if (after_colon[i] == '"') {
+            end = i;
+            break;
+        }
+    }
+    if (end == 0) return null;
+    return after_colon[1..end];
 }
 
 /// Extract the id field (as raw JSON)
@@ -1036,8 +1343,9 @@ test "dispatch status" {
     const resp = dispatch(alloc, req);
     defer alloc.free(resp);
 
-    try std.testing.expect(mem.indexOf(u8, resp, "\"version\"") != null);
-    try std.testing.expect(mem.indexOf(u8, resp, "\"zig\"") != null);
+    // Status returns Rust-compatible format with counts
+    try std.testing.expect(mem.indexOf(u8, resp, "\"ok\":true") != null);
+    try std.testing.expect(mem.indexOf(u8, resp, "\"counts\"") != null);
 }
 
 test "dispatch with database" {
@@ -1045,11 +1353,11 @@ test "dispatch with database" {
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    // Status with db
+    // Status with db returns counts
     const status_req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/status\"}";
     const status_resp = dispatchWithDb(alloc, status_req, &db);
     defer alloc.free(status_resp);
-    try std.testing.expect(mem.indexOf(u8, status_resp, "\"noteCount\":0") != null);
+    try std.testing.expect(mem.indexOf(u8, status_resp, "\"notes\":0") != null);
 }
 
 test "dispatch notes create and get" {
@@ -1064,7 +1372,7 @@ test "dispatch notes create and get" {
     const create_resp = dispatchWithDb(alloc, create_req, &db);
     defer alloc.free(create_resp);
     try std.testing.expect(mem.indexOf(u8, create_resp, "\"id\"") != null);
-    try std.testing.expect(mem.indexOf(u8, create_resp, "\"filePath\":\"/test.zig\"") != null);
+    try std.testing.expect(mem.indexOf(u8, create_resp, "\"file\":\"/test.zig\"") != null);
 
     // List project
     const list_req = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"notes/list-project\"}";
@@ -1159,9 +1467,9 @@ test "dispatch index add and search" {
     defer alloc.free(add_resp);
     try std.testing.expect(mem.indexOf(u8, add_resp, "\"contentHash\"") != null);
 
-    // Search
+    // Search - query matches content, not path
     const search_req =
-        \\{"jsonrpc":"2.0","id":2,"method":"index/search","params":{"query":"zig"}}
+        \\{"jsonrpc":"2.0","id":2,"method":"index/search","params":{"query":"std"}}
     ;
     const search_resp = dispatchWithDb(alloc, search_req, &db);
     defer alloc.free(search_resp);

@@ -50,15 +50,6 @@ pub const Provider = enum {
     }
 };
 
-/// Request ID type
-pub const RequestId = []const u8;
-
-/// Pending request state
-const PendingRequest = struct {
-    id: []const u8,
-    response_parts: std.ArrayList(u8),
-    done: bool = false,
-};
 
 /// AI subprocess manager
 pub const AI = struct {
@@ -70,33 +61,35 @@ pub const AI = struct {
     read_buf: [64 * 1024]u8 = undefined,
     read_len: usize = 0,
     write_buf: std.ArrayList(u8),
-    pending: std.StringHashMap(PendingRequest),
 
     pub fn init(alloc: Allocator, provider: Provider) AI {
         return .{
             .alloc = alloc,
             .provider = provider,
             .write_buf = .{},
-            .pending = std.StringHashMap(PendingRequest).init(alloc),
         };
     }
 
     pub fn deinit(self: *AI) void {
         self.shutdown();
         self.write_buf.deinit(self.alloc);
-        var it = self.pending.iterator();
-        while (it.next()) |entry| {
-            self.alloc.free(entry.key_ptr.*);
-            entry.value_ptr.*.response_parts.deinit(self.alloc);
-        }
-        self.pending.deinit();
     }
 
-    /// Start the subprocess
+    /// Start the subprocess with streaming JSON mode
     pub fn start(self: *AI) !void {
         if (self.child != null) return error.AlreadyStarted;
 
-        var child = process.Child.init(&.{self.provider.command()}, self.alloc);
+        // Use streaming JSON mode for persistent communication
+        // --verbose is required by claude CLI for stream-json output
+        var child = process.Child.init(&.{
+            self.provider.command(),
+            "--print",
+            "--verbose",
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+        }, self.alloc);
         child.stdin_behavior = .Pipe;
         child.stdout_behavior = .Pipe;
         child.stderr_behavior = .Inherit;
@@ -160,17 +153,15 @@ pub const AI = struct {
     }
 
     /// Send a prompt request
-    pub fn sendPrompt(self: *AI, id: RequestId, prompt: []const u8) !void {
+    pub fn sendPrompt(self: *AI, prompt: []const u8) !void {
         if (self.stdin_fd == null) return error.NotStarted;
 
-        // Create request JSON
+        // Create request JSON in claude stream-json format
         self.write_buf.clearRetainingCapacity();
         const writer = self.write_buf.writer(self.alloc);
-        try writer.writeAll("{\"prompt\":\"");
+        try writer.writeAll("{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"");
         try writeJsonEscaped(writer, prompt);
-        try writer.writeAll("\",\"id\":\"");
-        try writeJsonEscaped(writer, id);
-        try writer.writeAll("\"}\n");
+        try writer.writeAll("\"}}\n");
 
         // Write to stdin
         const data = self.write_buf.items;
@@ -180,18 +171,12 @@ pub const AI = struct {
             if (n == 0) return error.BrokenPipe;
             written += n;
         }
-
-        // Track pending request
-        const id_copy = try self.alloc.dupe(u8, id);
-        try self.pending.put(id_copy, .{
-            .id = id_copy,
-            .response_parts = .{},
-        });
     }
 
     /// Read available responses (non-blocking if no complete response)
     /// Call this when stdout_fd is ready for reading
-    pub fn readResponses(self: *AI, callback: fn (id: RequestId, chunk: []const u8, done: bool) void) !void {
+    /// Callback receives: chunk of text, done flag
+    pub fn readResponses(self: *AI, callback: *const fn (chunk: []const u8, done: bool) void) !void {
         if (self.stdout_fd == null) return error.NotStarted;
 
         // Read available data
@@ -205,7 +190,7 @@ pub const AI = struct {
         // Process complete lines
         while (mem.indexOf(u8, self.read_buf[0..self.read_len], "\n")) |newline| {
             const line = self.read_buf[0..newline];
-            try self.processResponse(line, callback);
+            self.processResponse(line, callback);
 
             // Shift buffer
             const remaining = self.read_len - newline - 1;
@@ -216,54 +201,98 @@ pub const AI = struct {
         }
     }
 
-    fn processResponse(self: *AI, json_line: []const u8, callback: fn (id: RequestId, chunk: []const u8, done: bool) void) !void {
-        // Parse JSON response
-        const parsed = try std.json.parseFromSlice(
+    fn processResponse(self: *AI, json_line: []const u8, callback: *const fn (chunk: []const u8, done: bool) void) void {
+        // Parse JSON response from claude CLI
+        const parsed = std.json.parseFromSlice(
             std.json.Value,
             self.alloc,
             json_line,
             .{},
-        );
+        ) catch return;
         defer parsed.deinit();
 
         const obj = parsed.value.object;
-        const id = obj.get("id").?.string;
-        const response = obj.get("response").?.string;
-        const done = obj.get("done").?.bool;
+        const msg_type = obj.get("type") orelse return;
+        if (msg_type != .string) return;
 
-        // Update pending request
-        if (self.pending.getPtr(id)) |pending| {
-            try pending.response_parts.appendSlice(self.alloc, response);
-
-            // Invoke callback
-            callback(id, response, done);
-
-            // Clean up if done
-            if (done) {
-                self.alloc.free(pending.id);
-                pending.response_parts.deinit(self.alloc);
-                _ = self.pending.remove(id);
+        if (mem.eql(u8, msg_type.string, "result")) {
+            // Final result: {"type":"result","result":"..."}
+            if (obj.get("result")) |result| {
+                if (result == .string) {
+                    callback(result.string, true);
+                }
+            }
+        } else if (mem.eql(u8, msg_type.string, "assistant")) {
+            // Streaming chunk: {"type":"assistant","message":{"content":[{"type":"text","text":"..."}]}}
+            if (obj.get("message")) |msg| {
+                if (msg == .object) {
+                    if (msg.object.get("content")) |content| {
+                        if (content == .array and content.array.items.len > 0) {
+                            const first = content.array.items[0];
+                            if (first == .object) {
+                                if (first.object.get("text")) |text| {
+                                    if (text == .string) {
+                                        callback(text.string, false);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
-
-    /// Get full accumulated response for a request ID
-    pub fn getResponse(self: *AI, id: RequestId) ?[]const u8 {
-        if (self.pending.get(id)) |pending| {
-            return pending.response_parts.items;
-        }
-        return null;
-    }
-
-    /// Remove pending request
-    pub fn removePending(self: *AI, id: RequestId) void {
-        if (self.pending.fetchRemove(id)) |kv| {
-            self.alloc.free(kv.key);
-            var response_parts = kv.value.response_parts;
-            response_parts.deinit(self.alloc);
-        }
-    }
 };
+
+/// Run AI synchronously with a prompt, return response
+/// Tries claude first, falls back to codex
+pub fn explain(alloc: Allocator, code: []const u8) ![]const u8 {
+    // Build prompt
+    const prompt = try std.fmt.allocPrint(alloc,
+        \\Explain this code concisely in 1-2 sentences:
+        \\
+        \\```
+        \\{s}
+        \\```
+    , .{code});
+    defer alloc.free(prompt);
+
+    // Try claude first
+    if (runProvider(alloc, "claude", prompt)) |response| {
+        return response;
+    } else |_| {}
+
+    // Fall back to codex
+    return runProvider(alloc, "codex", prompt);
+}
+
+fn runProvider(alloc: Allocator, cmd: []const u8, prompt: []const u8) ![]const u8 {
+    var child = process.Child.init(&.{ cmd, "-p", prompt }, alloc);
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Ignore;
+
+    try child.spawn();
+
+    // Read stdout using collectOutput
+    const stdout = child.stdout.?;
+    var buf: [64 * 1024]u8 = undefined;
+    var read_buf: std.ArrayList(u8) = .{};
+    errdefer read_buf.deinit(alloc);
+
+    while (true) {
+        const n = stdout.read(&buf) catch break;
+        if (n == 0) break;
+        try read_buf.appendSlice(alloc, buf[0..n]);
+    }
+
+    const term = try child.wait();
+    if (term.Exited != 0) {
+        read_buf.deinit(alloc);
+        return error.ProviderFailed;
+    }
+
+    return read_buf.toOwnedSlice(alloc);
+}
 
 test "AI init/deinit" {
     const alloc = std.testing.allocator;
@@ -285,7 +314,7 @@ test "AI not started error" {
     defer ai.deinit();
 
     // Should error when trying to send prompt before starting
-    const result = ai.sendPrompt("test-id", "test prompt");
+    const result = ai.sendPrompt("test prompt");
     try std.testing.expectError(error.NotStarted, result);
 }
 
@@ -305,24 +334,6 @@ test "AI codex provider" {
 
     try std.testing.expect(!ai.isRunning());
     try std.testing.expect(ai.provider == .codex);
-}
-
-test "AI getResponse for unknown id" {
-    const alloc = std.testing.allocator;
-    var ai = AI.init(alloc, .claude);
-    defer ai.deinit();
-
-    // Should return null for unknown request ID
-    try std.testing.expect(ai.getResponse("unknown-id") == null);
-}
-
-test "AI removePending for unknown id" {
-    const alloc = std.testing.allocator;
-    var ai = AI.init(alloc, .claude);
-    defer ai.deinit();
-
-    // Should not crash when removing unknown ID
-    ai.removePending("unknown-id");
 }
 
 test "writeJsonEscaped basic" {
@@ -440,34 +451,6 @@ test "AI init with codex provider" {
     try std.testing.expect(ai.child == null);
 }
 
-test "PendingRequest struct initialization" {
-    const alloc = std.testing.allocator;
-    var response_parts: std.ArrayList(u8) = .{};
-    defer response_parts.deinit(alloc);
-
-    const pending = PendingRequest{
-        .id = "test-id",
-        .response_parts = response_parts,
-    };
-
-    try std.testing.expectEqualStrings("test-id", pending.id);
-    try std.testing.expect(!pending.done);
-}
-
-test "PendingRequest with done flag" {
-    const alloc = std.testing.allocator;
-    var response_parts: std.ArrayList(u8) = .{};
-    defer response_parts.deinit(alloc);
-
-    const pending = PendingRequest{
-        .id = "test-id",
-        .response_parts = response_parts,
-        .done = true,
-    };
-
-    try std.testing.expect(pending.done);
-}
-
 test "Provider enum exhaustive" {
     const claude = Provider.claude;
     const codex = Provider.codex;
@@ -481,13 +464,6 @@ test "AI multiple deinit safe" {
     // Should not crash on double deinit if properly guarded
 }
 
-test "AI pending requests initially empty" {
-    const alloc = std.testing.allocator;
-    var ai = AI.init(alloc, .claude);
-    defer ai.deinit();
-
-    try std.testing.expect(ai.pending.count() == 0);
-}
 
 test "writeJsonEscaped long string" {
     const alloc = std.testing.allocator;

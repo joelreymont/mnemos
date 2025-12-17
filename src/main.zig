@@ -60,6 +60,8 @@ fn parseArgs(alloc: Allocator) !Config {
     while (args_iter.next()) |arg| {
         if (mem.eql(u8, arg, "--stdio")) {
             config.mode = .stdio;
+        } else if (mem.eql(u8, arg, "--serve")) {
+            config.mode = .socket;
         } else if (mem.eql(u8, arg, "--socket")) {
             config.mode = .socket;
             const path = args_iter.next() orelse {
@@ -155,6 +157,12 @@ fn getSocketPath(alloc: Allocator, config: *const Config) ![]const u8 {
         return try alloc.dupe(u8, path);
     }
 
+    // Check HEMIS_DIR first (for tests and custom setups)
+    if (process.getEnvVarOwned(alloc, "HEMIS_DIR")) |hemis_dir| {
+        defer alloc.free(hemis_dir);
+        return try std.fmt.allocPrint(alloc, "{s}/hemis.sock", .{hemis_dir});
+    } else |_| {}
+
     if (process.getEnvVarOwned(alloc, "XDG_RUNTIME_DIR")) |runtime_dir| {
         defer alloc.free(runtime_dir);
         return try std.fmt.allocPrint(alloc, "{s}/hemis.sock", .{runtime_dir});
@@ -167,6 +175,17 @@ fn getDbPath(alloc: Allocator, config: *const Config) ![]const u8 {
     if (config.db_path) |path| {
         return try alloc.dupe(u8, path);
     }
+
+    // Check HEMIS_DB_PATH env var
+    if (process.getEnvVarOwned(alloc, "HEMIS_DB_PATH")) |db_path| {
+        return db_path;
+    } else |_| {}
+
+    // Check HEMIS_DIR env var
+    if (process.getEnvVarOwned(alloc, "HEMIS_DIR")) |hemis_dir| {
+        defer alloc.free(hemis_dir);
+        return try std.fmt.allocPrint(alloc, "{s}/hemis.db", .{hemis_dir});
+    } else |_| {}
 
     const project_root = config.project_root orelse try getCurrentDir(alloc);
     defer if (config.project_root == null) alloc.free(project_root);
@@ -235,7 +254,8 @@ fn printHelp() void {
         \\
         \\OPTIONS:
         \\    --stdio              Run in stdio mode (for editor integration)
-        \\    --socket <path>      Run as Unix socket server (default: /tmp/hemis.sock)
+        \\    --serve              Run as Unix socket server (alias for --socket)
+        \\    --socket <path>      Run as Unix socket server at specific path
         \\    --project <path>     Set project root directory (default: current directory)
         \\    --db <path>          Database file path (default: .hemis/db.sqlite)
         \\    --version, -v        Print version
