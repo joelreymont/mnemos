@@ -11,6 +11,7 @@ const fs = std.fs;
 const Allocator = mem.Allocator;
 const rpc = @import("rpc.zig");
 const storage = @import("storage.zig");
+const watcher = @import("watcher.zig");
 
 const MAX_CLIENTS = 32;
 
@@ -34,6 +35,7 @@ const Server = struct {
     clients: [MAX_CLIENTS]?Client = .{null} ** MAX_CLIENTS,
     socket_path: []const u8,
     db: storage.Database,
+    file_watcher: ?*watcher.Watcher = null,
 
     fn init(alloc: Allocator, socket_path: []const u8, db_path: []const u8) !Server {
         // Open database
@@ -64,6 +66,7 @@ const Server = struct {
     }
 
     fn deinit(self: *Server) void {
+        if (self.file_watcher) |w| w.deinit();
         for (&self.clients) |*slot| {
             if (slot.*) |client| {
                 posix.close(client.fd);
@@ -73,6 +76,24 @@ const Server = struct {
         posix.close(self.listen_fd);
         fs.deleteFileAbsolute(self.socket_path) catch {};
         self.db.close();
+    }
+
+    /// Start watching a directory for file changes
+    pub fn watchDirectory(self: *Server, path: []const u8) !void {
+        if (self.file_watcher) |w| w.deinit();
+
+        const callback = struct {
+            fn cb(event: watcher.FileEvent, userdata: ?*anyopaque) void {
+                _ = userdata;
+                std.debug.print("File change: {s} ({s})\n", .{
+                    event.path,
+                    @tagName(event.kind),
+                });
+                // TODO: Trigger reindex for modified files
+            }
+        }.cb;
+
+        self.file_watcher = try watcher.Watcher.init(self.alloc, path, callback, null);
     }
 
     fn acceptClient(self: *Server) !void {
@@ -119,7 +140,9 @@ const Server = struct {
     }
 
     fn runLoop(self: *Server) !void {
-        var poll_fds: [MAX_CLIENTS + 1]posix.pollfd = undefined;
+        // +2 for listen socket and optional watcher
+        var poll_fds: [MAX_CLIENTS + 2]posix.pollfd = undefined;
+        var watcher_poll_idx: ?usize = null;
 
         while (!shutdown_requested) {
             // Build poll set
@@ -130,6 +153,20 @@ const Server = struct {
             };
 
             var nfds: usize = 1;
+
+            // Add file watcher fd if active
+            if (self.file_watcher) |w| {
+                poll_fds[nfds] = .{
+                    .fd = w.getFd(),
+                    .events = posix.POLL.IN,
+                    .revents = 0,
+                };
+                watcher_poll_idx = nfds;
+                nfds += 1;
+            } else {
+                watcher_poll_idx = null;
+            }
+
             for (self.clients, 0..) |maybe_client, idx| {
                 if (maybe_client) |client| {
                     poll_fds[nfds] = .{
@@ -155,8 +192,18 @@ const Server = struct {
                 self.acceptClient() catch {};
             }
 
-            // Check client sockets
-            var poll_idx: usize = 1;
+            // Check file watcher
+            if (watcher_poll_idx) |idx| {
+                if (poll_fds[idx].revents & posix.POLL.IN != 0) {
+                    if (self.file_watcher) |w| {
+                        w.processEvents() catch {};
+                    }
+                }
+            }
+
+            // Check client sockets (start after watcher)
+            const client_start_idx: usize = if (watcher_poll_idx != null) 2 else 1;
+            var poll_idx: usize = client_start_idx;
             for (0..MAX_CLIENTS) |client_idx| {
                 if (self.clients[client_idx] != null) {
                     if (poll_idx < nfds and poll_fds[poll_idx].revents & posix.POLL.IN != 0) {
