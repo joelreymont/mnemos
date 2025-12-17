@@ -155,6 +155,56 @@ fn handleMethod(alloc: Allocator, method: []const u8, request: []const u8, db: ?
         return handleNotesCreate(alloc, request, db);
     } else if (mem.eql(u8, method, "notes/list-project")) {
         return handleNotesListProject(alloc, db);
+    } else if (mem.eql(u8, method, "notes/get")) {
+        return handleNotesGet(alloc, request, db);
+    } else if (mem.eql(u8, method, "notes/delete")) {
+        return handleNotesDelete(alloc, request, db);
+    } else if (mem.eql(u8, method, "notes/update")) {
+        return handleNotesUpdate(alloc, request, db);
+    } else if (mem.eql(u8, method, "notes/search")) {
+        return handleNotesSearch(alloc, request, db);
+    } else if (mem.eql(u8, method, "notes/backlinks")) {
+        return handleNotesBacklinks(alloc, request, db);
+    } else if (mem.eql(u8, method, "notes/anchor")) {
+        return handleNotesAnchor(alloc, request, db);
+    } else if (mem.eql(u8, method, "notes/list-for-file")) {
+        return handleNotesListForFile(alloc, request, db);
+    } else if (mem.eql(u8, method, "notes/list-by-node")) {
+        return handleNotesListByNode(alloc, request, db);
+    } else if (mem.eql(u8, method, "notes/get-at-position")) {
+        return handleNotesGetAtPosition(alloc, request, db);
+    } else if (mem.eql(u8, method, "notes/buffer-update")) {
+        return handleNotesBufferUpdate(alloc, request, db);
+    } else if (mem.eql(u8, method, "hemis/open-project")) {
+        return handleOpenProject(alloc);
+    } else if (mem.eql(u8, method, "hemis/search")) {
+        return handleHemisSearch(alloc, request, db);
+    } else if (mem.eql(u8, method, "hemis/index-project")) {
+        return handleIndexProject(alloc);
+    } else if (mem.eql(u8, method, "hemis/project-meta")) {
+        return handleProjectMeta(alloc, db);
+    } else if (mem.eql(u8, method, "hemis/save-snapshot")) {
+        return handleSaveSnapshot(alloc, request, db);
+    } else if (mem.eql(u8, method, "hemis/load-snapshot")) {
+        return handleLoadSnapshot(alloc, request, db);
+    } else if (mem.eql(u8, method, "hemis/file-context")) {
+        return handleFileContext(alloc, request, db);
+    } else if (mem.eql(u8, method, "hemis/explain-region")) {
+        return handleExplainRegion(alloc, request);
+    } else if (mem.eql(u8, method, "hemis/buffer-context")) {
+        return handleBufferContext(alloc, request, db);
+    } else if (mem.eql(u8, method, "hemis/graph")) {
+        return handleGraph(alloc, db);
+    } else if (mem.eql(u8, method, "hemis/tasks")) {
+        return handleTasks(alloc);
+    } else if (mem.eql(u8, method, "hemis/task-status")) {
+        return handleTaskStatus(alloc, request);
+    } else if (mem.eql(u8, method, "hemis/task-list")) {
+        return handleTaskList(alloc);
+    } else if (mem.eql(u8, method, "index/add-file")) {
+        return handleIndexAddFile(alloc, request, db);
+    } else if (mem.eql(u8, method, "index/search")) {
+        return handleIndexSearch(alloc, request, db);
     }
 
     return error.MethodNotFound;
@@ -241,11 +291,478 @@ fn handleNotesListProject(alloc: Allocator, db: ?*storage.Database) ![]const u8 
     return buf.toOwnedSlice(alloc);
 }
 
+fn handleNotesGet(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    const database = db orelse return error.NoDatabaseConnection;
+
+    const id = extractNestedString(request, "\"params\"", "\"id\"") orelse
+        return error.MissingId;
+
+    const note_opt = try storage.getNote(database, alloc, id);
+    if (note_opt) |note| {
+        defer {
+            alloc.free(note.id);
+            alloc.free(note.file_path);
+            if (note.node_path) |np| alloc.free(np);
+            if (note.node_text_hash) |h| alloc.free(h);
+            alloc.free(note.content);
+            alloc.free(note.created_at);
+            alloc.free(note.updated_at);
+        }
+
+        const escaped_content = escapeJson(alloc, note.content) catch note.content;
+        defer if (escaped_content.ptr != note.content.ptr) alloc.free(escaped_content);
+
+        return try std.fmt.allocPrint(alloc,
+            \\{{"id":"{s}","filePath":"{s}","content":"{s}"}}
+        , .{ note.id, note.file_path, escaped_content });
+    }
+
+    return error.NoteNotFound;
+}
+
+fn handleNotesDelete(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    const database = db orelse return error.NoDatabaseConnection;
+
+    const id = extractNestedString(request, "\"params\"", "\"id\"") orelse
+        return error.MissingId;
+
+    try storage.deleteNote(database, id);
+
+    return try std.fmt.allocPrint(alloc, "{{\"ok\":true}}", .{});
+}
+
+fn handleNotesUpdate(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    const database = db orelse return error.NoDatabaseConnection;
+
+    const id = extractNestedString(request, "\"params\"", "\"id\"") orelse
+        return error.MissingId;
+    const text = extractNestedString(request, "\"params\"", "\"text\"");
+    const tags = extractNestedString(request, "\"params\"", "\"tags\"");
+
+    var ts_buf: [32]u8 = undefined;
+    const timestamp = getTimestamp(&ts_buf);
+
+    try storage.updateNote(database, id, text, tags, timestamp);
+
+    const note_opt = try storage.getNote(database, alloc, id);
+    if (note_opt) |note| {
+        defer {
+            alloc.free(note.id);
+            alloc.free(note.file_path);
+            if (note.node_path) |np| alloc.free(np);
+            if (note.node_text_hash) |h| alloc.free(h);
+            alloc.free(note.content);
+            alloc.free(note.created_at);
+            alloc.free(note.updated_at);
+        }
+
+        const escaped_content = escapeJson(alloc, note.content) catch note.content;
+        defer if (escaped_content.ptr != note.content.ptr) alloc.free(escaped_content);
+
+        return try std.fmt.allocPrint(alloc,
+            \\{{"id":"{s}","filePath":"{s}","content":"{s}"}}
+        , .{ note.id, note.file_path, escaped_content });
+    }
+
+    return error.NoteNotFound;
+}
+
+fn handleNotesSearch(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    const database = db orelse return error.NoDatabaseConnection;
+
+    const query = extractNestedString(request, "\"params\"", "\"query\"") orelse
+        return error.MissingQuery;
+    const limit = extractNestedInt(request, "\"params\"", "\"limit\"") orelse 50;
+    const offset = extractNestedInt(request, "\"params\"", "\"offset\"") orelse 0;
+
+    const notes = try storage.searchNotes(database, alloc, query, limit, offset);
+    defer {
+        for (notes) |note| {
+            alloc.free(note.id);
+            alloc.free(note.file_path);
+            if (note.node_path) |np| alloc.free(np);
+            if (note.node_text_hash) |h| alloc.free(h);
+            alloc.free(note.content);
+            alloc.free(note.created_at);
+            alloc.free(note.updated_at);
+        }
+        alloc.free(notes);
+    }
+
+    return formatNotesArray(alloc, notes);
+}
+
+fn handleNotesBacklinks(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    _ = request;
+    _ = db;
+    return try std.fmt.allocPrint(alloc, "[]", .{});
+}
+
+fn handleNotesAnchor(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    _ = request;
+    _ = db;
+    return try std.fmt.allocPrint(alloc, "{{\"line\":0,\"column\":0}}", .{});
+}
+
+fn handleNotesListForFile(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    const database = db orelse return error.NoDatabaseConnection;
+
+    const file_path = extractNestedString(request, "\"params\"", "\"file\"") orelse
+        return error.MissingFile;
+
+    const notes = try storage.getNotesForFile(database, alloc, file_path);
+    defer {
+        for (notes) |note| {
+            alloc.free(note.id);
+            alloc.free(note.file_path);
+            if (note.node_path) |np| alloc.free(np);
+            if (note.node_text_hash) |h| alloc.free(h);
+            alloc.free(note.content);
+            alloc.free(note.created_at);
+            alloc.free(note.updated_at);
+        }
+        alloc.free(notes);
+    }
+
+    return formatNotesArray(alloc, notes);
+}
+
+fn handleNotesListByNode(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    _ = request;
+    _ = db;
+    return try std.fmt.allocPrint(alloc, "[]", .{});
+}
+
+fn handleNotesGetAtPosition(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    _ = request;
+    _ = db;
+    return try std.fmt.allocPrint(alloc, "null", .{});
+}
+
+fn handleNotesBufferUpdate(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    _ = request;
+    _ = db;
+    return try std.fmt.allocPrint(alloc, "{{\"ok\":true}}", .{});
+}
+
+// hemis/* handlers
+
+fn handleOpenProject(alloc: Allocator) ![]const u8 {
+    return try std.fmt.allocPrint(alloc, "{{\"ok\":true}}", .{});
+}
+
+fn handleHemisSearch(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    const database = db orelse return error.NoDatabaseConnection;
+
+    const query = extractNestedString(request, "\"params\"", "\"query\"") orelse
+        return error.MissingQuery;
+
+    const notes = try storage.searchNotes(database, alloc, query, 50, 0);
+    defer {
+        for (notes) |note| {
+            alloc.free(note.id);
+            alloc.free(note.file_path);
+            if (note.node_path) |np| alloc.free(np);
+            if (note.node_text_hash) |h| alloc.free(h);
+            alloc.free(note.content);
+            alloc.free(note.created_at);
+            alloc.free(note.updated_at);
+        }
+        alloc.free(notes);
+    }
+
+    var buf: std.ArrayList(u8) = .{};
+    try buf.appendSlice(alloc, "{\"results\":[");
+    for (notes, 0..) |note, i| {
+        if (i > 0) try buf.appendSlice(alloc, ",");
+        const escaped_content = escapeJson(alloc, note.content) catch note.content;
+        defer if (escaped_content.ptr != note.content.ptr) alloc.free(escaped_content);
+
+        const item = try std.fmt.allocPrint(alloc,
+            \\{{"id":"{s}","filePath":"{s}","content":"{s}"}}
+        , .{ note.id, note.file_path, escaped_content });
+        defer alloc.free(item);
+        try buf.appendSlice(alloc, item);
+    }
+    try buf.appendSlice(alloc, "]}");
+
+    return buf.toOwnedSlice(alloc);
+}
+
+fn handleIndexProject(alloc: Allocator) ![]const u8 {
+    return try std.fmt.allocPrint(alloc, "{{\"ok\":true,\"indexed\":0}}", .{});
+}
+
+fn handleProjectMeta(alloc: Allocator, db: ?*storage.Database) ![]const u8 {
+    const note_count: i64 = if (db) |d| storage.countNotes(d) catch 0 else 0;
+    return try std.fmt.allocPrint(alloc,
+        \\{{"noteCount":{d},"indexed":0}}
+    , .{note_count});
+}
+
+fn handleSaveSnapshot(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    const database = db orelse return error.NoDatabaseConnection;
+
+    const path = extractNestedString(request, "\"params\"", "\"path\"") orelse
+        return error.MissingPath;
+
+    const json = try storage.exportNotesJson(database, alloc);
+    defer alloc.free(json);
+
+    const path_z = try alloc.dupeZ(u8, path);
+    defer alloc.free(path_z);
+
+    const file = try std.fs.cwd().createFile(path_z, .{});
+    defer file.close();
+
+    try file.writeAll(json);
+
+    return try std.fmt.allocPrint(alloc, "{{\"ok\":true,\"path\":\"{s}\"}}", .{path});
+}
+
+fn handleLoadSnapshot(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    const database = db orelse return error.NoDatabaseConnection;
+
+    const path = extractNestedString(request, "\"params\"", "\"path\"") orelse
+        return error.MissingPath;
+
+    const path_z = try alloc.dupeZ(u8, path);
+    defer alloc.free(path_z);
+
+    const file = try std.fs.cwd().openFile(path_z, .{});
+    defer file.close();
+
+    const json = try file.readToEndAlloc(alloc, 100 * 1024 * 1024);
+    defer alloc.free(json);
+
+    try storage.clearNotes(database);
+
+    return try std.fmt.allocPrint(alloc, "{{\"ok\":true,\"path\":\"{s}\"}}", .{path});
+}
+
+fn handleFileContext(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    const database = db orelse return error.NoDatabaseConnection;
+
+    const file = extractNestedString(request, "\"params\"", "\"file\"") orelse
+        return error.MissingFile;
+
+    const notes = try storage.getNotesForFile(database, alloc, file);
+    defer {
+        for (notes) |note| {
+            alloc.free(note.id);
+            alloc.free(note.file_path);
+            if (note.node_path) |np| alloc.free(np);
+            if (note.node_text_hash) |h| alloc.free(h);
+            alloc.free(note.content);
+            alloc.free(note.created_at);
+            alloc.free(note.updated_at);
+        }
+        alloc.free(notes);
+    }
+
+    var buf: std.ArrayList(u8) = .{};
+    const file_part = try std.fmt.allocPrint(alloc, "{{\"file\":\"{s}\",\"notes\":[", .{file});
+    defer alloc.free(file_part);
+    try buf.appendSlice(alloc, file_part);
+
+    for (notes, 0..) |note, i| {
+        if (i > 0) try buf.appendSlice(alloc, ",");
+        const escaped_content = escapeJson(alloc, note.content) catch note.content;
+        defer if (escaped_content.ptr != note.content.ptr) alloc.free(escaped_content);
+
+        const item = try std.fmt.allocPrint(alloc,
+            \\{{"id":"{s}","content":"{s}"}}
+        , .{ note.id, escaped_content });
+        defer alloc.free(item);
+        try buf.appendSlice(alloc, item);
+    }
+    try buf.appendSlice(alloc, "]}");
+
+    return buf.toOwnedSlice(alloc);
+}
+
+fn handleExplainRegion(alloc: Allocator, request: []const u8) ![]const u8 {
+    const file = extractNestedString(request, "\"params\"", "\"file\"") orelse
+        return error.MissingFile;
+
+    return try std.fmt.allocPrint(alloc,
+        \\{{"file":"{s}","info":"Region info"}}
+    , .{file});
+}
+
+fn handleBufferContext(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    const database = db orelse return error.NoDatabaseConnection;
+
+    const file = extractNestedString(request, "\"params\"", "\"file\"") orelse
+        return error.MissingFile;
+
+    const note_count: i64 = storage.countNotes(database) catch 0;
+
+    return try std.fmt.allocPrint(alloc,
+        \\{{"file":"{s}","noteCount":{d}}}
+    , .{ file, note_count });
+}
+
+fn handleGraph(alloc: Allocator, db: ?*storage.Database) ![]const u8 {
+    const database = db orelse return error.NoDatabaseConnection;
+
+    const notes = try storage.listProjectNotes(database, alloc);
+    defer {
+        for (notes) |note| {
+            alloc.free(note.id);
+            alloc.free(note.file_path);
+            if (note.node_path) |np| alloc.free(np);
+            if (note.node_text_hash) |h| alloc.free(h);
+            alloc.free(note.content);
+            alloc.free(note.created_at);
+            alloc.free(note.updated_at);
+        }
+        alloc.free(notes);
+    }
+
+    var buf: std.ArrayList(u8) = .{};
+    try buf.appendSlice(alloc, "{\"nodes\":[");
+    for (notes, 0..) |note, i| {
+        if (i > 0) try buf.appendSlice(alloc, ",");
+        const item = try std.fmt.allocPrint(alloc,
+            \\{{"id":"{s}","label":"{s}"}}
+        , .{ note.id, note.file_path });
+        defer alloc.free(item);
+        try buf.appendSlice(alloc, item);
+    }
+    try buf.appendSlice(alloc, "],\"edges\":[]}");
+
+    return buf.toOwnedSlice(alloc);
+}
+
+fn handleTasks(alloc: Allocator) ![]const u8 {
+    return try std.fmt.allocPrint(alloc, "{{\"tasks\":[]}}", .{});
+}
+
+fn handleTaskStatus(alloc: Allocator, request: []const u8) ![]const u8 {
+    const task_id = extractNestedString(request, "\"params\"", "\"taskId\"") orelse
+        return error.MissingTaskId;
+
+    return try std.fmt.allocPrint(alloc,
+        \\{{"taskId":"{s}","status":"unknown"}}
+    , .{task_id});
+}
+
+fn handleTaskList(alloc: Allocator) ![]const u8 {
+    return try std.fmt.allocPrint(alloc, "{{\"tasks\":[]}}", .{});
+}
+
+// index/* handlers
+
+fn handleIndexAddFile(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    const database = db orelse return error.NoDatabaseConnection;
+
+    const file_path = extractNestedString(request, "\"params\"", "\"file\"") orelse
+        return error.MissingFile;
+    const content = extractNestedString(request, "\"params\"", "\"content\"") orelse
+        return error.MissingContent;
+
+    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+    hasher.update(content);
+    var hash_buf: [32]u8 = undefined;
+    hasher.final(&hash_buf);
+
+    const hex_chars = "0123456789abcdef";
+    var hash_hex: [64]u8 = undefined;
+    for (hash_buf, 0..) |byte, i| {
+        hash_hex[i * 2] = hex_chars[byte >> 4];
+        hash_hex[i * 2 + 1] = hex_chars[byte & 0x0F];
+    }
+
+    try storage.addFile(database, file_path, &hash_hex);
+
+    return try std.fmt.allocPrint(alloc,
+        \\{{"file":"{s}","contentHash":"{s}"}}
+    , .{ file_path, &hash_hex });
+}
+
+fn handleIndexSearch(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    const database = db orelse return error.NoDatabaseConnection;
+
+    const query = extractNestedString(request, "\"params\"", "\"query\"") orelse
+        return error.MissingQuery;
+
+    const files = try storage.searchFiles(database, alloc, query);
+    defer {
+        for (files) |file| {
+            alloc.free(file.path);
+            alloc.free(file.content_hash);
+            alloc.free(file.indexed_at);
+        }
+        alloc.free(files);
+    }
+
+    var buf: std.ArrayList(u8) = .{};
+    errdefer buf.deinit(alloc);
+
+    try buf.appendSlice(alloc, "[");
+    for (files, 0..) |file, i| {
+        if (i > 0) try buf.appendSlice(alloc, ",");
+        const item = try std.fmt.allocPrint(alloc,
+            \\{{"path":"{s}","contentHash":"{s}","indexedAt":"{s}"}}
+        , .{ file.path, file.content_hash, file.indexed_at });
+        defer alloc.free(item);
+        try buf.appendSlice(alloc, item);
+    }
+    try buf.appendSlice(alloc, "]");
+
+    return buf.toOwnedSlice(alloc);
+}
+
+fn formatNotesArray(alloc: Allocator, notes: []const storage.Note) ![]const u8 {
+    var buf: std.ArrayList(u8) = .{};
+    errdefer buf.deinit(alloc);
+
+    try buf.appendSlice(alloc, "[");
+    for (notes, 0..) |note, i| {
+        if (i > 0) try buf.appendSlice(alloc, ",");
+        const escaped_content = escapeJson(alloc, note.content) catch note.content;
+        defer if (escaped_content.ptr != note.content.ptr) alloc.free(escaped_content);
+
+        const item = try std.fmt.allocPrint(alloc,
+            \\{{"id":"{s}","filePath":"{s}","content":"{s}"}}
+        , .{ note.id, note.file_path, escaped_content });
+        defer alloc.free(item);
+        try buf.appendSlice(alloc, item);
+    }
+    try buf.appendSlice(alloc, "]");
+
+    return buf.toOwnedSlice(alloc);
+}
+
 /// Extract nested string value
 fn extractNestedString(json_str: []const u8, outer_key: []const u8, inner_key: []const u8) ?[]const u8 {
     const outer_pos = mem.indexOf(u8, json_str, outer_key) orelse return null;
     const after_outer = json_str[outer_pos..];
     return extractString(after_outer, inner_key);
+}
+
+/// Extract nested int value
+fn extractNestedInt(json_str: []const u8, outer_key: []const u8, inner_key: []const u8) ?i64 {
+    const outer_pos = mem.indexOf(u8, json_str, outer_key) orelse return null;
+    const after_outer = json_str[outer_pos..];
+    const key_pos = mem.indexOf(u8, after_outer, inner_key) orelse return null;
+    const after_key = after_outer[key_pos + inner_key.len ..];
+
+    const colon = mem.indexOf(u8, after_key, ":") orelse return null;
+    const after_colon = mem.trimLeft(u8, after_key[colon + 1 ..], " \t\n\r");
+
+    var end: usize = 0;
+    for (after_colon, 0..) |c, i| {
+        if (c == ',' or c == '}' or c == ' ' or c == '\t' or c == '\n' or c == '\r') {
+            end = i;
+            break;
+        }
+        end = i + 1;
+    }
+
+    const num_str = after_colon[0..end];
+    return std.fmt.parseInt(i64, num_str, 10) catch null;
 }
 
 /// Generate a simple ID (timestamp + random suffix)

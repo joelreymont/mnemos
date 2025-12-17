@@ -3,12 +3,7 @@
     .version = "0.0.0",
     .fingerprint = 0x5ea464bbf64d507c,
     .minimum_zig_version = "0.14.0",
-    .dependencies = .{
-        .ohsnap = .{
-            .url = "https://github.com/mnemnion/ohsnap/archive/refs/tags/v0.4.0.tar.gz",
-            .hash = "ohsnap-0.3.1-iWxzyu6bAADX1OdmK7FFg94X6RDfDvbt0iwQFH8mSFJE",
-        },
-    },
+    .dependencies = .{},
     .paths = .{
         "build.zig",
         "build.zig.zon",

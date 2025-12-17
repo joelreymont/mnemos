@@ -236,6 +236,232 @@ pub fn countNotes(db: *Database) !i64 {
     return stmt.columnInt(0);
 }
 
+/// Get a note by ID
+pub fn getNote(db: *Database, alloc: Allocator, id: []const u8) !?Note {
+    var stmt = try db.prepare(
+        \\SELECT id, file_path, node_path, node_text_hash, line_number, content, created_at, updated_at
+        \\FROM notes WHERE id = ?1
+    );
+    defer stmt.deinit();
+
+    try stmt.bindText(1, id);
+
+    if (try stmt.step()) {
+        return Note{
+            .id = try alloc.dupe(u8, stmt.columnText(0) orelse ""),
+            .file_path = try alloc.dupe(u8, stmt.columnText(1) orelse ""),
+            .node_path = if (stmt.columnText(2)) |np| try alloc.dupe(u8, np) else null,
+            .node_text_hash = if (stmt.columnText(3)) |h| try alloc.dupe(u8, h) else null,
+            .line_number = if (stmt.columnInt(4) != 0) stmt.columnInt(4) else null,
+            .content = try alloc.dupe(u8, stmt.columnText(5) orelse ""),
+            .created_at = try alloc.dupe(u8, stmt.columnText(6) orelse ""),
+            .updated_at = try alloc.dupe(u8, stmt.columnText(7) orelse ""),
+        };
+    }
+    return null;
+}
+
+/// Delete a note by ID
+pub fn deleteNote(db: *Database, id: []const u8) !void {
+    var stmt = try db.prepare("DELETE FROM notes WHERE id = ?1");
+    defer stmt.deinit();
+    try stmt.bindText(1, id);
+    _ = try stmt.step();
+}
+
+/// Update a note
+pub fn updateNote(db: *Database, id: []const u8, content: ?[]const u8, tags: ?[]const u8, updated_at: []const u8) !void {
+    if (content) |text| {
+        var stmt = try db.prepare("UPDATE notes SET content = ?1, updated_at = ?2 WHERE id = ?3");
+        defer stmt.deinit();
+        try stmt.bindText(1, text);
+        try stmt.bindText(2, updated_at);
+        try stmt.bindText(3, id);
+        _ = try stmt.step();
+    }
+    _ = tags; // Tags not yet implemented in schema
+}
+
+/// Search notes by query
+pub fn searchNotes(db: *Database, alloc: Allocator, query: []const u8, limit: i64, offset: i64) ![]Note {
+    var stmt = try db.prepare(
+        \\SELECT id, file_path, node_path, node_text_hash, line_number, content, created_at, updated_at
+        \\FROM notes WHERE content LIKE ?1 ORDER BY created_at DESC LIMIT ?2 OFFSET ?3
+    );
+    defer stmt.deinit();
+
+    const pattern = try std.fmt.allocPrint(alloc, "%{s}%", .{query});
+    defer alloc.free(pattern);
+
+    try stmt.bindText(1, pattern);
+    try stmt.bindInt(2, limit);
+    try stmt.bindInt(3, offset);
+
+    var notes: std.ArrayList(Note) = .{};
+    errdefer notes.deinit(alloc);
+
+    while (try stmt.step()) {
+        const note = Note{
+            .id = try alloc.dupe(u8, stmt.columnText(0) orelse ""),
+            .file_path = try alloc.dupe(u8, stmt.columnText(1) orelse ""),
+            .node_path = if (stmt.columnText(2)) |np| try alloc.dupe(u8, np) else null,
+            .node_text_hash = if (stmt.columnText(3)) |h| try alloc.dupe(u8, h) else null,
+            .line_number = if (stmt.columnInt(4) != 0) stmt.columnInt(4) else null,
+            .content = try alloc.dupe(u8, stmt.columnText(5) orelse ""),
+            .created_at = try alloc.dupe(u8, stmt.columnText(6) orelse ""),
+            .updated_at = try alloc.dupe(u8, stmt.columnText(7) orelse ""),
+        };
+        try notes.append(alloc, note);
+    }
+
+    return notes.toOwnedSlice(alloc);
+}
+
+/// Get notes for a file
+pub fn getNotesForFile(db: *Database, alloc: Allocator, file_path: []const u8) ![]Note {
+    var stmt = try db.prepare(
+        \\SELECT id, file_path, node_path, node_text_hash, line_number, content, created_at, updated_at
+        \\FROM notes WHERE file_path = ?1 ORDER BY created_at DESC
+    );
+    defer stmt.deinit();
+
+    try stmt.bindText(1, file_path);
+
+    var notes: std.ArrayList(Note) = .{};
+    errdefer notes.deinit(alloc);
+
+    while (try stmt.step()) {
+        const note = Note{
+            .id = try alloc.dupe(u8, stmt.columnText(0) orelse ""),
+            .file_path = try alloc.dupe(u8, stmt.columnText(1) orelse ""),
+            .node_path = if (stmt.columnText(2)) |np| try alloc.dupe(u8, np) else null,
+            .node_text_hash = if (stmt.columnText(3)) |h| try alloc.dupe(u8, h) else null,
+            .line_number = if (stmt.columnInt(4) != 0) stmt.columnInt(4) else null,
+            .content = try alloc.dupe(u8, stmt.columnText(5) orelse ""),
+            .created_at = try alloc.dupe(u8, stmt.columnText(6) orelse ""),
+            .updated_at = try alloc.dupe(u8, stmt.columnText(7) orelse ""),
+        };
+        try notes.append(alloc, note);
+    }
+
+    return notes.toOwnedSlice(alloc);
+}
+
+/// Delete all notes
+pub fn clearNotes(db: *Database) !void {
+    var stmt = try db.prepare("DELETE FROM notes");
+    defer stmt.deinit();
+    _ = try stmt.step();
+}
+
+/// File record
+pub const File = struct {
+    path: []const u8,
+    content_hash: []const u8,
+    indexed_at: []const u8,
+};
+
+/// Add or update a file in the index
+pub fn addFile(db: *Database, path: []const u8, content_hash: []const u8) !void {
+    var ts_buf: [32]u8 = undefined;
+    const ts = std.time.timestamp();
+    const timestamp = std.fmt.bufPrint(&ts_buf, "{d}", .{ts}) catch "0";
+
+    var stmt = try db.prepare(
+        \\INSERT INTO files (path, content_hash, indexed_at)
+        \\VALUES (?1, ?2, ?3)
+        \\ON CONFLICT(path) DO UPDATE SET content_hash = ?2, indexed_at = ?3
+    );
+    defer stmt.deinit();
+
+    try stmt.bindText(1, path);
+    try stmt.bindText(2, content_hash);
+    try stmt.bindText(3, timestamp);
+
+    _ = try stmt.step();
+}
+
+/// Get a file record by path
+pub fn getFile(db: *Database, alloc: Allocator, path: []const u8) !?File {
+    var stmt = try db.prepare(
+        \\SELECT path, content_hash, indexed_at FROM files WHERE path = ?1
+    );
+    defer stmt.deinit();
+
+    try stmt.bindText(1, path);
+
+    if (try stmt.step()) {
+        return File{
+            .path = try alloc.dupe(u8, stmt.columnText(0) orelse ""),
+            .content_hash = try alloc.dupe(u8, stmt.columnText(1) orelse ""),
+            .indexed_at = try alloc.dupe(u8, stmt.columnText(2) orelse ""),
+        };
+    }
+
+    return null;
+}
+
+/// Export all notes as JSON
+pub fn exportNotesJson(db: *Database, alloc: Allocator) ![]const u8 {
+    const notes = try listProjectNotes(db, alloc);
+    defer {
+        for (notes) |note| {
+            alloc.free(note.id);
+            alloc.free(note.file_path);
+            if (note.node_path) |np| alloc.free(np);
+            if (note.node_text_hash) |h| alloc.free(h);
+            alloc.free(note.content);
+            alloc.free(note.created_at);
+            alloc.free(note.updated_at);
+        }
+        alloc.free(notes);
+    }
+
+    var buf: std.ArrayList(u8) = .{};
+    errdefer buf.deinit(alloc);
+
+    try buf.appendSlice(alloc, "[");
+    for (notes, 0..) |note, i| {
+        if (i > 0) try buf.appendSlice(alloc, ",");
+        const item = try std.fmt.allocPrint(alloc,
+            \\{{"id":"{s}","filePath":"{s}","content":"{s}"}}
+        , .{ note.id, note.file_path, note.content });
+        defer alloc.free(item);
+        try buf.appendSlice(alloc, item);
+    }
+    try buf.appendSlice(alloc, "]");
+
+    return buf.toOwnedSlice(alloc);
+}
+
+/// Search files by path pattern
+pub fn searchFiles(db: *Database, alloc: Allocator, query: []const u8) ![]File {
+    var stmt = try db.prepare(
+        \\SELECT path, content_hash, indexed_at FROM files
+        \\WHERE path LIKE ?1 ORDER BY indexed_at DESC
+    );
+    defer stmt.deinit();
+
+    const pattern = try std.fmt.allocPrint(alloc, "%{s}%", .{query});
+    defer alloc.free(pattern);
+
+    try stmt.bindText(1, pattern);
+
+    var files: std.ArrayList(File) = .{};
+    errdefer files.deinit(alloc);
+
+    while (try stmt.step()) {
+        const file = File{
+            .path = try alloc.dupe(u8, stmt.columnText(0) orelse ""),
+            .content_hash = try alloc.dupe(u8, stmt.columnText(1) orelse ""),
+            .indexed_at = try alloc.dupe(u8, stmt.columnText(2) orelse ""),
+        };
+        try files.append(alloc, file);
+    }
+
+    return files.toOwnedSlice(alloc);
+}
+
 test "database open close" {
     const alloc = std.testing.allocator;
     var db = try Database.open(alloc, ":memory:");

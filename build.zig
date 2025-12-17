@@ -38,13 +38,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Add ohsnap for snapshot testing
-    const ohsnap = b.dependency("ohsnap", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    test_mod.addImport("ohsnap", ohsnap.module("ohsnap"));
-
     const exe_unit_tests = b.addTest(.{
         .root_module = test_mod,
     });
