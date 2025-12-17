@@ -16,9 +16,14 @@ pub fn build(b: *std.Build) void {
         .root_module = exe_mod,
     });
 
-    // Link SQLite
+    // Link SQLite and libgit2
     exe.linkSystemLibrary("sqlite3");
+    exe.linkSystemLibrary("git2");
     exe.linkLibC();
+
+    // Link tree-sitter
+    exe.linkSystemLibrary("tree-sitter");
+    exe.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
 
     b.installArtifact(exe);
 
@@ -42,9 +47,14 @@ pub fn build(b: *std.Build) void {
         .root_module = test_mod,
     });
 
-    // Link SQLite for tests too
+    // Link SQLite and libgit2 for tests too
     exe_unit_tests.linkSystemLibrary("sqlite3");
+    exe_unit_tests.linkSystemLibrary("git2");
     exe_unit_tests.linkLibC();
+
+    // Link tree-sitter for tests
+    exe_unit_tests.linkSystemLibrary("tree-sitter");
+    exe_unit_tests.addIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 

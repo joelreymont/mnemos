@@ -121,7 +121,7 @@ const Server = struct {
     fn runLoop(self: *Server) !void {
         var poll_fds: [MAX_CLIENTS + 1]posix.pollfd = undefined;
 
-        while (true) {
+        while (!shutdown_requested) {
             // Build poll set
             poll_fds[0] = .{
                 .fd = self.listen_fd,
@@ -143,8 +143,11 @@ const Server = struct {
                 }
             }
 
-            // Wait for events
-            const ready = try posix.poll(poll_fds[0..nfds], -1);
+            // Wait for events (1 second timeout to check shutdown flag)
+            const ready = posix.poll(poll_fds[0..nfds], 1000) catch |err| {
+                if (err == error.Interrupted) continue;
+                return err;
+            };
             if (ready == 0) continue;
 
             // Check listen socket
@@ -163,8 +166,24 @@ const Server = struct {
                 }
             }
         }
+
+        std.debug.print("hemis shutting down cleanly\n", .{});
     }
 };
+
+/// Get socket path (prefer XDG_RUNTIME_DIR, fallback to ~/.hemis)
+fn getSocketPath(alloc: Allocator) ![]const u8 {
+    // Try XDG_RUNTIME_DIR first
+    if (std.process.getEnvVarOwned(alloc, "XDG_RUNTIME_DIR")) |runtime_dir| {
+        defer alloc.free(runtime_dir);
+        return try std.fmt.allocPrint(alloc, "{s}/hemis.sock", .{runtime_dir});
+    } else |_| {}
+
+    // Fallback to ~/.hemis/hemis.sock
+    const hemis_dir = try getHemisDir(alloc);
+    defer alloc.free(hemis_dir);
+    return try std.fmt.allocPrint(alloc, "{s}/hemis.sock", .{hemis_dir});
+}
 
 /// Get hemis directory, creating if needed
 fn getHemisDir(alloc: Allocator) ![]const u8 {
@@ -184,16 +203,39 @@ fn getHemisDir(alloc: Allocator) ![]const u8 {
     return error.NoHomeDir;
 }
 
-/// Run the server
+/// Global flag for shutdown signal
+var shutdown_requested: bool = false;
+
+/// Signal handler for clean shutdown
+fn handleShutdown(_: c_int) callconv(.c) void {
+    shutdown_requested = true;
+}
+
+/// Run the server with default paths
 pub fn run(alloc: Allocator) !void {
     const hemis_dir = try getHemisDir(alloc);
     defer alloc.free(hemis_dir);
 
-    const socket_path = try std.fmt.allocPrint(alloc, "{s}/hemis.sock", .{hemis_dir});
+    const socket_path = try getSocketPath(alloc);
     defer alloc.free(socket_path);
 
     const db_path = try std.fmt.allocPrint(alloc, "{s}/hemis.db", .{hemis_dir});
     defer alloc.free(db_path);
+
+    try runWithPaths(alloc, socket_path, db_path);
+}
+
+/// Run the server with explicit paths
+pub fn runWithPaths(alloc: Allocator, socket_path: []const u8, db_path: []const u8) !void {
+    // Install signal handlers
+    const empty_mask = mem.zeroes(posix.sigset_t);
+    const sigaction = posix.Sigaction{
+        .handler = .{ .handler = handleShutdown },
+        .mask = empty_mask,
+        .flags = 0,
+    };
+    posix.sigaction(posix.SIG.INT, &sigaction, null);
+    posix.sigaction(posix.SIG.TERM, &sigaction, null);
 
     var srv = try Server.init(alloc, socket_path, db_path);
     defer srv.deinit();
