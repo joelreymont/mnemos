@@ -148,75 +148,63 @@ pub fn dispatchWithDb(alloc: Allocator, request: []const u8, db: ?*storage.Datab
     return makeResult(alloc, id, result);
 }
 
-fn handleMethod(alloc: Allocator, method: []const u8, request: []const u8, db: ?*storage.Database) ![]const u8 {
-    if (mem.eql(u8, method, "hemis/status")) {
-        return handleStatus(alloc, db);
-    } else if (mem.eql(u8, method, "hemis/version")) {
-        return handleVersion(alloc);
-    } else if (mem.eql(u8, method, "hemis/shutdown")) {
-        std.process.exit(0);
-    } else if (mem.eql(u8, method, "notes/create")) {
-        return handleNotesCreate(alloc, request, db);
-    } else if (mem.eql(u8, method, "notes/list-project")) {
-        return handleNotesListProject(alloc, db);
-    } else if (mem.eql(u8, method, "notes/get")) {
-        return handleNotesGet(alloc, request, db);
-    } else if (mem.eql(u8, method, "notes/delete")) {
-        return handleNotesDelete(alloc, request, db);
-    } else if (mem.eql(u8, method, "notes/update")) {
-        return handleNotesUpdate(alloc, request, db);
-    } else if (mem.eql(u8, method, "notes/search")) {
-        return handleNotesSearch(alloc, request, db);
-    } else if (mem.eql(u8, method, "notes/backlinks")) {
-        return handleNotesBacklinks(alloc, request, db);
-    } else if (mem.eql(u8, method, "notes/anchor")) {
-        return handleNotesAnchor(alloc, request, db);
-    } else if (mem.eql(u8, method, "notes/list-for-file")) {
-        return handleNotesListForFile(alloc, request, db);
-    } else if (mem.eql(u8, method, "notes/list-by-node")) {
-        return handleNotesListByNode(alloc, request, db);
-    } else if (mem.eql(u8, method, "notes/get-at-position")) {
-        return handleNotesGetAtPosition(alloc, request, db);
-    } else if (mem.eql(u8, method, "notes/buffer-update")) {
-        return handleNotesBufferUpdate(alloc, request, db);
-    } else if (mem.eql(u8, method, "notes/reattach")) {
-        return handleNotesReattach(alloc, request, db);
-    } else if (mem.eql(u8, method, "hemis/open-project")) {
-        return handleOpenProject(alloc);
-    } else if (mem.eql(u8, method, "hemis/search")) {
-        return handleHemisSearch(alloc, request, db);
-    } else if (mem.eql(u8, method, "hemis/index-project")) {
-        return handleIndexProject(alloc);
-    } else if (mem.eql(u8, method, "hemis/project-meta")) {
-        return handleProjectMeta(alloc, db);
-    } else if (mem.eql(u8, method, "hemis/save-snapshot")) {
-        return handleSaveSnapshot(alloc, request, db);
-    } else if (mem.eql(u8, method, "hemis/load-snapshot")) {
-        return handleLoadSnapshot(alloc, request, db);
-    } else if (mem.eql(u8, method, "hemis/file-context")) {
-        return handleFileContext(alloc, request, db);
-    } else if (mem.eql(u8, method, "hemis/explain-region")) {
-        return handleExplainRegion(alloc, request);
-    } else if (mem.eql(u8, method, "hemis/buffer-context")) {
-        return handleBufferContext(alloc, request, db);
-    } else if (mem.eql(u8, method, "hemis/graph")) {
-        return handleGraph(alloc, db);
-    } else if (mem.eql(u8, method, "hemis/tasks")) {
-        return handleTasks(alloc);
-    } else if (mem.eql(u8, method, "hemis/task-status")) {
-        return handleTaskStatus(alloc, request);
-    } else if (mem.eql(u8, method, "hemis/task-list")) {
-        return handleTaskList(alloc);
-    } else if (mem.eql(u8, method, "index/add-file")) {
-        return handleIndexAddFile(alloc, request, db);
-    } else if (mem.eql(u8, method, "index/search")) {
-        return handleIndexSearch(alloc, request, db);
-    }
+/// Handler function signature - all handlers use this unified signature
+const Handler = *const fn (Allocator, []const u8, ?*storage.Database) anyerror![]const u8;
 
-    return error.MethodNotFound;
+/// Comptime dispatch table for RPC methods
+const dispatch_table = std.StaticStringMap(Handler).initComptime(.{
+    // hemis/* handlers
+    .{ "hemis/status", handleStatus },
+    .{ "hemis/version", handleVersion },
+    .{ "hemis/shutdown", handleShutdown },
+    .{ "hemis/open-project", handleOpenProject },
+    .{ "hemis/search", handleHemisSearch },
+    .{ "hemis/index-project", handleIndexProject },
+    .{ "hemis/project-meta", handleProjectMeta },
+    .{ "hemis/save-snapshot", handleSaveSnapshot },
+    .{ "hemis/load-snapshot", handleLoadSnapshot },
+    .{ "hemis/file-context", handleFileContext },
+    .{ "hemis/explain-region", handleExplainRegion },
+    .{ "hemis/buffer-context", handleBufferContext },
+    .{ "hemis/graph", handleGraph },
+    .{ "hemis/tasks", handleTasks },
+    .{ "hemis/task-status", handleTaskStatus },
+    .{ "hemis/task-list", handleTaskList },
+    .{ "hemis/display-config", handleDisplayConfig },
+    .{ "hemis/note-templates", handleNoteTemplates },
+    .{ "hemis/suggest-tags", handleSuggestTags },
+    .{ "hemis/code-references", handleCodeReferences },
+    .{ "hemis/summarize-file", handleSummarizeFile },
+    // notes/* handlers
+    .{ "notes/create", handleNotesCreate },
+    .{ "notes/list-project", handleNotesListProject },
+    .{ "notes/get", handleNotesGet },
+    .{ "notes/delete", handleNotesDelete },
+    .{ "notes/update", handleNotesUpdate },
+    .{ "notes/search", handleNotesSearch },
+    .{ "notes/backlinks", handleNotesBacklinks },
+    .{ "notes/anchor", handleNotesAnchor },
+    .{ "notes/list-for-file", handleNotesListForFile },
+    .{ "notes/list-by-node", handleNotesListByNode },
+    .{ "notes/get-at-position", handleNotesGetAtPosition },
+    .{ "notes/buffer-update", handleNotesBufferUpdate },
+    .{ "notes/reattach", handleNotesReattach },
+    .{ "notes/history", handleNotesHistory },
+    .{ "notes/get-version", handleNotesGetVersion },
+    .{ "notes/restore-version", handleNotesRestoreVersion },
+    .{ "notes/link-suggestions", handleNotesLinkSuggestions },
+    .{ "notes/explain-and-create", handleNotesExplainAndCreate },
+    // index/* handlers
+    .{ "index/add-file", handleIndexAddFile },
+    .{ "index/search", handleIndexSearch },
+});
+
+fn handleMethod(alloc: Allocator, method: []const u8, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    const handler = dispatch_table.get(method) orelse return error.MethodNotFound;
+    return handler(alloc, request, db);
 }
 
-fn handleStatus(alloc: Allocator, db: ?*storage.Database) ![]const u8 {
+fn handleStatus(alloc: Allocator, _: []const u8, db: ?*storage.Database) ![]const u8 {
     const note_count: i64 = if (db) |d| storage.countNotes(d) catch 0 else 0;
 
     // Try to get git info
@@ -232,10 +220,14 @@ fn handleStatus(alloc: Allocator, db: ?*storage.Database) ![]const u8 {
     , .{ note_count, branch_str });
 }
 
-fn handleVersion(alloc: Allocator) ![]const u8 {
+fn handleVersion(alloc: Allocator, _: []const u8, _: ?*storage.Database) ![]const u8 {
     return try std.fmt.allocPrint(alloc,
         \\{{"version":"0.1.0","language":"zig"}}
     , .{});
+}
+
+fn handleShutdown(_: Allocator, _: []const u8, _: ?*storage.Database) ![]const u8 {
+    std.process.exit(0);
 }
 
 fn handleNotesCreate(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
@@ -274,7 +266,7 @@ fn handleNotesCreate(alloc: Allocator, request: []const u8, db: ?*storage.Databa
     , .{ id, file_path, escapeJson(alloc, content) catch content });
 }
 
-fn handleNotesListProject(alloc: Allocator, db: ?*storage.Database) ![]const u8 {
+fn handleNotesListProject(alloc: Allocator, _: []const u8, db: ?*storage.Database) ![]const u8 {
     const database = db orelse return error.NoDatabaseConnection;
 
     const notes = try storage.listProjectNotes(database, alloc);
@@ -506,7 +498,7 @@ fn handleNotesReattach(alloc: Allocator, request: []const u8, db: ?*storage.Data
 
 // hemis/* handlers
 
-fn handleOpenProject(alloc: Allocator) ![]const u8 {
+fn handleOpenProject(alloc: Allocator, _: []const u8, _: ?*storage.Database) ![]const u8 {
     return try std.fmt.allocPrint(alloc, "{{\"ok\":true}}", .{});
 }
 
@@ -548,11 +540,11 @@ fn handleHemisSearch(alloc: Allocator, request: []const u8, db: ?*storage.Databa
     return buf.toOwnedSlice(alloc);
 }
 
-fn handleIndexProject(alloc: Allocator) ![]const u8 {
+fn handleIndexProject(alloc: Allocator, _: []const u8, _: ?*storage.Database) ![]const u8 {
     return try std.fmt.allocPrint(alloc, "{{\"ok\":true,\"indexed\":0}}", .{});
 }
 
-fn handleProjectMeta(alloc: Allocator, db: ?*storage.Database) ![]const u8 {
+fn handleProjectMeta(alloc: Allocator, _: []const u8, db: ?*storage.Database) ![]const u8 {
     const note_count: i64 = if (db) |d| storage.countNotes(d) catch 0 else 0;
 
     // Try to get git info
@@ -653,7 +645,7 @@ fn handleFileContext(alloc: Allocator, request: []const u8, db: ?*storage.Databa
     return buf.toOwnedSlice(alloc);
 }
 
-fn handleExplainRegion(alloc: Allocator, request: []const u8) ![]const u8 {
+fn handleExplainRegion(alloc: Allocator, request: []const u8, _: ?*storage.Database) ![]const u8 {
     const file = extractNestedString(request, "\"params\"", "\"file\"") orelse
         return error.MissingFile;
 
@@ -675,7 +667,7 @@ fn handleBufferContext(alloc: Allocator, request: []const u8, db: ?*storage.Data
     , .{ file, note_count });
 }
 
-fn handleGraph(alloc: Allocator, db: ?*storage.Database) ![]const u8 {
+fn handleGraph(alloc: Allocator, _: []const u8, db: ?*storage.Database) ![]const u8 {
     const database = db orelse return error.NoDatabaseConnection;
 
     const notes = try storage.listProjectNotes(database, alloc);
@@ -707,11 +699,11 @@ fn handleGraph(alloc: Allocator, db: ?*storage.Database) ![]const u8 {
     return buf.toOwnedSlice(alloc);
 }
 
-fn handleTasks(alloc: Allocator) ![]const u8 {
+fn handleTasks(alloc: Allocator, _: []const u8, _: ?*storage.Database) ![]const u8 {
     return try std.fmt.allocPrint(alloc, "{{\"tasks\":[]}}", .{});
 }
 
-fn handleTaskStatus(alloc: Allocator, request: []const u8) ![]const u8 {
+fn handleTaskStatus(alloc: Allocator, request: []const u8, _: ?*storage.Database) ![]const u8 {
     const task_id = extractNestedString(request, "\"params\"", "\"taskId\"") orelse
         return error.MissingTaskId;
 
@@ -720,7 +712,7 @@ fn handleTaskStatus(alloc: Allocator, request: []const u8) ![]const u8 {
     , .{task_id});
 }
 
-fn handleTaskList(alloc: Allocator) ![]const u8 {
+fn handleTaskList(alloc: Allocator, _: []const u8, _: ?*storage.Database) ![]const u8 {
     return try std.fmt.allocPrint(alloc, "{{\"tasks\":[]}}", .{});
 }
 
@@ -784,6 +776,215 @@ fn handleIndexSearch(alloc: Allocator, request: []const u8, db: ?*storage.Databa
     try buf.appendSlice(alloc, "]");
 
     return buf.toOwnedSlice(alloc);
+}
+
+// New handlers
+
+fn handleDisplayConfig(alloc: Allocator, _: []const u8, _: ?*storage.Database) ![]const u8 {
+    return try std.fmt.allocPrint(alloc,
+        \\{{"colors":{{"note":"#4682B4","noteStale":"#808080","marker":"#4682B4"}},"icons":{{"noteFresh":"📝","noteStale":"📝","noteAi":"🤖"}},"templates":{{"displayLabel":"{{shortId}} {{summary}}","hoverText":"hemis: {{summary}}"}}}}
+    , .{});
+}
+
+fn handleNoteTemplates(alloc: Allocator, _: []const u8, _: ?*storage.Database) ![]const u8 {
+    return try std.fmt.allocPrint(alloc,
+        \\{{"templates":[{{"id":"bug","name":"Bug Report","template":"## Bug Report\\n\\n**Severity:** \\n**Steps:**\\n1. "}},{{"id":"todo","name":"TODO","template":"## TODO\\n\\n**Priority:** medium\\n"}},{{"id":"api","name":"API Contract","template":"## API Contract\\n\\n**Inputs:**\\n- "}},{{"id":"decision","name":"Design Decision","template":"## Design Decision\\n\\n**Context:**\\n"}}]}}
+    , .{});
+}
+
+fn handleSuggestTags(alloc: Allocator, request: []const u8, _: ?*storage.Database) ![]const u8 {
+    const file = extractNestedString(request, "\"params\"", "\"file\"") orelse
+        return error.MissingFile;
+
+    // Suggest tags based on file extension
+    var tags: std.ArrayList(u8) = .{};
+    defer tags.deinit(alloc);
+
+    try tags.appendSlice(alloc, "[");
+
+    // Language tag from extension
+    if (mem.endsWith(u8, file, ".zig")) {
+        try tags.appendSlice(alloc, "\"zig\"");
+    } else if (mem.endsWith(u8, file, ".rs")) {
+        try tags.appendSlice(alloc, "\"rust\"");
+    } else if (mem.endsWith(u8, file, ".py")) {
+        try tags.appendSlice(alloc, "\"python\"");
+    } else if (mem.endsWith(u8, file, ".js") or mem.endsWith(u8, file, ".ts")) {
+        try tags.appendSlice(alloc, "\"javascript\"");
+    } else if (mem.endsWith(u8, file, ".go")) {
+        try tags.appendSlice(alloc, "\"go\"");
+    }
+
+    // Pattern-based tags
+    const file_lower = file; // TODO: lowercase
+    if (mem.indexOf(u8, file_lower, "test") != null or mem.indexOf(u8, file_lower, "spec") != null) {
+        if (tags.items.len > 1) try tags.appendSlice(alloc, ",");
+        try tags.appendSlice(alloc, "\"test\"");
+    }
+
+    try tags.appendSlice(alloc, "]");
+
+    return try std.fmt.allocPrint(alloc, "{{\"tags\":{s}}}", .{tags.items});
+}
+
+fn handleCodeReferences(alloc: Allocator, request: []const u8, _: ?*storage.Database) ![]const u8 {
+    const file = extractNestedString(request, "\"params\"", "\"file\"") orelse
+        return error.MissingFile;
+    const line = extractNestedInt(request, "\"params\"", "\"line\"") orelse 1;
+
+    return try std.fmt.allocPrint(alloc,
+        \\{{"references":[],"anchor":{{"line":{d},"file":"{s}"}}}}
+    , .{ line, file });
+}
+
+fn handleSummarizeFile(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    const database = db orelse return error.NoDatabaseConnection;
+    const file = extractNestedString(request, "\"params\"", "\"file\"") orelse
+        return error.MissingFile;
+
+    const notes = try storage.getNotesForFile(database, alloc, file);
+    defer {
+        for (notes) |note| {
+            alloc.free(note.id);
+            alloc.free(note.file_path);
+            if (note.node_path) |np| alloc.free(np);
+            if (note.node_text_hash) |h| alloc.free(h);
+            alloc.free(note.content);
+            alloc.free(note.created_at);
+            alloc.free(note.updated_at);
+        }
+        alloc.free(notes);
+    }
+
+    var buf: std.ArrayList(u8) = .{};
+    errdefer buf.deinit(alloc);
+
+    try buf.appendSlice(alloc, "{\"file\":\"");
+    try buf.appendSlice(alloc, file);
+    try buf.appendSlice(alloc, "\",\"sections\":[");
+
+    for (notes, 0..) |note, i| {
+        if (i > 0) try buf.appendSlice(alloc, ",");
+        const escaped = escapeJson(alloc, note.content) catch note.content;
+        defer if (escaped.ptr != note.content.ptr) alloc.free(escaped);
+        const item = try std.fmt.allocPrint(alloc,
+            \\{{"noteId":"{s}","summary":"{s}"}}
+        , .{ note.id, escaped });
+        defer alloc.free(item);
+        try buf.appendSlice(alloc, item);
+    }
+
+    try buf.appendSlice(alloc, "]}");
+    return buf.toOwnedSlice(alloc);
+}
+
+fn handleNotesHistory(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    _ = db;
+    const id = extractNestedString(request, "\"params\"", "\"id\"") orelse
+        return error.MissingId;
+
+    // Version history not yet implemented - return empty
+    return try std.fmt.allocPrint(alloc, "{{\"noteId\":\"{s}\",\"versions\":[]}}", .{id});
+}
+
+fn handleNotesGetVersion(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    _ = db;
+    const id = extractNestedString(request, "\"params\"", "\"id\"") orelse
+        return error.MissingId;
+    const version = extractNestedInt(request, "\"params\"", "\"version\"") orelse
+        return error.MissingVersion;
+
+    return try std.fmt.allocPrint(alloc,
+        \\{{"noteId":"{s}","version":{d},"content":null}}
+    , .{ id, version });
+}
+
+fn handleNotesRestoreVersion(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    _ = db;
+    const id = extractNestedString(request, "\"params\"", "\"id\"") orelse
+        return error.MissingId;
+    const version = extractNestedInt(request, "\"params\"", "\"version\"") orelse
+        return error.MissingVersion;
+
+    return try std.fmt.allocPrint(alloc,
+        \\{{"noteId":"{s}","restoredVersion":{d},"ok":false}}
+    , .{ id, version });
+}
+
+fn handleNotesLinkSuggestions(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    const database = db orelse return error.NoDatabaseConnection;
+    const query = extractNestedString(request, "\"params\"", "\"query\"") orelse "";
+
+    const notes = try storage.searchNotes(database, alloc, query, 10, 0);
+    defer {
+        for (notes) |note| {
+            alloc.free(note.id);
+            alloc.free(note.file_path);
+            if (note.node_path) |np| alloc.free(np);
+            if (note.node_text_hash) |h| alloc.free(h);
+            alloc.free(note.content);
+            alloc.free(note.created_at);
+            alloc.free(note.updated_at);
+        }
+        alloc.free(notes);
+    }
+
+    var buf: std.ArrayList(u8) = .{};
+    errdefer buf.deinit(alloc);
+
+    try buf.appendSlice(alloc, "[");
+    for (notes, 0..) |note, i| {
+        if (i > 0) try buf.appendSlice(alloc, ",");
+        // Get first line as summary
+        const first_line = if (mem.indexOf(u8, note.content, "\n")) |nl|
+            note.content[0..nl]
+        else
+            note.content;
+        const summary = if (first_line.len > 50) first_line[0..47] else first_line;
+        const escaped = escapeJson(alloc, summary) catch summary;
+        defer if (escaped.ptr != summary.ptr) alloc.free(escaped);
+
+        const item = try std.fmt.allocPrint(alloc,
+            \\{{"noteId":"{s}","summary":"{s}","formatted":"[[{s}][{s}]]"}}
+        , .{ note.id, escaped, escaped, note.id });
+        defer alloc.free(item);
+        try buf.appendSlice(alloc, item);
+    }
+    try buf.appendSlice(alloc, "]");
+
+    return buf.toOwnedSlice(alloc);
+}
+
+fn handleNotesExplainAndCreate(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
+    const database = db orelse return error.NoDatabaseConnection;
+    const file = extractNestedString(request, "\"params\"", "\"file\"") orelse
+        return error.MissingFile;
+    const content = extractNestedString(request, "\"params\"", "\"content\"");
+
+    // Create note with AI placeholder
+    var id_buf: [36]u8 = undefined;
+    const id = generateId(&id_buf);
+
+    var ts_buf: [32]u8 = undefined;
+    const timestamp = getTimestamp(&ts_buf);
+
+    const note_content = content orelse "AI explanation pending";
+    const note = storage.Note{
+        .id = id,
+        .file_path = file,
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = note_content,
+        .created_at = timestamp,
+        .updated_at = timestamp,
+    };
+
+    try storage.createNote(database, note);
+
+    return try std.fmt.allocPrint(alloc,
+        \\{{"note":{{"id":"{s}","filePath":"{s}"}},"ai":{{"provider":"none","hadContext":false}}}}
+    , .{ id, file });
 }
 
 fn formatNotesArray(alloc: Allocator, notes: []const storage.Note) ![]const u8 {
@@ -2315,4 +2516,151 @@ test "file path with spaces" {
     defer alloc.free(resp);
 
     try std.testing.expect(mem.indexOf(u8, resp, "\"result\"") != null);
+}
+
+// ============================================================================
+// New Handler Tests
+// ============================================================================
+
+test "dispatch hemis display-config" {
+    const alloc = std.testing.allocator;
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/display-config\",\"params\":{}}";
+    const resp = dispatch(alloc, req);
+    defer alloc.free(resp);
+
+    try std.testing.expect(mem.indexOf(u8, resp, "\"colors\"") != null);
+    try std.testing.expect(mem.indexOf(u8, resp, "\"icons\"") != null);
+}
+
+test "dispatch hemis note-templates" {
+    const alloc = std.testing.allocator;
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/note-templates\",\"params\":{}}";
+    const resp = dispatch(alloc, req);
+    defer alloc.free(resp);
+
+    try std.testing.expect(mem.indexOf(u8, resp, "\"templates\"") != null);
+    try std.testing.expect(mem.indexOf(u8, resp, "\"bug\"") != null);
+}
+
+test "dispatch hemis suggest-tags zig file" {
+    const alloc = std.testing.allocator;
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/suggest-tags\",\"params\":{\"file\":\"/src/main.zig\"}}";
+    const resp = dispatch(alloc, req);
+    defer alloc.free(resp);
+
+    try std.testing.expect(mem.indexOf(u8, resp, "\"tags\"") != null);
+    try std.testing.expect(mem.indexOf(u8, resp, "\"zig\"") != null);
+}
+
+test "dispatch hemis suggest-tags rust file" {
+    const alloc = std.testing.allocator;
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/suggest-tags\",\"params\":{\"file\":\"/src/lib.rs\"}}";
+    const resp = dispatch(alloc, req);
+    defer alloc.free(resp);
+
+    try std.testing.expect(mem.indexOf(u8, resp, "\"rust\"") != null);
+}
+
+test "dispatch hemis suggest-tags test file" {
+    const alloc = std.testing.allocator;
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/suggest-tags\",\"params\":{\"file\":\"/src/test_main.zig\"}}";
+    const resp = dispatch(alloc, req);
+    defer alloc.free(resp);
+
+    try std.testing.expect(mem.indexOf(u8, resp, "\"test\"") != null);
+}
+
+test "dispatch hemis code-references" {
+    const alloc = std.testing.allocator;
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/code-references\",\"params\":{\"file\":\"/test.zig\",\"line\":10}}";
+    const resp = dispatch(alloc, req);
+    defer alloc.free(resp);
+
+    try std.testing.expect(mem.indexOf(u8, resp, "\"references\"") != null);
+    try std.testing.expect(mem.indexOf(u8, resp, "\"anchor\"") != null);
+}
+
+test "dispatch hemis summarize-file" {
+    const alloc = std.testing.allocator;
+    var db = try storage.Database.open(alloc, ":memory:");
+    defer db.close();
+
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/summarize-file\",\"params\":{\"file\":\"/test.zig\"}}";
+    const resp = dispatchWithDb(alloc, req, &db);
+    defer alloc.free(resp);
+
+    try std.testing.expect(mem.indexOf(u8, resp, "\"file\"") != null);
+    try std.testing.expect(mem.indexOf(u8, resp, "\"sections\"") != null);
+}
+
+test "dispatch notes history" {
+    const alloc = std.testing.allocator;
+    var db = try storage.Database.open(alloc, ":memory:");
+    defer db.close();
+
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"notes/history\",\"params\":{\"id\":\"test-id\"}}";
+    const resp = dispatchWithDb(alloc, req, &db);
+    defer alloc.free(resp);
+
+    try std.testing.expect(mem.indexOf(u8, resp, "\"versions\"") != null);
+}
+
+test "dispatch notes get-version" {
+    const alloc = std.testing.allocator;
+    var db = try storage.Database.open(alloc, ":memory:");
+    defer db.close();
+
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"notes/get-version\",\"params\":{\"id\":\"test-id\",\"version\":1}}";
+    const resp = dispatchWithDb(alloc, req, &db);
+    defer alloc.free(resp);
+
+    try std.testing.expect(mem.indexOf(u8, resp, "\"noteId\"") != null);
+    try std.testing.expect(mem.indexOf(u8, resp, "\"version\"") != null);
+}
+
+test "dispatch notes restore-version" {
+    const alloc = std.testing.allocator;
+    var db = try storage.Database.open(alloc, ":memory:");
+    defer db.close();
+
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"notes/restore-version\",\"params\":{\"id\":\"test-id\",\"version\":1}}";
+    const resp = dispatchWithDb(alloc, req, &db);
+    defer alloc.free(resp);
+
+    try std.testing.expect(mem.indexOf(u8, resp, "\"restoredVersion\"") != null);
+}
+
+test "dispatch notes link-suggestions" {
+    const alloc = std.testing.allocator;
+    var db = try storage.Database.open(alloc, ":memory:");
+    defer db.close();
+
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"notes/link-suggestions\",\"params\":{\"query\":\"test\"}}";
+    const resp = dispatchWithDb(alloc, req, &db);
+    defer alloc.free(resp);
+
+    try std.testing.expect(mem.indexOf(u8, resp, "\"result\"") != null);
+}
+
+test "dispatch notes explain-and-create" {
+    const alloc = std.testing.allocator;
+    var db = try storage.Database.open(alloc, ":memory:");
+    defer db.close();
+
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"notes/explain-and-create\",\"params\":{\"file\":\"/test.zig\",\"content\":\"test content\"}}";
+    const resp = dispatchWithDb(alloc, req, &db);
+    defer alloc.free(resp);
+
+    try std.testing.expect(mem.indexOf(u8, resp, "\"note\"") != null);
+    try std.testing.expect(mem.indexOf(u8, resp, "\"ai\"") != null);
+}
+
+test "dispatch table has all methods" {
+    // Verify dispatch table is populated
+    try std.testing.expect(dispatch_table.get("hemis/status") != null);
+    try std.testing.expect(dispatch_table.get("hemis/version") != null);
+    try std.testing.expect(dispatch_table.get("hemis/display-config") != null);
+    try std.testing.expect(dispatch_table.get("notes/create") != null);
+    try std.testing.expect(dispatch_table.get("notes/history") != null);
+    try std.testing.expect(dispatch_table.get("index/search") != null);
 }
