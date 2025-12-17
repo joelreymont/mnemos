@@ -55,8 +55,6 @@ backend/
     rpc/              # JSON-RPC framing and parsing
     storage/          # SQLite connection, migrations, schema
     treesitter/       # Tree-sitter parsing for anchor detection
-  tools/
-    hemis_mcp/        # MCP server for Claude Code integration
 ```
 
 ## Note Anchoring

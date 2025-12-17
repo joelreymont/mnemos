@@ -134,8 +134,6 @@ hemis/
       rpc/              # JSON-RPC framing
       storage/          # SQLite helpers, migrations
       treesitter/       # Tree-sitter parsing
-    tools/
-      hemis_mcp/        # MCP server for Claude Code
   ui/
     emacs/              # Emacs client (hemis.el)
     neovim/             # Neovim client (lua)
