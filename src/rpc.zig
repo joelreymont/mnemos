@@ -10,6 +10,8 @@ const posix = std.posix;
 
 const Allocator = mem.Allocator;
 const storage = @import("storage.zig");
+const git = @import("git.zig");
+const treesitter = @import("treesitter.zig");
 
 /// RPC stream for reading/writing framed messages
 pub const Stream = struct {
@@ -212,9 +214,18 @@ fn handleMethod(alloc: Allocator, method: []const u8, request: []const u8, db: ?
 
 fn handleStatus(alloc: Allocator, db: ?*storage.Database) ![]const u8 {
     const note_count: i64 = if (db) |d| storage.countNotes(d) catch 0 else 0;
+
+    // Try to get git info
+    var repo = git.Repository.open(".") catch null;
+    defer if (repo) |*r| r.deinit();
+
+    const branch = if (repo) |*r| r.getCurrentBranch(alloc) catch null else null;
+    defer if (branch) |b| alloc.free(b);
+    const branch_str = branch orelse "unknown";
+
     return try std.fmt.allocPrint(alloc,
-        \\{{"version":"0.1.0","language":"zig","status":"ok","noteCount":{d}}}
-    , .{note_count});
+        \\{{"version":"0.1.0","language":"zig","status":"ok","noteCount":{d},"gitBranch":"{s}"}}
+    , .{ note_count, branch_str });
 }
 
 fn handleNotesCreate(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
@@ -495,9 +506,22 @@ fn handleIndexProject(alloc: Allocator) ![]const u8 {
 
 fn handleProjectMeta(alloc: Allocator, db: ?*storage.Database) ![]const u8 {
     const note_count: i64 = if (db) |d| storage.countNotes(d) catch 0 else 0;
+
+    // Try to get git info
+    var repo = git.Repository.open(".") catch null;
+    defer if (repo) |*r| r.deinit();
+
+    const branch = if (repo) |*r| r.getCurrentBranch(alloc) catch null else null;
+    defer if (branch) |b| alloc.free(b);
+    const branch_str = branch orelse "unknown";
+
+    const commit = if (repo) |*r| r.getHeadCommit(alloc) catch null else null;
+    defer if (commit) |c| alloc.free(c);
+    const commit_str = commit orelse "unknown";
+
     return try std.fmt.allocPrint(alloc,
-        \\{{"noteCount":{d},"indexed":0}}
-    , .{note_count});
+        \\{{"noteCount":{d},"indexed":0,"gitBranch":"{s}","gitCommit":"{s}"}}
+    , .{ note_count, branch_str, commit_str });
 }
 
 fn handleSaveSnapshot(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
