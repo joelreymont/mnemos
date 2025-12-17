@@ -877,3 +877,131 @@ test "dispatch status" {
     try std.testing.expect(mem.indexOf(u8, resp, "\"version\"") != null);
     try std.testing.expect(mem.indexOf(u8, resp, "\"zig\"") != null);
 }
+
+test "dispatch with database" {
+    const alloc = std.testing.allocator;
+    var db = try storage.Database.open(alloc, ":memory:");
+    defer db.close();
+
+    // Status with db
+    const status_req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/status\"}";
+    const status_resp = dispatchWithDb(alloc, status_req, &db);
+    defer alloc.free(status_resp);
+    try std.testing.expect(mem.indexOf(u8, status_resp, "\"noteCount\":0") != null);
+}
+
+test "dispatch notes create and get" {
+    const alloc = std.testing.allocator;
+    var db = try storage.Database.open(alloc, ":memory:");
+    defer db.close();
+
+    // Create
+    const create_req =
+        \\{"jsonrpc":"2.0","id":1,"method":"notes/create","params":{"filePath":"/test.zig","content":"Test note"}}
+    ;
+    const create_resp = dispatchWithDb(alloc, create_req, &db);
+    defer alloc.free(create_resp);
+    try std.testing.expect(mem.indexOf(u8, create_resp, "\"id\"") != null);
+    try std.testing.expect(mem.indexOf(u8, create_resp, "\"filePath\":\"/test.zig\"") != null);
+
+    // List project
+    const list_req = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"notes/list-project\"}";
+    const list_resp = dispatchWithDb(alloc, list_req, &db);
+    defer alloc.free(list_resp);
+    try std.testing.expect(mem.indexOf(u8, list_resp, "Test note") != null);
+}
+
+test "dispatch method not found" {
+    const alloc = std.testing.allocator;
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"unknown/method\"}";
+    const resp = dispatch(alloc, req);
+    defer alloc.free(resp);
+
+    try std.testing.expect(mem.indexOf(u8, resp, "\"error\"") != null);
+    try std.testing.expect(mem.indexOf(u8, resp, "MethodNotFound") != null);
+}
+
+test "dispatch missing method" {
+    const alloc = std.testing.allocator;
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1}";
+    const resp = dispatch(alloc, req);
+    defer alloc.free(resp);
+
+    try std.testing.expect(mem.indexOf(u8, resp, "\"error\"") != null);
+    try std.testing.expect(mem.indexOf(u8, resp, "Invalid Request") != null);
+}
+
+test "extract string" {
+    const json = "{\"method\":\"test\",\"id\":123}";
+    const method = extractString(json, "\"method\"");
+    try std.testing.expect(method != null);
+    try std.testing.expectEqualStrings("test", method.?);
+}
+
+test "extract nested string" {
+    const json = "{\"params\":{\"file\":\"/path/to/file\",\"content\":\"hello\"}}";
+    const file = extractNestedString(json, "\"params\"", "\"file\"");
+    try std.testing.expect(file != null);
+    try std.testing.expectEqualStrings("/path/to/file", file.?);
+}
+
+test "extract nested int" {
+    const json = "{\"params\":{\"limit\":50,\"offset\":10}}";
+    const limit = extractNestedInt(json, "\"params\"", "\"limit\"");
+    const offset = extractNestedInt(json, "\"params\"", "\"offset\"");
+    try std.testing.expect(limit != null);
+    try std.testing.expect(offset != null);
+    try std.testing.expectEqual(@as(i64, 50), limit.?);
+    try std.testing.expectEqual(@as(i64, 10), offset.?);
+}
+
+test "escape json" {
+    const alloc = std.testing.allocator;
+
+    // No escape needed
+    const simple = try escapeJson(alloc, "hello");
+    try std.testing.expectEqualStrings("hello", simple);
+
+    // With escapes
+    const with_quotes = try escapeJson(alloc, "say \"hello\"");
+    defer alloc.free(with_quotes);
+    try std.testing.expectEqualStrings("say \\\"hello\\\"", with_quotes);
+
+    const with_newline = try escapeJson(alloc, "line1\nline2");
+    defer alloc.free(with_newline);
+    try std.testing.expectEqualStrings("line1\\nline2", with_newline);
+}
+
+test "dispatch hemis project meta" {
+    const alloc = std.testing.allocator;
+    var db = try storage.Database.open(alloc, ":memory:");
+    defer db.close();
+
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/project-meta\"}";
+    const resp = dispatchWithDb(alloc, req, &db);
+    defer alloc.free(resp);
+
+    try std.testing.expect(mem.indexOf(u8, resp, "\"noteCount\"") != null);
+}
+
+test "dispatch index add and search" {
+    const alloc = std.testing.allocator;
+    var db = try storage.Database.open(alloc, ":memory:");
+    defer db.close();
+
+    // Add file
+    const add_req =
+        \\{"jsonrpc":"2.0","id":1,"method":"index/add-file","params":{"file":"/src/main.zig","content":"const std = @import(\"std\");"}}
+    ;
+    const add_resp = dispatchWithDb(alloc, add_req, &db);
+    defer alloc.free(add_resp);
+    try std.testing.expect(mem.indexOf(u8, add_resp, "\"contentHash\"") != null);
+
+    // Search
+    const search_req =
+        \\{"jsonrpc":"2.0","id":2,"method":"index/search","params":{"query":"zig"}}
+    ;
+    const search_resp = dispatchWithDb(alloc, search_req, &db);
+    defer alloc.free(search_resp);
+    try std.testing.expect(mem.indexOf(u8, search_resp, "/src/main.zig") != null);
+}
