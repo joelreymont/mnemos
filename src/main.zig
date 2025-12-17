@@ -3,6 +3,7 @@ const fs = std.fs;
 const posix = std.posix;
 const mem = std.mem;
 const process = std.process;
+const build_options = @import("build_options");
 
 const Allocator = mem.Allocator;
 
@@ -11,6 +12,7 @@ const rpc = @import("rpc.zig");
 const storage = @import("storage.zig");
 
 const VERSION = "0.1.0";
+const GIT_HASH = build_options.git_hash;
 
 const Mode = enum {
     stdio,
@@ -262,7 +264,7 @@ fn printHelp() void {
 }
 
 fn printVersion() void {
-    const version_str = "hemis " ++ VERSION ++ " (zig)\n";
+    const version_str = "Hemis v" ++ VERSION ++ " (" ++ GIT_HASH ++ ")\n";
     fs.File.stdout().writeAll(version_str) catch {};
 }
 
