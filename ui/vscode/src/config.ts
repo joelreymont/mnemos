@@ -33,7 +33,16 @@ function findBackend(): string {
 
   // Try common locations
   const homeDir = os.homedir();
+  const extensionPath = vscode.extensions.getExtension('hemis.hemis')?.extensionPath;
+  const devRoot = extensionPath ? path.resolve(extensionPath, '..', '..') : '';
   const commonPaths = [
+    // Development builds
+    ...(devRoot ? [
+      path.join(devRoot, 'zig-out', 'bin', 'hemis'),
+      path.join(devRoot, 'target', 'debug', 'hemis'),
+      path.join(devRoot, 'target', 'release', 'hemis'),
+    ] : []),
+    // Installed locations
     path.join(homeDir, '.cargo', 'bin', 'hemis'),
     '/usr/local/bin/hemis',
     '/usr/bin/hemis',

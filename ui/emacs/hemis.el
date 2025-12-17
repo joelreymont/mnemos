@@ -18,9 +18,11 @@
 (defconst hemis--default-backend
   (let* ((here (file-name-directory (or load-file-name buffer-file-name)))
          (root (expand-file-name "../.." here))
-         (candidate (expand-file-name "target/debug/hemis" root)))
-    (when (file-exists-p candidate) candidate))
-  "Default path to the Hemis Rust backend binary (if built locally).")
+         (candidates (list (expand-file-name "zig-out/bin/hemis" root)
+                           (expand-file-name "target/debug/hemis" root)
+                           (expand-file-name "target/release/hemis" root))))
+    (cl-find-if #'file-exists-p candidates))
+  "Default path to the Hemis backend binary (if built locally).")
 
 (defcustom hemis-backend hemis--default-backend
   "Path to the Hemis backend binary."

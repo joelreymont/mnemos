@@ -26,6 +26,7 @@ vim.g.hemis_test_mode = true
 
 -- Find the backend binary relative to plugin root
 local backend_paths = {
+  root .. "/../../zig-out/bin/hemis",
   root .. "/../../target/debug/hemis",
   root .. "/../../target/release/hemis",
 }
