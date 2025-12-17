@@ -282,6 +282,22 @@ pub fn updateNote(db: *Database, id: []const u8, content: ?[]const u8, tags: ?[]
     _ = tags; // Tags not yet implemented in schema
 }
 
+/// Reattach note to new location (line, node_path, node_text_hash)
+pub fn reattachNote(db: *Database, id: []const u8, file_path: ?[]const u8, line: i64, node_path: ?[]const u8, node_text_hash: ?[]const u8, updated_at: []const u8) !void {
+    var stmt = try db.prepare(
+        \\UPDATE notes SET file_path = COALESCE(?1, file_path), line_number = ?2,
+        \\node_path = ?3, node_text_hash = ?4, updated_at = ?5 WHERE id = ?6
+    );
+    defer stmt.deinit();
+    if (file_path) |fp| try stmt.bindText(1, fp) else try stmt.bindNull(1);
+    try stmt.bindInt(2, line);
+    if (node_path) |np| try stmt.bindText(3, np) else try stmt.bindNull(3);
+    if (node_text_hash) |h| try stmt.bindText(4, h) else try stmt.bindNull(4);
+    try stmt.bindText(5, updated_at);
+    try stmt.bindText(6, id);
+    _ = try stmt.step();
+}
+
 /// Search notes by query
 pub fn searchNotes(db: *Database, alloc: Allocator, query: []const u8, limit: i64, offset: i64) ![]Note {
     var stmt = try db.prepare(
@@ -794,4 +810,1021 @@ test "statement reset" {
     const has_row = try stmt.step();
     try std.testing.expect(has_row);
     try std.testing.expectEqualStrings("second", stmt.columnText(0).?);
+}
+
+test "note with empty content" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "empty-note",
+        .file_path = "/test.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    const note = try getNote(&db, alloc, "empty-note");
+    try std.testing.expect(note != null);
+    defer {
+        alloc.free(note.?.id);
+        alloc.free(note.?.file_path);
+        if (note.?.node_path) |np| alloc.free(np);
+        if (note.?.node_text_hash) |h| alloc.free(h);
+        alloc.free(note.?.content);
+        alloc.free(note.?.created_at);
+        alloc.free(note.?.updated_at);
+    }
+    try std.testing.expectEqualStrings("", note.?.content);
+}
+
+test "note with very long content" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    const long_content = try alloc.alloc(u8, 10000);
+    defer alloc.free(long_content);
+    for (long_content, 0..) |*byte, i| {
+        byte.* = @intCast((i % 26) + 'a');
+    }
+
+    try createNote(&db, .{
+        .id = "long-note",
+        .file_path = "/test.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = long_content,
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    const note = try getNote(&db, alloc, "long-note");
+    try std.testing.expect(note != null);
+    defer {
+        alloc.free(note.?.id);
+        alloc.free(note.?.file_path);
+        if (note.?.node_path) |np| alloc.free(np);
+        if (note.?.node_text_hash) |h| alloc.free(h);
+        alloc.free(note.?.content);
+        alloc.free(note.?.created_at);
+        alloc.free(note.?.updated_at);
+    }
+    try std.testing.expectEqual(long_content.len, note.?.content.len);
+}
+
+test "note with special characters" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    const special_content = "Line 1\nLine 2\tTab\r\n\"Quotes\"\n'Single'\n\\Backslash\n\x00Null";
+    try createNote(&db, .{
+        .id = "special-note",
+        .file_path = "/test.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = special_content,
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    const note = try getNote(&db, alloc, "special-note");
+    try std.testing.expect(note != null);
+    defer {
+        alloc.free(note.?.id);
+        alloc.free(note.?.file_path);
+        if (note.?.node_path) |np| alloc.free(np);
+        if (note.?.node_text_hash) |h| alloc.free(h);
+        alloc.free(note.?.content);
+        alloc.free(note.?.created_at);
+        alloc.free(note.?.updated_at);
+    }
+    try std.testing.expectEqualStrings(special_content, note.?.content);
+}
+
+test "note with unicode content" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    const unicode_content = "Hello 世界 🚀 Emoji test ñ é ü";
+    try createNote(&db, .{
+        .id = "unicode-note",
+        .file_path = "/test.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = unicode_content,
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    const note = try getNote(&db, alloc, "unicode-note");
+    try std.testing.expect(note != null);
+    defer {
+        alloc.free(note.?.id);
+        alloc.free(note.?.file_path);
+        if (note.?.node_path) |np| alloc.free(np);
+        if (note.?.node_text_hash) |h| alloc.free(h);
+        alloc.free(note.?.content);
+        alloc.free(note.?.created_at);
+        alloc.free(note.?.updated_at);
+    }
+    try std.testing.expectEqualStrings(unicode_content, note.?.content);
+}
+
+test "duplicate note id constraint" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "dup-id",
+        .file_path = "/test.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "First",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    const result = createNote(&db, .{
+        .id = "dup-id",
+        .file_path = "/test.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Second",
+        .created_at = "2024-01-02",
+        .updated_at = "2024-01-02",
+    });
+    try std.testing.expectError(SqliteError.Constraint, result);
+}
+
+test "delete nonexistent note" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try deleteNote(&db, "nonexistent-id");
+    try std.testing.expectEqual(@as(i64, 0), try countNotes(&db));
+}
+
+test "update nonexistent note" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try updateNote(&db, "nonexistent-id", "New content", null, "2024-01-01");
+    try std.testing.expectEqual(@as(i64, 0), try countNotes(&db));
+}
+
+test "search notes case sensitivity" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "case-1",
+        .file_path = "/test.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "UPPERCASE TEXT",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+    try createNote(&db, .{
+        .id = "case-2",
+        .file_path = "/test.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "lowercase text",
+        .created_at = "2024-01-02",
+        .updated_at = "2024-01-02",
+    });
+
+    const upper_results = try searchNotes(&db, alloc, "UPPERCASE", 10, 0);
+    defer {
+        for (upper_results) |n| {
+            alloc.free(n.id);
+            alloc.free(n.file_path);
+            if (n.node_path) |np| alloc.free(np);
+            if (n.node_text_hash) |h| alloc.free(h);
+            alloc.free(n.content);
+            alloc.free(n.created_at);
+            alloc.free(n.updated_at);
+        }
+        alloc.free(upper_results);
+    }
+    try std.testing.expectEqual(@as(usize, 1), upper_results.len);
+
+    const lower_results = try searchNotes(&db, alloc, "lowercase", 10, 0);
+    defer {
+        for (lower_results) |n| {
+            alloc.free(n.id);
+            alloc.free(n.file_path);
+            if (n.node_path) |np| alloc.free(np);
+            if (n.node_text_hash) |h| alloc.free(h);
+            alloc.free(n.content);
+            alloc.free(n.created_at);
+            alloc.free(n.updated_at);
+        }
+        alloc.free(lower_results);
+    }
+    try std.testing.expectEqual(@as(usize, 1), lower_results.len);
+}
+
+test "search notes with special characters" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "special-search",
+        .file_path = "/test.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Test with %percent and _underscore",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    const results = try searchNotes(&db, alloc, "%percent", 10, 0);
+    defer {
+        for (results) |n| {
+            alloc.free(n.id);
+            alloc.free(n.file_path);
+            if (n.node_path) |np| alloc.free(np);
+            if (n.node_text_hash) |h| alloc.free(h);
+            alloc.free(n.content);
+            alloc.free(n.created_at);
+            alloc.free(n.updated_at);
+        }
+        alloc.free(results);
+    }
+    try std.testing.expectEqual(@as(usize, 1), results.len);
+}
+
+test "search notes with offset pagination" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    var i: usize = 0;
+    while (i < 5) : (i += 1) {
+        const id = try std.fmt.allocPrint(alloc, "note-{d}", .{i});
+        defer alloc.free(id);
+        try createNote(&db, .{
+            .id = id,
+            .file_path = "/test.zig",
+            .node_path = null,
+            .node_text_hash = null,
+            .line_number = null,
+            .content = "common",
+            .created_at = "2024-01-01",
+            .updated_at = "2024-01-01",
+        });
+    }
+
+    const page1 = try searchNotes(&db, alloc, "common", 2, 0);
+    defer {
+        for (page1) |n| {
+            alloc.free(n.id);
+            alloc.free(n.file_path);
+            if (n.node_path) |np| alloc.free(np);
+            if (n.node_text_hash) |h| alloc.free(h);
+            alloc.free(n.content);
+            alloc.free(n.created_at);
+            alloc.free(n.updated_at);
+        }
+        alloc.free(page1);
+    }
+    try std.testing.expectEqual(@as(usize, 2), page1.len);
+
+    const page2 = try searchNotes(&db, alloc, "common", 2, 2);
+    defer {
+        for (page2) |n| {
+            alloc.free(n.id);
+            alloc.free(n.file_path);
+            if (n.node_path) |np| alloc.free(np);
+            if (n.node_text_hash) |h| alloc.free(h);
+            alloc.free(n.content);
+            alloc.free(n.created_at);
+            alloc.free(n.updated_at);
+        }
+        alloc.free(page2);
+    }
+    try std.testing.expectEqual(@as(usize, 2), page2.len);
+}
+
+test "search notes empty query" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "empty-search",
+        .file_path = "/test.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Any content",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    const results = try searchNotes(&db, alloc, "", 10, 0);
+    defer {
+        for (results) |n| {
+            alloc.free(n.id);
+            alloc.free(n.file_path);
+            if (n.node_path) |np| alloc.free(np);
+            if (n.node_text_hash) |h| alloc.free(h);
+            alloc.free(n.content);
+            alloc.free(n.created_at);
+            alloc.free(n.updated_at);
+        }
+        alloc.free(results);
+    }
+    try std.testing.expectEqual(@as(usize, 1), results.len);
+}
+
+test "multiple files with same hash" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try addFile(&db, "/src/file1.zig", "samehash");
+    try addFile(&db, "/src/file2.zig", "samehash");
+
+    const file1 = try getFile(&db, alloc, "/src/file1.zig");
+    defer {
+        alloc.free(file1.?.path);
+        alloc.free(file1.?.content_hash);
+        alloc.free(file1.?.indexed_at);
+    }
+    const file2 = try getFile(&db, alloc, "/src/file2.zig");
+    defer {
+        alloc.free(file2.?.path);
+        alloc.free(file2.?.content_hash);
+        alloc.free(file2.?.indexed_at);
+    }
+    try std.testing.expectEqualStrings("samehash", file1.?.content_hash);
+    try std.testing.expectEqualStrings("samehash", file2.?.content_hash);
+}
+
+test "file not found" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    const result = try getFile(&db, alloc, "/nonexistent.zig");
+    try std.testing.expect(result == null);
+}
+
+test "search files no matches" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try addFile(&db, "/src/main.zig", "hash1");
+
+    const results = try searchFiles(&db, alloc, "nonexistent");
+    defer alloc.free(results);
+    try std.testing.expectEqual(@as(usize, 0), results.len);
+}
+
+test "list notes multiple files" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "note-a",
+        .file_path = "/a.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Note A",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+    try createNote(&db, .{
+        .id = "note-b",
+        .file_path = "/b.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Note B",
+        .created_at = "2024-01-02",
+        .updated_at = "2024-01-02",
+    });
+    try createNote(&db, .{
+        .id = "note-c",
+        .file_path = "/c.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Note C",
+        .created_at = "2024-01-03",
+        .updated_at = "2024-01-03",
+    });
+
+    const notes = try listProjectNotes(&db, alloc);
+    defer {
+        for (notes) |n| {
+            alloc.free(n.id);
+            alloc.free(n.file_path);
+            if (n.node_path) |np| alloc.free(np);
+            if (n.node_text_hash) |h| alloc.free(h);
+            alloc.free(n.content);
+            alloc.free(n.created_at);
+            alloc.free(n.updated_at);
+        }
+        alloc.free(notes);
+    }
+    try std.testing.expectEqual(@as(usize, 3), notes.len);
+}
+
+test "timestamp handling different formats" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "ts-1",
+        .file_path = "/test.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Content",
+        .created_at = "2024-01-01T00:00:00Z",
+        .updated_at = "2024-01-01T00:00:00Z",
+    });
+    try createNote(&db, .{
+        .id = "ts-2",
+        .file_path = "/test.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Content",
+        .created_at = "1704067200",
+        .updated_at = "1704067200",
+    });
+
+    const count = try countNotes(&db);
+    try std.testing.expectEqual(@as(i64, 2), count);
+}
+
+test "update note with null content" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "update-null",
+        .file_path = "/test.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Original",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    try updateNote(&db, "update-null", null, null, "2024-01-02");
+    const note = try getNote(&db, alloc, "update-null");
+    defer {
+        alloc.free(note.?.id);
+        alloc.free(note.?.file_path);
+        if (note.?.node_path) |np| alloc.free(np);
+        if (note.?.node_text_hash) |h| alloc.free(h);
+        alloc.free(note.?.content);
+        alloc.free(note.?.created_at);
+        alloc.free(note.?.updated_at);
+    }
+    try std.testing.expectEqualStrings("Original", note.?.content);
+}
+
+test "export empty notes json" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    const json = try exportNotesJson(&db, alloc);
+    defer alloc.free(json);
+    try std.testing.expectEqualStrings("[]", json);
+}
+
+test "bind null values" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "null-test",
+        .file_path = "/test.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Content",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    const note = try getNote(&db, alloc, "null-test");
+    try std.testing.expect(note != null);
+    defer {
+        alloc.free(note.?.id);
+        alloc.free(note.?.file_path);
+        if (note.?.node_path) |np| alloc.free(np);
+        if (note.?.node_text_hash) |h| alloc.free(h);
+        alloc.free(note.?.content);
+        alloc.free(note.?.created_at);
+        alloc.free(note.?.updated_at);
+    }
+    try std.testing.expect(note.?.node_path == null);
+    try std.testing.expect(note.?.node_text_hash == null);
+    try std.testing.expect(note.?.line_number == null);
+}
+
+// ============================================================================
+// Additional Storage Tests
+// ============================================================================
+
+fn freeNoteFields(alloc: Allocator, note: Note) void {
+    alloc.free(note.id);
+    alloc.free(note.file_path);
+    if (note.node_path) |np| alloc.free(np);
+    if (note.node_text_hash) |h| alloc.free(h);
+    alloc.free(note.content);
+    alloc.free(note.created_at);
+    alloc.free(note.updated_at);
+}
+
+test "countNotes returns correct count" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try std.testing.expectEqual(@as(i64, 0), try countNotes(&db));
+
+    try createNote(&db, .{
+        .id = "note-1",
+        .file_path = "/a.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "First",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    try std.testing.expectEqual(@as(i64, 1), try countNotes(&db));
+
+    try createNote(&db, .{
+        .id = "note-2",
+        .file_path = "/b.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Second",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    try std.testing.expectEqual(@as(i64, 2), try countNotes(&db));
+}
+
+test "clearNotes removes all notes" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "note-1",
+        .file_path = "/a.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "First",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+    try createNote(&db, .{
+        .id = "note-2",
+        .file_path = "/b.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Second",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    try std.testing.expectEqual(@as(i64, 2), try countNotes(&db));
+
+    try clearNotes(&db);
+
+    try std.testing.expectEqual(@as(i64, 0), try countNotes(&db));
+}
+
+test "deleteNote removes specific note" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "keep-me",
+        .file_path = "/a.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Keep",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+    try createNote(&db, .{
+        .id = "delete-me",
+        .file_path = "/b.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Delete",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    try deleteNote(&db, "delete-me");
+
+    try std.testing.expectEqual(@as(i64, 1), try countNotes(&db));
+
+    const kept = try getNote(&db, alloc, "keep-me");
+    try std.testing.expect(kept != null);
+    defer {
+        alloc.free(kept.?.id);
+        alloc.free(kept.?.file_path);
+        if (kept.?.node_path) |np| alloc.free(np);
+        if (kept.?.node_text_hash) |h| alloc.free(h);
+        alloc.free(kept.?.content);
+        alloc.free(kept.?.created_at);
+        alloc.free(kept.?.updated_at);
+    }
+
+    const deleted = try getNote(&db, alloc, "delete-me");
+    try std.testing.expect(deleted == null);
+}
+
+test "updateNote changes content" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "update-test",
+        .file_path = "/test.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Original",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    try updateNote(&db, "update-test", "Updated content", null, "2024-01-02");
+
+    const note = try getNote(&db, alloc, "update-test");
+    try std.testing.expect(note != null);
+    defer {
+        alloc.free(note.?.id);
+        alloc.free(note.?.file_path);
+        if (note.?.node_path) |np| alloc.free(np);
+        if (note.?.node_text_hash) |h| alloc.free(h);
+        alloc.free(note.?.content);
+        alloc.free(note.?.created_at);
+        alloc.free(note.?.updated_at);
+    }
+    try std.testing.expectEqualStrings("Updated content", note.?.content);
+    try std.testing.expectEqualStrings("2024-01-02", note.?.updated_at);
+}
+
+test "searchNotes finds matching notes" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "haystack-1",
+        .file_path = "/a.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "The needle is hidden here",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+    try createNote(&db, .{
+        .id = "haystack-2",
+        .file_path = "/b.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Nothing special",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    const results = try searchNotes(&db, alloc, "needle", 10, 0);
+    defer {
+        for (results) |note| freeNoteFields(alloc, note);
+        alloc.free(results);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), results.len);
+    try std.testing.expectEqualStrings("haystack-1", results[0].id);
+}
+
+test "searchNotes respects limit" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    for (0..5) |i| {
+        var id_buf: [32]u8 = undefined;
+        const id = std.fmt.bufPrint(&id_buf, "note-{d}", .{i}) catch unreachable;
+        try createNote(&db, .{
+            .id = id,
+            .file_path = "/test.zig",
+            .node_path = null,
+            .node_text_hash = null,
+            .line_number = null,
+            .content = "searchable content",
+            .created_at = "2024-01-01",
+            .updated_at = "2024-01-01",
+        });
+    }
+
+    const results = try searchNotes(&db, alloc, "searchable", 3, 0);
+    defer {
+        for (results) |note| freeNoteFields(alloc, note);
+        alloc.free(results);
+    }
+
+    try std.testing.expectEqual(@as(usize, 3), results.len);
+}
+
+test "searchNotes respects offset" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    for (0..5) |i| {
+        var id_buf: [32]u8 = undefined;
+        const id = std.fmt.bufPrint(&id_buf, "note-{d}", .{i}) catch unreachable;
+        try createNote(&db, .{
+            .id = id,
+            .file_path = "/test.zig",
+            .node_path = null,
+            .node_text_hash = null,
+            .line_number = null,
+            .content = "searchable content",
+            .created_at = "2024-01-01",
+            .updated_at = "2024-01-01",
+        });
+    }
+
+    const results = try searchNotes(&db, alloc, "searchable", 10, 2);
+    defer {
+        for (results) |note| freeNoteFields(alloc, note);
+        alloc.free(results);
+    }
+
+    try std.testing.expectEqual(@as(usize, 3), results.len);
+}
+
+test "getNotesForFile returns only matching file" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "note-a",
+        .file_path = "/target.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "In target",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+    try createNote(&db, .{
+        .id = "note-b",
+        .file_path = "/other.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "In other",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    const results = try getNotesForFile(&db, alloc, "/target.zig");
+    defer {
+        for (results) |note| freeNoteFields(alloc, note);
+        alloc.free(results);
+    }
+
+    try std.testing.expectEqual(@as(usize, 1), results.len);
+    try std.testing.expectEqualStrings("note-a", results[0].id);
+}
+
+test "addFile and getFile roundtrip" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try addFile(&db, "/src/main.zig", "abc123hash");
+
+    const file = try getFile(&db, alloc, "/src/main.zig");
+    try std.testing.expect(file != null);
+    defer {
+        alloc.free(file.?.path);
+        alloc.free(file.?.content_hash);
+        alloc.free(file.?.indexed_at);
+    }
+    try std.testing.expectEqualStrings("/src/main.zig", file.?.path);
+    try std.testing.expectEqualStrings("abc123hash", file.?.content_hash);
+}
+
+test "getFile returns null for missing file" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    const file = try getFile(&db, alloc, "/nonexistent.zig");
+    try std.testing.expect(file == null);
+}
+
+test "searchFiles finds matching paths" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try addFile(&db, "/src/main.zig", "hash1");
+    try addFile(&db, "/src/lib.zig", "hash2");
+    try addFile(&db, "/test/main.zig", "hash3");
+
+    const results = try searchFiles(&db, alloc, "main");
+    defer {
+        for (results) |f| {
+            alloc.free(f.path);
+            alloc.free(f.content_hash);
+            alloc.free(f.indexed_at);
+        }
+        alloc.free(results);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), results.len);
+}
+
+test "exportNotesJson includes all notes" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "note-1",
+        .file_path = "/a.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "First",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+    try createNote(&db, .{
+        .id = "note-2",
+        .file_path = "/b.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Second",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    const json = try exportNotesJson(&db, alloc);
+    defer alloc.free(json);
+
+    try std.testing.expect(std.mem.indexOf(u8, json, "note-1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "note-2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "First") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "Second") != null);
+}
+
+test "note unicode content roundtrip" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "unicode-note",
+        .file_path = "/日本語.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "こんにちは世界 🎉",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    const note = try getNote(&db, alloc, "unicode-note");
+    try std.testing.expect(note != null);
+    defer {
+        alloc.free(note.?.id);
+        alloc.free(note.?.file_path);
+        if (note.?.node_path) |np| alloc.free(np);
+        if (note.?.node_text_hash) |h| alloc.free(h);
+        alloc.free(note.?.content);
+        alloc.free(note.?.created_at);
+        alloc.free(note.?.updated_at);
+    }
+    try std.testing.expectEqualStrings("こんにちは世界 🎉", note.?.content);
+}
+
+test "note very long content roundtrip" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    const long_content = "x" ** 10000;
+    try createNote(&db, .{
+        .id = "long-note",
+        .file_path = "/test.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = long_content,
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    const note = try getNote(&db, alloc, "long-note");
+    try std.testing.expect(note != null);
+    defer {
+        alloc.free(note.?.id);
+        alloc.free(note.?.file_path);
+        if (note.?.node_path) |np| alloc.free(np);
+        if (note.?.node_text_hash) |h| alloc.free(h);
+        alloc.free(note.?.content);
+        alloc.free(note.?.created_at);
+        alloc.free(note.?.updated_at);
+    }
+    try std.testing.expectEqual(@as(usize, 10000), note.?.content.len);
+}
+
+test "listProjectNotes returns all notes" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "note-a",
+        .file_path = "/a.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "A",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+    try createNote(&db, .{
+        .id = "note-b",
+        .file_path = "/b.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "B",
+        .created_at = "2024-01-02",
+        .updated_at = "2024-01-02",
+    });
+
+    const notes = try listProjectNotes(&db, alloc);
+    defer {
+        for (notes) |note| freeNoteFields(alloc, note);
+        alloc.free(notes);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), notes.len);
 }
