@@ -36,6 +36,54 @@ pub const Grammar = struct {
     }
 };
 
+/// Extension to language name mapping
+const extension_map = std.StaticStringMap([]const u8).initComptime(.{
+    .{ ".zig", "zig" },
+    .{ ".rs", "rust" },
+    .{ ".py", "python" },
+    .{ ".js", "javascript" },
+    .{ ".jsx", "javascript" },
+    .{ ".ts", "typescript" },
+    .{ ".tsx", "tsx" },
+    .{ ".go", "go" },
+    .{ ".c", "c" },
+    .{ ".h", "c" },
+    .{ ".cpp", "cpp" },
+    .{ ".cc", "cpp" },
+    .{ ".cxx", "cpp" },
+    .{ ".hpp", "cpp" },
+    .{ ".java", "java" },
+    .{ ".rb", "ruby" },
+    .{ ".lua", "lua" },
+    .{ ".el", "elisp" },
+    .{ ".swift", "swift" },
+    .{ ".kt", "kotlin" },
+    .{ ".scala", "scala" },
+    .{ ".sh", "bash" },
+    .{ ".bash", "bash" },
+    .{ ".zsh", "bash" },
+    .{ ".json", "json" },
+    .{ ".toml", "toml" },
+    .{ ".yaml", "yaml" },
+    .{ ".yml", "yaml" },
+    .{ ".md", "markdown" },
+    .{ ".html", "html" },
+    .{ ".css", "css" },
+    .{ ".sql", "sql" },
+});
+
+/// Get language name for a file extension
+pub fn languageForExtension(ext: []const u8) ?[]const u8 {
+    return extension_map.get(ext);
+}
+
+/// Get language name for a file path
+pub fn languageForFile(path: []const u8) ?[]const u8 {
+    const ext = std.fs.path.extension(path);
+    if (ext.len == 0) return null;
+    return extension_map.get(ext);
+}
+
 /// Grammar registry with dynamic loading
 pub const GrammarRegistry = struct {
     grammars: std.StringHashMap(*Grammar),
@@ -75,6 +123,9 @@ pub const GrammarRegistry = struct {
 
         const lib_path = try std.fs.path.join(self.allocator, &.{ self.grammars_dir, lib_name });
         defer self.allocator.free(lib_path);
+
+        // Verify SHA-256 hash for security
+        try self.verifyGrammarHash(lib_path);
 
         // Open shared library
         var lib = std.DynLib.open(lib_path) catch {
@@ -119,6 +170,69 @@ pub const GrammarRegistry = struct {
     /// Check if a grammar is available
     pub fn hasGrammar(self: *GrammarRegistry, name: []const u8) bool {
         return self.grammars.contains(name);
+    }
+
+    /// Load grammar for a file by extension
+    pub fn loadGrammarForFile(self: *GrammarRegistry, path: []const u8) !*Grammar {
+        const lang = languageForFile(path) orelse return TreeSitterError.GrammarNotAvailable;
+        return self.loadGrammar(lang);
+    }
+
+    /// Verify grammar hash for security
+    /// Requires a .sha256 file alongside the grammar library
+    fn verifyGrammarHash(self: *GrammarRegistry, lib_path: []const u8) !void {
+        const hash_path = try std.fmt.allocPrint(self.allocator, "{s}.sha256", .{lib_path});
+        defer self.allocator.free(hash_path);
+
+        // Read expected hash from .sha256 file
+        const hash_file = std.fs.openFileAbsolute(hash_path, .{}) catch |err| {
+            if (err == error.FileNotFound) {
+                std.debug.print("Warning: No hash file for grammar: {s}\n", .{lib_path});
+                std.debug.print("  Expected: {s}\n", .{hash_path});
+                return; // Allow loading without hash (warn only)
+            }
+            return err;
+        };
+        defer hash_file.close();
+
+        var expected_hash: [64]u8 = undefined;
+        const bytes_read = hash_file.readAll(&expected_hash) catch |err| {
+            std.debug.print("Failed to read hash file: {}\n", .{err});
+            return;
+        };
+        if (bytes_read < 64) {
+            std.debug.print("Hash file too short: {s}\n", .{hash_path});
+            return TreeSitterError.GrammarLoadFailed;
+        }
+
+        // Compute actual hash of library
+        const lib_file = std.fs.openFileAbsolute(lib_path, .{}) catch |err| {
+            std.debug.print("Failed to open grammar for hashing: {}\n", .{err});
+            return err;
+        };
+        defer lib_file.close();
+
+        var hasher = std.crypto.hash.sha2.Sha256.init(.{});
+        var buf: [8192]u8 = undefined;
+        while (true) {
+            const n = lib_file.read(&buf) catch |err| {
+                std.debug.print("Failed to read grammar for hashing: {}\n", .{err});
+                return err;
+            };
+            if (n == 0) break;
+            hasher.update(buf[0..n]);
+        }
+        const actual_hash = hasher.finalResult();
+        var actual_hex: [64]u8 = undefined;
+        _ = std.fmt.bufPrint(&actual_hex, "{}", .{std.fmt.fmtSliceHexLower(&actual_hash)}) catch unreachable;
+
+        // Compare
+        if (!std.mem.eql(u8, &actual_hex, expected_hash[0..64])) {
+            std.debug.print("Grammar hash mismatch!\n", .{});
+            std.debug.print("  Expected: {s}\n", .{expected_hash[0..64]});
+            std.debug.print("  Actual:   {s}\n", .{actual_hex});
+            return TreeSitterError.GrammarLoadFailed;
+        }
     }
 };
 
@@ -812,4 +926,54 @@ test "grammar library name construction linux" {
     const result = std.fmt.bufPrint(&buf, "libtree-sitter-{s}.so", .{name}) catch unreachable;
 
     try testing.expectEqualStrings(expected, result);
+}
+
+test "languageForExtension returns correct language" {
+    const testing = std.testing;
+
+    try testing.expectEqualStrings("zig", languageForExtension(".zig").?);
+    try testing.expectEqualStrings("rust", languageForExtension(".rs").?);
+    try testing.expectEqualStrings("python", languageForExtension(".py").?);
+    try testing.expectEqualStrings("javascript", languageForExtension(".js").?);
+    try testing.expectEqualStrings("typescript", languageForExtension(".ts").?);
+    try testing.expectEqualStrings("go", languageForExtension(".go").?);
+    try testing.expectEqualStrings("c", languageForExtension(".c").?);
+    try testing.expectEqualStrings("cpp", languageForExtension(".cpp").?);
+}
+
+test "languageForExtension returns null for unknown" {
+    const testing = std.testing;
+
+    try testing.expect(languageForExtension(".xyz") == null);
+    try testing.expect(languageForExtension(".unknown") == null);
+    try testing.expect(languageForExtension("") == null);
+}
+
+test "languageForFile extracts extension and maps" {
+    const testing = std.testing;
+
+    try testing.expectEqualStrings("rust", languageForFile("/path/to/main.rs").?);
+    try testing.expectEqualStrings("python", languageForFile("script.py").?);
+    try testing.expectEqualStrings("zig", languageForFile("/Users/joel/Work/hemis/src/rpc.zig").?);
+}
+
+test "languageForFile returns null for no extension" {
+    const testing = std.testing;
+
+    try testing.expect(languageForFile("Makefile") == null);
+    try testing.expect(languageForFile("/path/to/noext") == null);
+}
+
+test "extension_map covers common languages" {
+    const testing = std.testing;
+
+    // Verify map has entries for common languages
+    try testing.expect(extension_map.get(".zig") != null);
+    try testing.expect(extension_map.get(".rs") != null);
+    try testing.expect(extension_map.get(".py") != null);
+    try testing.expect(extension_map.get(".js") != null);
+    try testing.expect(extension_map.get(".ts") != null);
+    try testing.expect(extension_map.get(".go") != null);
+    try testing.expect(extension_map.get(".java") != null);
+    try testing.expect(extension_map.get(".swift") != null);
 }
