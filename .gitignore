@@ -29,3 +29,4 @@ zig-out/
 *~
 *.bak
 *.backup
+.hemis/

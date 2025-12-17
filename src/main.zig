@@ -10,6 +10,7 @@ const Allocator = mem.Allocator;
 const server = @import("server.zig");
 const rpc = @import("rpc.zig");
 const storage = @import("storage.zig");
+const grammar = @import("grammar.zig");
 
 const VERSION = "0.1.0";
 const GIT_HASH = build_options.git_hash;
@@ -58,6 +59,18 @@ fn parseArgs(alloc: Allocator) !Config {
     var config = Config{};
 
     while (args_iter.next()) |arg| {
+        // Check for subcommands first
+        if (mem.eql(u8, arg, "grammar")) {
+            // Collect remaining args for grammar subcommand
+            var sub_args: std.ArrayListUnmanaged([]const u8) = .empty;
+            defer sub_args.deinit(alloc);
+            while (args_iter.next()) |sub_arg| {
+                try sub_args.append(alloc, sub_arg);
+            }
+            try grammar.run(alloc, sub_args.items);
+            process.exit(0);
+        }
+
         if (mem.eql(u8, arg, "--stdio")) {
             config.mode = .stdio;
         } else if (mem.eql(u8, arg, "--serve")) {
@@ -251,6 +264,7 @@ fn printHelp() void {
         \\
         \\USAGE:
         \\    hemis [OPTIONS]
+        \\    hemis grammar <COMMAND>
         \\
         \\OPTIONS:
         \\    --stdio              Run in stdio mode (for editor integration)
@@ -260,6 +274,9 @@ fn printHelp() void {
         \\    --db <path>          Database file path (default: .hemis/db.sqlite)
         \\    --version, -v        Print version
         \\    --help, -h           Print this help
+        \\
+        \\SUBCOMMANDS:
+        \\    grammar              Manage tree-sitter grammars (fetch, build, list)
         \\
         \\ENVIRONMENT:
         \\    XDG_RUNTIME_DIR      Used for default socket path if set
@@ -297,6 +314,7 @@ test "basic" {
     _ = @import("watcher.zig");
     _ = @import("ai.zig");
     _ = @import("treesitter.zig");
+    _ = @import("grammar.zig");
 }
 
 test "config default values" {
