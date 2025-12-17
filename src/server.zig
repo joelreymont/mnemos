@@ -1,0 +1,210 @@
+//! Unix socket server with poll-based multiplexing
+//!
+//! Handles multiple clients simultaneously using posix.poll().
+//! Ready to migrate to std.Io async when available.
+
+const std = @import("std");
+const mem = std.mem;
+const posix = std.posix;
+const fs = std.fs;
+
+const Allocator = mem.Allocator;
+const rpc = @import("rpc.zig");
+const storage = @import("storage.zig");
+
+const MAX_CLIENTS = 32;
+
+/// Client connection state
+const Client = struct {
+    fd: posix.fd_t,
+    buf: [64 * 1024]u8 = undefined,
+    stream: ?rpc.Stream = null,
+
+    fn init(fd: posix.fd_t) Client {
+        var c = Client{ .fd = fd };
+        c.stream = rpc.Stream.init(fd, fd, &c.buf);
+        return c;
+    }
+};
+
+/// Server state
+const Server = struct {
+    alloc: Allocator,
+    listen_fd: posix.fd_t,
+    clients: [MAX_CLIENTS]?Client = .{null} ** MAX_CLIENTS,
+    socket_path: []const u8,
+    db: storage.Database,
+
+    fn init(alloc: Allocator, socket_path: []const u8, db_path: []const u8) !Server {
+        // Open database
+        const db = try storage.Database.open(alloc, db_path);
+        // Remove stale socket
+        fs.deleteFileAbsolute(socket_path) catch {};
+
+        // Create socket
+        const listen_fd = try posix.socket(posix.AF.UNIX, posix.SOCK.STREAM, 0);
+        errdefer posix.close(listen_fd);
+
+        // Bind
+        var addr: posix.sockaddr.un = .{ .family = posix.AF.UNIX, .path = undefined };
+        @memset(&addr.path, 0);
+        const path_bytes: []const u8 = socket_path;
+        if (path_bytes.len >= addr.path.len) return error.PathTooLong;
+        @memcpy(addr.path[0..path_bytes.len], path_bytes);
+
+        try posix.bind(listen_fd, @ptrCast(&addr), @sizeOf(posix.sockaddr.un));
+        try posix.listen(listen_fd, 16);
+
+        return .{
+            .alloc = alloc,
+            .listen_fd = listen_fd,
+            .socket_path = socket_path,
+            .db = db,
+        };
+    }
+
+    fn deinit(self: *Server) void {
+        for (&self.clients) |*slot| {
+            if (slot.*) |client| {
+                posix.close(client.fd);
+                slot.* = null;
+            }
+        }
+        posix.close(self.listen_fd);
+        fs.deleteFileAbsolute(self.socket_path) catch {};
+        self.db.close();
+    }
+
+    fn acceptClient(self: *Server) !void {
+        const client_fd = try posix.accept(self.listen_fd, null, null, 0);
+
+        // Find free slot
+        for (&self.clients) |*slot| {
+            if (slot.* == null) {
+                slot.* = Client.init(client_fd);
+                return;
+            }
+        }
+
+        // No slots available
+        posix.close(client_fd);
+    }
+
+    fn handleClient(self: *Server, idx: usize) void {
+        const slot = &self.clients[idx];
+        var client = slot.* orelse return;
+
+        var stream = client.stream orelse return;
+
+        const request = stream.readRequest(self.alloc) catch |err| {
+            if (err == error.EndOfStream or err == error.BrokenPipe or err == error.ConnectionResetByPeer) {
+                posix.close(client.fd);
+                slot.* = null;
+            }
+            return;
+        };
+        defer self.alloc.free(request);
+
+        const response = rpc.dispatchWithDb(self.alloc, request, &self.db);
+        defer self.alloc.free(response);
+
+        stream.writeResponse(response) catch {
+            posix.close(client.fd);
+            slot.* = null;
+        };
+
+        // Update stream state back
+        client.stream = stream;
+        slot.* = client;
+    }
+
+    fn runLoop(self: *Server) !void {
+        var poll_fds: [MAX_CLIENTS + 1]posix.pollfd = undefined;
+
+        while (true) {
+            // Build poll set
+            poll_fds[0] = .{
+                .fd = self.listen_fd,
+                .events = posix.POLL.IN,
+                .revents = 0,
+            };
+
+            var nfds: usize = 1;
+            for (self.clients, 0..) |maybe_client, idx| {
+                if (maybe_client) |client| {
+                    poll_fds[nfds] = .{
+                        .fd = client.fd,
+                        .events = posix.POLL.IN,
+                        .revents = 0,
+                    };
+                    // Store client index in unused field via tag
+                    _ = idx;
+                    nfds += 1;
+                }
+            }
+
+            // Wait for events
+            const ready = try posix.poll(poll_fds[0..nfds], -1);
+            if (ready == 0) continue;
+
+            // Check listen socket
+            if (poll_fds[0].revents & posix.POLL.IN != 0) {
+                self.acceptClient() catch {};
+            }
+
+            // Check client sockets
+            var poll_idx: usize = 1;
+            for (0..MAX_CLIENTS) |client_idx| {
+                if (self.clients[client_idx] != null) {
+                    if (poll_idx < nfds and poll_fds[poll_idx].revents & posix.POLL.IN != 0) {
+                        self.handleClient(client_idx);
+                    }
+                    poll_idx += 1;
+                }
+            }
+        }
+    }
+};
+
+/// Get hemis directory, creating if needed
+fn getHemisDir(alloc: Allocator) ![]const u8 {
+    if (std.process.getEnvVarOwned(alloc, "HEMIS_DIR")) |dir| {
+        return dir;
+    } else |_| {}
+
+    if (std.process.getEnvVarOwned(alloc, "HOME")) |home| {
+        defer alloc.free(home);
+        const path = try std.fmt.allocPrint(alloc, "{s}/.hemis", .{home});
+        fs.makeDirAbsolute(path) catch |err| {
+            if (err != error.PathAlreadyExists) return err;
+        };
+        return path;
+    } else |_| {}
+
+    return error.NoHomeDir;
+}
+
+/// Run the server
+pub fn run(alloc: Allocator) !void {
+    const hemis_dir = try getHemisDir(alloc);
+    defer alloc.free(hemis_dir);
+
+    const socket_path = try std.fmt.allocPrint(alloc, "{s}/hemis.sock", .{hemis_dir});
+    defer alloc.free(socket_path);
+
+    const db_path = try std.fmt.allocPrint(alloc, "{s}/hemis.db", .{hemis_dir});
+    defer alloc.free(db_path);
+
+    var srv = try Server.init(alloc, socket_path, db_path);
+    defer srv.deinit();
+
+    std.debug.print("hemis listening on {s}\n", .{socket_path});
+
+    try srv.runLoop();
+}
+
+test "server init" {
+    // Just test that types compile
+    _ = Server;
+    _ = Client;
+}

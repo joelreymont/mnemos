@@ -1,52 +1,65 @@
 # Hemis
 
-Docs: `docs/`
+Zig rewrite of hemis backend. Rust version on `rust` branch.
 
-## Rules
+## Build
 
-Behavior rules are in:
-- **Global**: `~/.claude/rules/` (zero-tolerance, workflow, oracle, file-org, cost-control)
-- **Local**: `.claude/rules/` (demo-permission)
+```bash
+zig build        # compile
+zig build run    # run
+zig build test   # test
+```
 
-This file contains project-specific technical info only.
+## Key References
 
-## MCP Tools
-| Task | Tool | Params |
-|------|------|--------|
-| Git | `git_context` | `include_diff`, `diff_limit` |
-| Issues | `bd_*` | `bd_create/close/show/list` |
-| Rust | `cargo_test/clippy/build` | `cwd`, `package`, `filter`, `fix` |
-| Swift | `swift_test` | **ASK FIRST** (launches GUI) |
-| AI | `ask_oracle` | `question` |
+- **[Zig 0.15 I/O API](docs/zig-0.15-io-api.md)** - stdout, writers, ArrayList changes
+- **[Plan](~/.claude/plans/curried-rolling-origami.md)** - Full rewrite plan
+- Rust reference: `rust` branch
 
-Bash OK for: git commit/push/pull, hemis CLI, deps
+## Architecture
 
-## Test Suites
-| Suite | Command |
-|-------|---------|
-| Rust | `cargo test` |
-| Clippy | `cargo clippy` |
-| Neovim | `cd ui/neovim && nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedDirectory tests/ {minimal_init = 'tests/minimal_init.lua'}"` |
-| Emacs | `emacs -Q --batch -L ui/emacs -l hemis.el -L ui/emacs/tests -l hemis-test.el -f ert-run-tests-batch-and-exit` |
-| VSCode | `cd ui/vscode && npm test` |
+```
+std.Io Event Loop
+├── Unix socket ──► RPC from editors
+├── AI stdout   ──► Streaming responses
+├── AI stdin    ◄── Send prompts
+├── File watch  ──► Change notifications
+└── SQLite      ──► Database
+```
 
 ## Key Files
-`backend/src/lib.rs` (RPC) | `ai_cli.rs` (AI) | `crates/storage` (SQLite) | `crates/treesitter` (parser)
 
-## RPC
+| File | Purpose |
+|------|---------|
+| `src/main.zig` | Entry point, event loop |
+| `src/server.zig` | Socket server |
+| `src/rpc.zig` | JSON-RPC dispatch |
+| `src/ai.zig` | AI subprocess pipes |
+| `src/storage.zig` | SQLite bindings |
+| `src/treesitter.zig` | Dynamic grammar loading |
+| `src/git.zig` | libgit2 bindings |
+
+## RPC Protocol
+
 `notes/` create,get,update,delete,list-for-file,list-by-node,list-project,search,backlinks,reattach,buffer-update
 `index/` add-file,search
 `hemis/` search,status,index-project,list-files,get-file,explain-region,project-meta,open-project,save-snapshot,load-snapshot,shutdown
 
 ## Conventions
+
 - Staleness: `nodeTextHash`=SHA256, search +/-20 lines
-- AI: `HEMIS_AI_PROVIDER` env (codex/claude/none)
-- Tree-sitter: bundled; dynamic via `~/.config/hemis/grammars/`
+- AI: Persistent subprocess (claude/codex), newline-delimited JSON
+- Tree-sitter: Dynamic grammars only, `hemis grammar build`
+- Target: Zig 0.16 / nightly for std.Io async
+
+## Editor Plugins
+
+Located in `ui/`:
+- `ui/neovim/` - Lua plugin
+- `ui/emacs/` - Elisp package
+- `ui/vscode/` - TypeScript extension
 
 ## Demo Driver
-`cd ../hemis-demo && swift run hemis-demo <script> --show-labels`
-Scripts: full, neovim, reattach | Options: --editor neovim|emacs|vscode, --prepare-only, --skip-setup, --countdown N, --record
-See `.claude/rules/demo-permission.md` for permission requirements.
 
-## MCP Development
-Add tools to `backend/tools/hemis_mcp/src/main.rs`. Update this file when adding.
+`cd ../hemis-demo && swift run hemis-demo <script> --show-labels`
+See `.claude/rules/demo-permission.md` for permission requirements.

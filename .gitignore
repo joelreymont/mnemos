@@ -1,11 +1,31 @@
+# Session logs
 CONTEXT.md
 HISTORY.md
 SESSION.md
+SESSION.md.archive
+
+# Logs and databases
 *.log
 *.db
 *.db-shm
 *.db-wal
+
+# Emacs
 *.elc
+
+# Rust (legacy, see rust branch)
 target/
+
+# Zig
+.zig-cache/
+zig-out/
+
+# macOS
 .DS_Store
-SESSION.md.archive
+
+# Editor
+.idea/
+*.swp
+*~
+*.bak
+*.backup
