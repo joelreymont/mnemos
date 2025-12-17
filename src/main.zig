@@ -278,3 +278,26 @@ test "basic" {
     _ = @import("ai.zig");
     _ = @import("treesitter.zig");
 }
+
+test "config default values" {
+    const config = Config{};
+    try std.testing.expectEqual(Mode.socket, config.mode);
+    try std.testing.expect(config.socket_path == null);
+    try std.testing.expect(config.project_root == null);
+    try std.testing.expect(config.db_path == null);
+}
+
+test "mode enum values" {
+    try std.testing.expect(Mode.stdio != Mode.socket);
+    const m: Mode = .stdio;
+    try std.testing.expectEqual(Mode.stdio, m);
+}
+
+test "version constant" {
+    try std.testing.expect(VERSION.len > 0);
+    try std.testing.expect(mem.indexOf(u8, VERSION, ".") != null);
+}
+
+test "git hash constant" {
+    try std.testing.expect(GIT_HASH.len > 0);
+}
