@@ -697,3 +697,101 @@ test "clear notes" {
     try clearNotes(&db);
     try std.testing.expectEqual(@as(i64, 0), try countNotes(&db));
 }
+
+test "export notes json" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "export-1",
+        .file_path = "/export.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "export test",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    const json = try exportNotesJson(&db, alloc);
+    defer alloc.free(json);
+    try std.testing.expect(std.mem.indexOf(u8, json, "export-1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, json, "export test") != null);
+}
+
+test "get note not found" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    const result = try getNote(&db, alloc, "nonexistent-id");
+    try std.testing.expect(result == null);
+}
+
+test "note with node path and hash" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "node-note",
+        .file_path = "/src/lib.zig",
+        .node_path = "fn.myFunction.body",
+        .node_text_hash = "sha256hash123",
+        .line_number = 42,
+        .content = "Note on function body",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    const note = try getNote(&db, alloc, "node-note");
+    try std.testing.expect(note != null);
+    defer {
+        alloc.free(note.?.id);
+        alloc.free(note.?.file_path);
+        if (note.?.node_path) |np| alloc.free(np);
+        if (note.?.node_text_hash) |h| alloc.free(h);
+        alloc.free(note.?.content);
+        alloc.free(note.?.created_at);
+        alloc.free(note.?.updated_at);
+    }
+    try std.testing.expectEqualStrings("fn.myFunction.body", note.?.node_path.?);
+    try std.testing.expectEqualStrings("sha256hash123", note.?.node_text_hash.?);
+    try std.testing.expectEqual(@as(i64, 42), note.?.line_number.?);
+}
+
+test "statement bind and step" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    var stmt = try db.prepare("SELECT ?1, ?2");
+    defer stmt.deinit();
+
+    try stmt.bindText(1, "hello");
+    try stmt.bindInt(2, 42);
+
+    const has_row = try stmt.step();
+    try std.testing.expect(has_row);
+    try std.testing.expectEqualStrings("hello", stmt.columnText(0).?);
+    try std.testing.expectEqual(@as(i64, 42), stmt.columnInt(1));
+}
+
+test "statement reset" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    var stmt = try db.prepare("SELECT ?1");
+    defer stmt.deinit();
+
+    try stmt.bindText(1, "first");
+    _ = try stmt.step();
+
+    stmt.reset();
+    try stmt.bindText(1, "second");
+    const has_row = try stmt.step();
+    try std.testing.expect(has_row);
+    try std.testing.expectEqualStrings("second", stmt.columnText(0).?);
+}
