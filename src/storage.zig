@@ -1363,7 +1363,8 @@ test "bind null values" {
 // Additional Storage Tests
 // ============================================================================
 
-fn freeNoteFields(alloc: Allocator, note: Note) void {
+/// Free all heap-allocated fields in a Note
+pub fn freeNoteFields(alloc: Allocator, note: Note) void {
     alloc.free(note.id);
     alloc.free(note.file_path);
     if (note.node_path) |np| alloc.free(np);
@@ -1371,6 +1372,12 @@ fn freeNoteFields(alloc: Allocator, note: Note) void {
     alloc.free(note.content);
     alloc.free(note.created_at);
     alloc.free(note.updated_at);
+}
+
+/// Free a slice of notes and all their fields
+pub fn freeNotes(alloc: Allocator, notes: []const Note) void {
+    for (notes) |note| freeNoteFields(alloc, note);
+    alloc.free(notes);
 }
 
 test "countNotes returns correct count" {

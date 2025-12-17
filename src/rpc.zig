@@ -270,18 +270,7 @@ fn handleNotesListProject(alloc: Allocator, _: []const u8, db: ?*storage.Databas
     const database = db orelse return error.NoDatabaseConnection;
 
     const notes = try storage.listProjectNotes(database, alloc);
-    defer {
-        for (notes) |note| {
-            alloc.free(note.id);
-            alloc.free(note.file_path);
-            if (note.node_path) |np| alloc.free(np);
-            if (note.node_text_hash) |h| alloc.free(h);
-            alloc.free(note.content);
-            alloc.free(note.created_at);
-            alloc.free(note.updated_at);
-        }
-        alloc.free(notes);
-    }
+    defer storage.freeNotes(alloc, notes);
 
     // Build JSON array
     var buf: std.ArrayList(u8) = .{};
@@ -312,15 +301,7 @@ fn handleNotesGet(alloc: Allocator, request: []const u8, db: ?*storage.Database)
 
     const note_opt = try storage.getNote(database, alloc, id);
     if (note_opt) |note| {
-        defer {
-            alloc.free(note.id);
-            alloc.free(note.file_path);
-            if (note.node_path) |np| alloc.free(np);
-            if (note.node_text_hash) |h| alloc.free(h);
-            alloc.free(note.content);
-            alloc.free(note.created_at);
-            alloc.free(note.updated_at);
-        }
+        defer storage.freeNoteFields(alloc, note);
 
         const escaped_content = escapeJson(alloc, note.content) catch note.content;
         defer if (escaped_content.ptr != note.content.ptr) alloc.free(escaped_content);
@@ -359,15 +340,7 @@ fn handleNotesUpdate(alloc: Allocator, request: []const u8, db: ?*storage.Databa
 
     const note_opt = try storage.getNote(database, alloc, id);
     if (note_opt) |note| {
-        defer {
-            alloc.free(note.id);
-            alloc.free(note.file_path);
-            if (note.node_path) |np| alloc.free(np);
-            if (note.node_text_hash) |h| alloc.free(h);
-            alloc.free(note.content);
-            alloc.free(note.created_at);
-            alloc.free(note.updated_at);
-        }
+        defer storage.freeNoteFields(alloc, note);
 
         const escaped_content = escapeJson(alloc, note.content) catch note.content;
         defer if (escaped_content.ptr != note.content.ptr) alloc.free(escaped_content);
@@ -389,18 +362,7 @@ fn handleNotesSearch(alloc: Allocator, request: []const u8, db: ?*storage.Databa
     const offset = extractNestedInt(request, "\"params\"", "\"offset\"") orelse 0;
 
     const notes = try storage.searchNotes(database, alloc, query, limit, offset);
-    defer {
-        for (notes) |note| {
-            alloc.free(note.id);
-            alloc.free(note.file_path);
-            if (note.node_path) |np| alloc.free(np);
-            if (note.node_text_hash) |h| alloc.free(h);
-            alloc.free(note.content);
-            alloc.free(note.created_at);
-            alloc.free(note.updated_at);
-        }
-        alloc.free(notes);
-    }
+    defer storage.freeNotes(alloc, notes);
 
     return formatNotesArray(alloc, notes);
 }
@@ -424,18 +386,7 @@ fn handleNotesListForFile(alloc: Allocator, request: []const u8, db: ?*storage.D
         return error.MissingFile;
 
     const notes = try storage.getNotesForFile(database, alloc, file_path);
-    defer {
-        for (notes) |note| {
-            alloc.free(note.id);
-            alloc.free(note.file_path);
-            if (note.node_path) |np| alloc.free(np);
-            if (note.node_text_hash) |h| alloc.free(h);
-            alloc.free(note.content);
-            alloc.free(note.created_at);
-            alloc.free(note.updated_at);
-        }
-        alloc.free(notes);
-    }
+    defer storage.freeNotes(alloc, notes);
 
     return formatNotesArray(alloc, notes);
 }
@@ -479,15 +430,7 @@ fn handleNotesReattach(alloc: Allocator, request: []const u8, db: ?*storage.Data
     };
 
     if (note) |n| {
-        defer {
-            alloc.free(n.id);
-            alloc.free(n.file_path);
-            if (n.node_path) |np| alloc.free(np);
-            if (n.node_text_hash) |h| alloc.free(h);
-            alloc.free(n.content);
-            alloc.free(n.created_at);
-            alloc.free(n.updated_at);
-        }
+        defer storage.freeNoteFields(alloc, n);
         return try std.fmt.allocPrint(alloc,
             \\{{"id":"{s}","filePath":"{s}","lineNumber":{?},"content":"{s}"}}
         , .{ n.id, n.file_path, n.line_number, n.content });
@@ -509,18 +452,7 @@ fn handleHemisSearch(alloc: Allocator, request: []const u8, db: ?*storage.Databa
         return error.MissingQuery;
 
     const notes = try storage.searchNotes(database, alloc, query, 50, 0);
-    defer {
-        for (notes) |note| {
-            alloc.free(note.id);
-            alloc.free(note.file_path);
-            if (note.node_path) |np| alloc.free(np);
-            if (note.node_text_hash) |h| alloc.free(h);
-            alloc.free(note.content);
-            alloc.free(note.created_at);
-            alloc.free(note.updated_at);
-        }
-        alloc.free(notes);
-    }
+    defer storage.freeNotes(alloc, notes);
 
     var buf: std.ArrayList(u8) = .{};
     try buf.appendSlice(alloc, "{\"results\":[");
@@ -611,18 +543,7 @@ fn handleFileContext(alloc: Allocator, request: []const u8, db: ?*storage.Databa
         return error.MissingFile;
 
     const notes = try storage.getNotesForFile(database, alloc, file);
-    defer {
-        for (notes) |note| {
-            alloc.free(note.id);
-            alloc.free(note.file_path);
-            if (note.node_path) |np| alloc.free(np);
-            if (note.node_text_hash) |h| alloc.free(h);
-            alloc.free(note.content);
-            alloc.free(note.created_at);
-            alloc.free(note.updated_at);
-        }
-        alloc.free(notes);
-    }
+    defer storage.freeNotes(alloc, notes);
 
     var buf: std.ArrayList(u8) = .{};
     const file_part = try std.fmt.allocPrint(alloc, "{{\"file\":\"{s}\",\"notes\":[", .{file});
@@ -671,18 +592,7 @@ fn handleGraph(alloc: Allocator, _: []const u8, db: ?*storage.Database) ![]const
     const database = db orelse return error.NoDatabaseConnection;
 
     const notes = try storage.listProjectNotes(database, alloc);
-    defer {
-        for (notes) |note| {
-            alloc.free(note.id);
-            alloc.free(note.file_path);
-            if (note.node_path) |np| alloc.free(np);
-            if (note.node_text_hash) |h| alloc.free(h);
-            alloc.free(note.content);
-            alloc.free(note.created_at);
-            alloc.free(note.updated_at);
-        }
-        alloc.free(notes);
-    }
+    defer storage.freeNotes(alloc, notes);
 
     var buf: std.ArrayList(u8) = .{};
     try buf.appendSlice(alloc, "{\"nodes\":[");
@@ -815,8 +725,9 @@ fn handleSuggestTags(alloc: Allocator, request: []const u8, _: ?*storage.Databas
         try tags.appendSlice(alloc, "\"go\"");
     }
 
-    // Pattern-based tags
-    const file_lower = file; // TODO: lowercase
+    // Pattern-based tags (case-insensitive)
+    const file_lower = std.ascii.allocLowerString(alloc, file) catch file;
+    defer if (file_lower.ptr != file.ptr) alloc.free(file_lower);
     if (mem.indexOf(u8, file_lower, "test") != null or mem.indexOf(u8, file_lower, "spec") != null) {
         if (tags.items.len > 1) try tags.appendSlice(alloc, ",");
         try tags.appendSlice(alloc, "\"test\"");
@@ -843,18 +754,7 @@ fn handleSummarizeFile(alloc: Allocator, request: []const u8, db: ?*storage.Data
         return error.MissingFile;
 
     const notes = try storage.getNotesForFile(database, alloc, file);
-    defer {
-        for (notes) |note| {
-            alloc.free(note.id);
-            alloc.free(note.file_path);
-            if (note.node_path) |np| alloc.free(np);
-            if (note.node_text_hash) |h| alloc.free(h);
-            alloc.free(note.content);
-            alloc.free(note.created_at);
-            alloc.free(note.updated_at);
-        }
-        alloc.free(notes);
-    }
+    defer storage.freeNotes(alloc, notes);
 
     var buf: std.ArrayList(u8) = .{};
     errdefer buf.deinit(alloc);
@@ -916,18 +816,7 @@ fn handleNotesLinkSuggestions(alloc: Allocator, request: []const u8, db: ?*stora
     const query = extractNestedString(request, "\"params\"", "\"query\"") orelse "";
 
     const notes = try storage.searchNotes(database, alloc, query, 10, 0);
-    defer {
-        for (notes) |note| {
-            alloc.free(note.id);
-            alloc.free(note.file_path);
-            if (note.node_path) |np| alloc.free(np);
-            if (note.node_text_hash) |h| alloc.free(h);
-            alloc.free(note.content);
-            alloc.free(note.created_at);
-            alloc.free(note.updated_at);
-        }
-        alloc.free(notes);
-    }
+    defer storage.freeNotes(alloc, notes);
 
     var buf: std.ArrayList(u8) = .{};
     errdefer buf.deinit(alloc);
@@ -940,7 +829,7 @@ fn handleNotesLinkSuggestions(alloc: Allocator, request: []const u8, db: ?*stora
             note.content[0..nl]
         else
             note.content;
-        const summary = if (first_line.len > 50) first_line[0..47] else first_line;
+        const summary = if (first_line.len > 50) first_line[0..50] else first_line;
         const escaped = escapeJson(alloc, summary) catch summary;
         defer if (escaped.ptr != summary.ptr) alloc.free(escaped);
 
