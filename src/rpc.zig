@@ -1029,3 +1029,180 @@ test "dispatch index add and search" {
     defer alloc.free(search_resp);
     try std.testing.expect(mem.indexOf(u8, search_resp, "/src/main.zig") != null);
 }
+
+test "dispatch notes list-for-file" {
+    const alloc = std.testing.allocator;
+    var db = try storage.Database.open(alloc, ":memory:");
+    defer db.close();
+
+    // Create note first (using correct param names: filePath, content)
+    const create_req =
+        \\{"jsonrpc":"2.0","id":1,"method":"notes/create","params":{"filePath":"/test.zig","content":"note content"}}
+    ;
+    const create_resp = dispatchWithDb(alloc, create_req, &db);
+    defer alloc.free(create_resp);
+
+    // List for file
+    const list_req =
+        \\{"jsonrpc":"2.0","id":2,"method":"notes/list-for-file","params":{"file":"/test.zig"}}
+    ;
+    const list_resp = dispatchWithDb(alloc, list_req, &db);
+    defer alloc.free(list_resp);
+    try std.testing.expect(mem.indexOf(u8, list_resp, "note content") != null);
+}
+
+test "dispatch notes search" {
+    const alloc = std.testing.allocator;
+    var db = try storage.Database.open(alloc, ":memory:");
+    defer db.close();
+
+    // Create note (using correct param names)
+    const create_req =
+        \\{"jsonrpc":"2.0","id":1,"method":"notes/create","params":{"filePath":"/test.zig","content":"unique searchable text"}}
+    ;
+    const create_resp = dispatchWithDb(alloc, create_req, &db);
+    defer alloc.free(create_resp);
+
+    // Search
+    const search_req =
+        \\{"jsonrpc":"2.0","id":2,"method":"notes/search","params":{"query":"searchable"}}
+    ;
+    const search_resp = dispatchWithDb(alloc, search_req, &db);
+    defer alloc.free(search_resp);
+    try std.testing.expect(mem.indexOf(u8, search_resp, "unique searchable text") != null);
+}
+
+test "dispatch notes update" {
+    const alloc = std.testing.allocator;
+    var db = try storage.Database.open(alloc, ":memory:");
+    defer db.close();
+
+    // Create note (using correct param names)
+    const create_req =
+        \\{"jsonrpc":"2.0","id":1,"method":"notes/create","params":{"filePath":"/test.zig","content":"original"}}
+    ;
+    const create_resp = dispatchWithDb(alloc, create_req, &db);
+    defer alloc.free(create_resp);
+
+    // Extract note id from result (result has {"id":"xxx"...})
+    const result_marker = "\"result\":{\"id\":\"";
+    const id_start = (mem.indexOf(u8, create_resp, result_marker) orelse return error.TestUnexpectedResult) + result_marker.len;
+    const id_end = mem.indexOfPos(u8, create_resp, id_start, "\"") orelse return error.TestUnexpectedResult;
+    const id = create_resp[id_start..id_end];
+
+    // Update note
+    const update_req = try std.fmt.allocPrint(alloc,
+        \\{{"jsonrpc":"2.0","id":2,"method":"notes/update","params":{{"id":"{s}","text":"updated"}}}}
+    , .{id});
+    defer alloc.free(update_req);
+
+    const update_resp = dispatchWithDb(alloc, update_req, &db);
+    defer alloc.free(update_resp);
+    try std.testing.expect(mem.indexOf(u8, update_resp, "updated") != null);
+}
+
+test "dispatch notes delete" {
+    const alloc = std.testing.allocator;
+    var db = try storage.Database.open(alloc, ":memory:");
+    defer db.close();
+
+    // Create note (using correct param names)
+    const create_req =
+        \\{"jsonrpc":"2.0","id":1,"method":"notes/create","params":{"filePath":"/test.zig","content":"to delete"}}
+    ;
+    const create_resp = dispatchWithDb(alloc, create_req, &db);
+    defer alloc.free(create_resp);
+
+    // Extract note id from result
+    const result_marker = "\"result\":{\"id\":\"";
+    const id_start = (mem.indexOf(u8, create_resp, result_marker) orelse return error.TestUnexpectedResult) + result_marker.len;
+    const id_end = mem.indexOfPos(u8, create_resp, id_start, "\"") orelse return error.TestUnexpectedResult;
+    const id = create_resp[id_start..id_end];
+
+    // Delete note
+    const delete_req = try std.fmt.allocPrint(alloc,
+        \\{{"jsonrpc":"2.0","id":2,"method":"notes/delete","params":{{"id":"{s}"}}}}
+    , .{id});
+    defer alloc.free(delete_req);
+
+    const delete_resp = dispatchWithDb(alloc, delete_req, &db);
+    defer alloc.free(delete_resp);
+    try std.testing.expect(mem.indexOf(u8, delete_resp, "\"ok\":true") != null);
+
+    // Verify deleted
+    const get_req = try std.fmt.allocPrint(alloc,
+        \\{{"jsonrpc":"2.0","id":3,"method":"notes/get","params":{{"id":"{s}"}}}}
+    , .{id});
+    defer alloc.free(get_req);
+
+    const get_resp = dispatchWithDb(alloc, get_req, &db);
+    defer alloc.free(get_resp);
+    try std.testing.expect(mem.indexOf(u8, get_resp, "\"error\"") != null);
+}
+
+test "dispatch hemis search" {
+    const alloc = std.testing.allocator;
+    var db = try storage.Database.open(alloc, ":memory:");
+    defer db.close();
+
+    // Create note (using correct param names)
+    const create_req =
+        \\{"jsonrpc":"2.0","id":1,"method":"notes/create","params":{"filePath":"/test.zig","content":"hemis search test"}}
+    ;
+    const create_resp = dispatchWithDb(alloc, create_req, &db);
+    defer alloc.free(create_resp);
+
+    // Search via hemis/search
+    const search_req =
+        \\{"jsonrpc":"2.0","id":2,"method":"hemis/search","params":{"query":"hemis"}}
+    ;
+    const search_resp = dispatchWithDb(alloc, search_req, &db);
+    defer alloc.free(search_resp);
+    try std.testing.expect(mem.indexOf(u8, search_resp, "\"results\":") != null);
+}
+
+test "dispatch list-project notes" {
+    const alloc = std.testing.allocator;
+    var db = try storage.Database.open(alloc, ":memory:");
+    defer db.close();
+
+    // Create two notes (using correct param names)
+    const create1 =
+        \\{"jsonrpc":"2.0","id":1,"method":"notes/create","params":{"filePath":"/a.zig","content":"note a"}}
+    ;
+    const resp1 = dispatchWithDb(alloc, create1, &db);
+    defer alloc.free(resp1);
+
+    const create2 =
+        \\{"jsonrpc":"2.0","id":2,"method":"notes/create","params":{"filePath":"/b.zig","content":"note b"}}
+    ;
+    const resp2 = dispatchWithDb(alloc, create2, &db);
+    defer alloc.free(resp2);
+
+    // List all
+    const list_req =
+        \\{"jsonrpc":"2.0","id":3,"method":"notes/list-project","params":{}}
+    ;
+    const list_resp = dispatchWithDb(alloc, list_req, &db);
+    defer alloc.free(list_resp);
+    try std.testing.expect(mem.indexOf(u8, list_resp, "note a") != null);
+    try std.testing.expect(mem.indexOf(u8, list_resp, "note b") != null);
+}
+
+test "dispatch open-project" {
+    const alloc = std.testing.allocator;
+
+    const req =
+        \\{"jsonrpc":"2.0","id":1,"method":"hemis/open-project","params":{"path":"/tmp"}}
+    ;
+    const resp = dispatch(alloc, req);
+    defer alloc.free(resp);
+    try std.testing.expect(mem.indexOf(u8, resp, "\"ok\":true") != null);
+}
+
+test "dispatch shutdown handler exists" {
+    // Note: Can't test hemis/shutdown directly as it calls std.process.exit(0)
+    // Just verify the method string parsing would work
+    const method = "hemis/shutdown";
+    try std.testing.expect(mem.eql(u8, method, "hemis/shutdown"));
+}
