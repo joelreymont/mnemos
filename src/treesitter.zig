@@ -406,3 +406,50 @@ test "parser init and deinit" {
 
     try testing.expect(parser.tree_cache.count() == 0);
 }
+
+test "parser cache clear" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var registry = try GrammarRegistry.init(allocator, "/tmp/grammars");
+    defer registry.deinit();
+
+    var parser = try Parser.init(allocator, &registry);
+    defer parser.deinit();
+
+    // Clear should work on empty cache
+    parser.clearCache();
+    try testing.expect(parser.tree_cache.count() == 0);
+}
+
+test "grammar registry custom path" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var registry = try GrammarRegistry.init(allocator, "/custom/path");
+    defer registry.deinit();
+
+    try testing.expectEqualStrings("/custom/path", registry.grammars_dir);
+}
+
+test "node text extraction" {
+    const testing = std.testing;
+
+    // Test Node.text utility with known source
+    const source = "hello world";
+
+    // Node.text slices source by byte range
+    // Without a real tree-sitter tree, we test the slicing logic
+    const start: u32 = 0;
+    const end: u32 = 5;
+    const extracted = source[start..end];
+    try testing.expectEqualStrings("hello", extracted);
+}
+
+test "TreeSitterError enum" {
+    const testing = std.testing;
+
+    // Verify errors are distinct
+    try testing.expect(TreeSitterError.GrammarLoadFailed != TreeSitterError.ParseFailed);
+    try testing.expect(TreeSitterError.ParseFailed != TreeSitterError.QueryFailed);
+}

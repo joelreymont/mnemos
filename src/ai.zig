@@ -12,6 +12,27 @@ const process = std.process;
 
 const Allocator = mem.Allocator;
 
+/// Write JSON-escaped string (escapes quotes, backslashes, control chars)
+fn writeJsonEscaped(writer: anytype, s: []const u8) !void {
+    for (s) |c| {
+        switch (c) {
+            '"' => try writer.writeAll("\\\""),
+            '\\' => try writer.writeAll("\\\\"),
+            '\n' => try writer.writeAll("\\n"),
+            '\r' => try writer.writeAll("\\r"),
+            '\t' => try writer.writeAll("\\t"),
+            else => {
+                if (c < 0x20) {
+                    // Control character - skip or encode as \uXXXX
+                    try writer.print("\\u{x:0>4}", .{c});
+                } else {
+                    try writer.writeByte(c);
+                }
+            },
+        }
+    }
+}
+
 /// Protocol: newline-delimited JSON
 /// Send: {"prompt": "...", "id": "..."}
 /// Receive: {"response": "...", "id": "...", "done": bool}
@@ -51,7 +72,7 @@ pub const AI = struct {
     write_buf: std.ArrayList(u8),
     pending: std.StringHashMap(PendingRequest),
 
-    pub fn init(alloc: Allocator, provider: Provider) !AI {
+    pub fn init(alloc: Allocator, provider: Provider) AI {
         return .{
             .alloc = alloc,
             .provider = provider,
@@ -66,7 +87,7 @@ pub const AI = struct {
         var it = self.pending.iterator();
         while (it.next()) |entry| {
             self.alloc.free(entry.key_ptr.*);
-            entry.value_ptr.response_parts.deinit(self.alloc);
+            entry.value_ptr.*.response_parts.deinit(self.alloc);
         }
         self.pending.deinit();
     }
@@ -144,12 +165,12 @@ pub const AI = struct {
 
         // Create request JSON
         self.write_buf.clearRetainingCapacity();
-        const writer = self.write_buf.writer();
-        try writer.writeAll("{\"prompt\":");
-        try std.json.encodeJsonString(prompt, .{}, writer);
-        try writer.writeAll(",\"id\":");
-        try std.json.encodeJsonString(id, .{}, writer);
-        try writer.writeAll("}\n");
+        const writer = self.write_buf.writer(self.alloc);
+        try writer.writeAll("{\"prompt\":\"");
+        try writeJsonEscaped(writer, prompt);
+        try writer.writeAll("\",\"id\":\"");
+        try writeJsonEscaped(writer, id);
+        try writer.writeAll("\"}\n");
 
         // Write to stdin
         const data = self.write_buf.items;
@@ -238,14 +259,15 @@ pub const AI = struct {
     pub fn removePending(self: *AI, id: RequestId) void {
         if (self.pending.fetchRemove(id)) |kv| {
             self.alloc.free(kv.key);
-            kv.value.response_parts.deinit(self.alloc);
+            var response_parts = kv.value.response_parts;
+            response_parts.deinit(self.alloc);
         }
     }
 };
 
 test "AI init/deinit" {
     const alloc = std.testing.allocator;
-    var ai = try AI.init(alloc, .claude);
+    var ai = AI.init(alloc, .claude);
     defer ai.deinit();
 
     // Should not be running initially
@@ -255,4 +277,50 @@ test "AI init/deinit" {
 test "AI provider command" {
     try std.testing.expectEqualStrings("claude", Provider.claude.command());
     try std.testing.expectEqualStrings("codex", Provider.codex.command());
+}
+
+test "AI not started error" {
+    const alloc = std.testing.allocator;
+    var ai = AI.init(alloc, .claude);
+    defer ai.deinit();
+
+    // Should error when trying to send prompt before starting
+    const result = ai.sendPrompt("test-id", "test prompt");
+    try std.testing.expectError(error.NotStarted, result);
+}
+
+test "AI getReadFd before start" {
+    const alloc = std.testing.allocator;
+    var ai = AI.init(alloc, .claude);
+    defer ai.deinit();
+
+    // Should return null when not started
+    try std.testing.expect(ai.getReadFd() == null);
+}
+
+test "AI codex provider" {
+    const alloc = std.testing.allocator;
+    var ai = AI.init(alloc, .codex);
+    defer ai.deinit();
+
+    try std.testing.expect(!ai.isRunning());
+    try std.testing.expect(ai.provider == .codex);
+}
+
+test "AI getResponse for unknown id" {
+    const alloc = std.testing.allocator;
+    var ai = AI.init(alloc, .claude);
+    defer ai.deinit();
+
+    // Should return null for unknown request ID
+    try std.testing.expect(ai.getResponse("unknown-id") == null);
+}
+
+test "AI removePending for unknown id" {
+    const alloc = std.testing.allocator;
+    var ai = AI.init(alloc, .claude);
+    defer ai.deinit();
+
+    // Should not crash when removing unknown ID
+    ai.removePending("unknown-id");
 }

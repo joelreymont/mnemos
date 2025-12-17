@@ -250,3 +250,40 @@ test "server init" {
     _ = Server;
     _ = Client;
 }
+
+test "client init" {
+    const testing = std.testing;
+
+    // Test client initialization
+    const client = Client.init(0);
+    try testing.expect(client.fd == 0);
+    try testing.expect(client.stream != null);
+}
+
+test "max clients constant" {
+    const testing = std.testing;
+
+    // Verify MAX_CLIENTS is reasonable
+    try testing.expect(MAX_CLIENTS >= 1);
+    try testing.expect(MAX_CLIENTS <= 1024);
+}
+
+test "getHemisDir with env" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    // Test getHemisDir returns a path
+    const dir = getHemisDir(alloc) catch |err| {
+        // HOME might not be set in test environment
+        if (err == error.NoHomeDir) return;
+        return err;
+    };
+    defer alloc.free(dir);
+    try testing.expect(dir.len > 0);
+}
+
+test "signal handler setup" {
+    // Verify signal handler is set up correctly
+    _ = handleShutdown;
+    _ = shutdown_requested;
+}

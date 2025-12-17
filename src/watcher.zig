@@ -295,3 +295,56 @@ test "watcher basic" {
 
     try testing.expect(event_count >= 0);
 }
+
+test "watcher getFd" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(path);
+
+    const callback = struct {
+        fn cb(_: FileEvent, _: ?*anyopaque) void {}
+    }.cb;
+
+    var watcher = try Watcher.init(allocator, path, callback, null);
+    defer watcher.deinit();
+
+    // getFd should return a valid fd for poll integration
+    const fd = watcher.getFd();
+    try testing.expect(fd >= 0);
+}
+
+test "watcher stop" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(path);
+
+    const callback = struct {
+        fn cb(_: FileEvent, _: ?*anyopaque) void {}
+    }.cb;
+
+    var watcher = try Watcher.init(allocator, path, callback, null);
+    defer watcher.deinit();
+
+    // Verify stop doesn't crash
+    watcher.stop();
+    try testing.expect(!watcher.running);
+}
+
+test "FileEventKind enum" {
+    const testing = std.testing;
+
+    // Verify all event kinds are distinct
+    try testing.expect(FileEventKind.created != FileEventKind.modified);
+    try testing.expect(FileEventKind.modified != FileEventKind.deleted);
+    try testing.expect(FileEventKind.created != FileEventKind.deleted);
+}
