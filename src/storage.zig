@@ -470,3 +470,230 @@ test "database open close" {
     const count = try countNotes(&db);
     try std.testing.expectEqual(@as(i64, 0), count);
 }
+
+test "note CRUD operations" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    // Create
+    const note = Note{
+        .id = "test-123",
+        .file_path = "/src/main.zig",
+        .node_path = "fn.main",
+        .node_text_hash = "abc123",
+        .line_number = 42,
+        .content = "Test note content",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    };
+    try createNote(&db, note);
+
+    // Count
+    const count = try countNotes(&db);
+    try std.testing.expectEqual(@as(i64, 1), count);
+
+    // Get
+    const fetched = try getNote(&db, alloc, "test-123");
+    try std.testing.expect(fetched != null);
+    defer {
+        alloc.free(fetched.?.id);
+        alloc.free(fetched.?.file_path);
+        if (fetched.?.node_path) |np| alloc.free(np);
+        if (fetched.?.node_text_hash) |h| alloc.free(h);
+        alloc.free(fetched.?.content);
+        alloc.free(fetched.?.created_at);
+        alloc.free(fetched.?.updated_at);
+    }
+    try std.testing.expectEqualStrings("Test note content", fetched.?.content);
+
+    // Update
+    try updateNote(&db, "test-123", "Updated content", null, "2024-01-02");
+    const updated = try getNote(&db, alloc, "test-123");
+    defer {
+        alloc.free(updated.?.id);
+        alloc.free(updated.?.file_path);
+        if (updated.?.node_path) |np| alloc.free(np);
+        if (updated.?.node_text_hash) |h| alloc.free(h);
+        alloc.free(updated.?.content);
+        alloc.free(updated.?.created_at);
+        alloc.free(updated.?.updated_at);
+    }
+    try std.testing.expectEqualStrings("Updated content", updated.?.content);
+
+    // Delete
+    try deleteNote(&db, "test-123");
+    const deleted = try getNote(&db, alloc, "test-123");
+    try std.testing.expect(deleted == null);
+}
+
+test "search notes" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "note-1",
+        .file_path = "/src/foo.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Hello world test",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+    try createNote(&db, .{
+        .id = "note-2",
+        .file_path = "/src/bar.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Goodbye world",
+        .created_at = "2024-01-02",
+        .updated_at = "2024-01-02",
+    });
+
+    const results = try searchNotes(&db, alloc, "world", 10, 0);
+    defer {
+        for (results) |n| {
+            alloc.free(n.id);
+            alloc.free(n.file_path);
+            if (n.node_path) |np| alloc.free(np);
+            if (n.node_text_hash) |h| alloc.free(h);
+            alloc.free(n.content);
+            alloc.free(n.created_at);
+            alloc.free(n.updated_at);
+        }
+        alloc.free(results);
+    }
+    try std.testing.expectEqual(@as(usize, 2), results.len);
+
+    // Test limit
+    const limited = try searchNotes(&db, alloc, "world", 1, 0);
+    defer {
+        for (limited) |n| {
+            alloc.free(n.id);
+            alloc.free(n.file_path);
+            if (n.node_path) |np| alloc.free(np);
+            if (n.node_text_hash) |h| alloc.free(h);
+            alloc.free(n.content);
+            alloc.free(n.created_at);
+            alloc.free(n.updated_at);
+        }
+        alloc.free(limited);
+    }
+    try std.testing.expectEqual(@as(usize, 1), limited.len);
+}
+
+test "notes for file" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "note-1",
+        .file_path = "/src/main.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Note 1",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+    try createNote(&db, .{
+        .id = "note-2",
+        .file_path = "/src/main.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Note 2",
+        .created_at = "2024-01-02",
+        .updated_at = "2024-01-02",
+    });
+    try createNote(&db, .{
+        .id = "note-3",
+        .file_path = "/src/other.zig",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "Note 3",
+        .created_at = "2024-01-03",
+        .updated_at = "2024-01-03",
+    });
+
+    const notes = try getNotesForFile(&db, alloc, "/src/main.zig");
+    defer {
+        for (notes) |n| {
+            alloc.free(n.id);
+            alloc.free(n.file_path);
+            if (n.node_path) |np| alloc.free(np);
+            if (n.node_text_hash) |h| alloc.free(h);
+            alloc.free(n.content);
+            alloc.free(n.created_at);
+            alloc.free(n.updated_at);
+        }
+        alloc.free(notes);
+    }
+    try std.testing.expectEqual(@as(usize, 2), notes.len);
+}
+
+test "file indexing" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try addFile(&db, "/src/main.zig", "hash123");
+    try addFile(&db, "/src/lib.zig", "hash456");
+
+    const file = try getFile(&db, alloc, "/src/main.zig");
+    try std.testing.expect(file != null);
+    defer {
+        alloc.free(file.?.path);
+        alloc.free(file.?.content_hash);
+        alloc.free(file.?.indexed_at);
+    }
+    try std.testing.expectEqualStrings("hash123", file.?.content_hash);
+
+    // Update existing
+    try addFile(&db, "/src/main.zig", "newhash");
+    const updated = try getFile(&db, alloc, "/src/main.zig");
+    defer {
+        alloc.free(updated.?.path);
+        alloc.free(updated.?.content_hash);
+        alloc.free(updated.?.indexed_at);
+    }
+    try std.testing.expectEqualStrings("newhash", updated.?.content_hash);
+
+    // Search
+    const results = try searchFiles(&db, alloc, "zig");
+    defer {
+        for (results) |f| {
+            alloc.free(f.path);
+            alloc.free(f.content_hash);
+            alloc.free(f.indexed_at);
+        }
+        alloc.free(results);
+    }
+    try std.testing.expectEqual(@as(usize, 2), results.len);
+}
+
+test "clear notes" {
+    const alloc = std.testing.allocator;
+    var db = try Database.open(alloc, ":memory:");
+    defer db.close();
+
+    try createNote(&db, .{
+        .id = "note-1",
+        .file_path = "/test",
+        .node_path = null,
+        .node_text_hash = null,
+        .line_number = null,
+        .content = "content",
+        .created_at = "2024-01-01",
+        .updated_at = "2024-01-01",
+    });
+
+    try std.testing.expectEqual(@as(i64, 1), try countNotes(&db));
+    try clearNotes(&db);
+    try std.testing.expectEqual(@as(i64, 0), try countNotes(&db));
+}
