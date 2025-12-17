@@ -1176,7 +1176,10 @@ Sends buffer content so server can compute displayLine positions."
   "Create a new Hemis note at point with TEXT and optional TAGS list.
 Sends buffer content so server can compute nodeTextHash."
   (interactive
-   (let ((note-text (hemis--read-note-text)))
+   (let* ((buf (current-buffer))
+          (note-text (hemis--read-note-text)))
+     ;; Restore buffer after minibuffer (for demo automation)
+     (set-buffer buf)
      (list (or note-text (user-error "Note entry canceled")))))
   (let* ((anchor (hemis--note-anchor))
          (params (append (hemis--buffer-params t) ; include content
