@@ -348,3 +348,411 @@ test "zig-cache ignored" {
     const ignored = try repo.isIgnored(".zig-cache/test");
     try testing.expect(ignored);
 }
+
+test "open invalid repository path" {
+    const testing = std.testing;
+
+    const result = Repository.open("/nonexistent/path/to/repo");
+    try testing.expectError(GitError.OpenFailed, result);
+}
+
+test "open empty string path" {
+    const testing = std.testing;
+
+    const result = Repository.open("");
+    try testing.expectError(GitError.OpenFailed, result);
+}
+
+test "commit hash is valid hex string" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var repo = Repository.open(".") catch |err| {
+        if (err == GitError.OpenFailed or err == GitError.InitFailed) {
+            return error.SkipZigTest;
+        }
+        return err;
+    };
+    defer repo.deinit();
+
+    const commit = try repo.getHeadCommit(alloc);
+    defer alloc.free(commit);
+
+    try testing.expectEqual(@as(usize, 40), commit.len);
+    for (commit) |ch| {
+        const valid = (ch >= '0' and ch <= '9') or (ch >= 'a' and ch <= 'f');
+        try testing.expect(valid);
+    }
+}
+
+test "branch name is non-empty" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var repo = Repository.open(".") catch |err| {
+        if (err == GitError.OpenFailed or err == GitError.InitFailed) {
+            return error.SkipZigTest;
+        }
+        return err;
+    };
+    defer repo.deinit();
+
+    const branch = try repo.getCurrentBranch(alloc);
+    defer alloc.free(branch);
+
+    try testing.expect(branch.len > 0);
+    try testing.expect(branch.len < 256);
+}
+
+test "isIgnored with null terminator" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    _ = alloc;
+
+    var repo = Repository.open(".") catch |err| {
+        if (err == GitError.OpenFailed or err == GitError.InitFailed) {
+            return error.SkipZigTest;
+        }
+        return err;
+    };
+    defer repo.deinit();
+
+    const path = ".git/HEAD";
+    const ignored = try repo.isIgnored(path);
+    try testing.expect(ignored);
+}
+
+test "getModifiedFiles returns valid slice" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var repo = Repository.open(".") catch |err| {
+        if (err == GitError.OpenFailed or err == GitError.InitFailed) {
+            return error.SkipZigTest;
+        }
+        return err;
+    };
+    defer repo.deinit();
+
+    const files = try repo.getModifiedFiles(alloc);
+    defer {
+        for (files) |f| alloc.free(f);
+        alloc.free(files);
+    }
+
+    for (files) |file| {
+        try testing.expect(file.len > 0);
+    }
+}
+
+test "getFileDiff returns string" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var repo = Repository.open(".") catch |err| {
+        if (err == GitError.OpenFailed or err == GitError.InitFailed) {
+            return error.SkipZigTest;
+        }
+        return err;
+    };
+    defer repo.deinit();
+
+    const diff = repo.getFileDiff(alloc, "build.zig") catch |err| {
+        if (err == GitError.DiffFailed) return;
+        return err;
+    };
+    defer alloc.free(diff);
+}
+
+test "BlameInfo struct initialization" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const hash = try alloc.dupe(u8, "1234567890abcdef1234567890abcdef12345678");
+    const name = try alloc.dupe(u8, "Test Author");
+    const email = try alloc.dupe(u8, "test@example.com");
+
+    var info = Repository.BlameInfo{
+        .commit_hash = hash,
+        .author_name = name,
+        .author_email = email,
+        .line_number = 42,
+    };
+
+    try testing.expectEqual(@as(usize, 40), info.commit_hash.len);
+    try testing.expectEqual(@as(usize, 11), info.author_name.len);
+    try testing.expectEqual(@as(usize, 16), info.author_email.len);
+    try testing.expectEqual(@as(usize, 42), info.line_number);
+
+    info.deinit(alloc);
+}
+
+test "BlameInfo deinit frees memory" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const hash = try alloc.dupe(u8, "abcd1234");
+    const name = try alloc.dupe(u8, "Name");
+    const email = try alloc.dupe(u8, "email");
+
+    var info = Repository.BlameInfo{
+        .commit_hash = hash,
+        .author_name = name,
+        .author_email = email,
+        .line_number = 1,
+    };
+
+    info.deinit(alloc);
+}
+
+test "getBlameForLine on git.zig" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var repo = Repository.open(".") catch |err| {
+        if (err == GitError.OpenFailed or err == GitError.InitFailed) {
+            return error.SkipZigTest;
+        }
+        return err;
+    };
+    defer repo.deinit();
+
+    var blame = repo.getBlameForLine(alloc, "src/git.zig", 1) catch |err| {
+        if (err == GitError.BlameFailed or err == GitError.NotFound) {
+            return error.SkipZigTest;
+        }
+        return err;
+    };
+    defer blame.deinit(alloc);
+
+    try testing.expectEqual(@as(usize, 40), blame.commit_hash.len);
+    try testing.expect(blame.line_number == 1);
+}
+
+test "getBlameForLine on nonexistent file" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var repo = Repository.open(".") catch |err| {
+        if (err == GitError.OpenFailed or err == GitError.InitFailed) {
+            return error.SkipZigTest;
+        }
+        return err;
+    };
+    defer repo.deinit();
+
+    const result = repo.getBlameForLine(alloc, "nonexistent.zig", 1);
+    try testing.expectError(GitError.BlameFailed, result);
+}
+
+test "multiple repository operations" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var repo = Repository.open(".") catch |err| {
+        if (err == GitError.OpenFailed or err == GitError.InitFailed) {
+            return error.SkipZigTest;
+        }
+        return err;
+    };
+    defer repo.deinit();
+
+    const branch = try repo.getCurrentBranch(alloc);
+    defer alloc.free(branch);
+
+    const commit = try repo.getHeadCommit(alloc);
+    defer alloc.free(commit);
+
+    const files = try repo.getModifiedFiles(alloc);
+    defer {
+        for (files) |f| alloc.free(f);
+        alloc.free(files);
+    }
+
+    try testing.expect(branch.len > 0);
+    try testing.expectEqual(@as(usize, 40), commit.len);
+}
+
+test "isIgnored with build output dirs" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    _ = alloc;
+
+    var repo = Repository.open(".") catch |err| {
+        if (err == GitError.OpenFailed or err == GitError.InitFailed) {
+            return error.SkipZigTest;
+        }
+        return err;
+    };
+    defer repo.deinit();
+
+    const ignored_out = try repo.isIgnored("zig-out/bin/test");
+    try testing.expect(ignored_out);
+
+    const ignored_cache = try repo.isIgnored(".zig-cache/o/abc123/test.o");
+    try testing.expect(ignored_cache);
+}
+
+test "GitError enum values exist" {
+    const testing = std.testing;
+
+    const errors = [_]type{GitError};
+    try testing.expectEqual(@as(usize, 1), errors.len);
+
+    const init_failed: GitError = GitError.InitFailed;
+    const open_failed: GitError = GitError.OpenFailed;
+    const not_found: GitError = GitError.NotFound;
+    const invalid_repo: GitError = GitError.InvalidRepository;
+    const diff_failed: GitError = GitError.DiffFailed;
+    const blame_failed: GitError = GitError.BlameFailed;
+    const oom: GitError = GitError.OutOfMemory;
+
+    try testing.expect(init_failed == GitError.InitFailed);
+    try testing.expect(open_failed == GitError.OpenFailed);
+    try testing.expect(not_found == GitError.NotFound);
+    try testing.expect(invalid_repo == GitError.InvalidRepository);
+    try testing.expect(diff_failed == GitError.DiffFailed);
+    try testing.expect(blame_failed == GitError.BlameFailed);
+    try testing.expect(oom == GitError.OutOfMemory);
+}
+
+// ============================================================================
+// Additional Git Tests
+// ============================================================================
+
+test "BlameInfo struct fields" {
+    const blame = Repository.BlameInfo{
+        .commit_hash = "abc123def456789012345678901234567890abcd",
+        .author_name = "Test Author",
+        .author_email = "test@example.com",
+        .line_number = 42,
+    };
+
+    try std.testing.expectEqual(@as(usize, 40), blame.commit_hash.len);
+    try std.testing.expectEqual(@as(usize, 42), blame.line_number);
+    try std.testing.expectEqualStrings("Test Author", blame.author_name);
+    try std.testing.expectEqualStrings("test@example.com", blame.author_email);
+}
+
+test "BlameInfo with empty author" {
+    const blame = Repository.BlameInfo{
+        .commit_hash = "abc123def456789012345678901234567890abcd",
+        .author_name = "",
+        .author_email = "",
+        .line_number = 1,
+    };
+
+    try std.testing.expectEqual(@as(usize, 0), blame.author_name.len);
+    try std.testing.expectEqual(@as(usize, 0), blame.author_email.len);
+}
+
+test "Repository open nonexistent fails" {
+    const result = Repository.open("/nonexistent/path/to/repo");
+    try std.testing.expectError(GitError.OpenFailed, result);
+}
+
+test "commit hash length constant" {
+    // Git commit hashes are 40 hex characters (20 bytes in binary)
+    const expected_len: usize = 40;
+    const sample_hash = "abc123def456789012345678901234567890abcd";
+
+    try std.testing.expectEqual(expected_len, sample_hash.len);
+}
+
+test "isIgnored on tracked file" {
+    const testing = std.testing;
+
+    var repo = Repository.open(".") catch |err| {
+        if (err == GitError.OpenFailed or err == GitError.InitFailed) {
+            return error.SkipZigTest;
+        }
+        return err;
+    };
+    defer repo.deinit();
+
+    // build.zig should not be ignored (it's tracked)
+    const ignored = try repo.isIgnored("build.zig");
+    try testing.expect(!ignored);
+}
+
+test "isIgnored on common ignored patterns" {
+    var repo = Repository.open(".") catch |err| {
+        if (err == GitError.OpenFailed or err == GitError.InitFailed) {
+            return error.SkipZigTest;
+        }
+        return err;
+    };
+    defer repo.deinit();
+
+    // .DS_Store should typically be ignored
+    const ignored_ds = repo.isIgnored(".DS_Store") catch false;
+    _ = ignored_ds; // May or may not be in .gitignore
+
+    // node_modules should typically be ignored
+    const ignored_nm = repo.isIgnored("node_modules/package/file.js") catch false;
+    _ = ignored_nm;
+}
+
+test "getCurrentBranch returns non-empty" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var repo = Repository.open(".") catch |err| {
+        if (err == GitError.OpenFailed or err == GitError.InitFailed) {
+            return error.SkipZigTest;
+        }
+        return err;
+    };
+    defer repo.deinit();
+
+    const branch = try repo.getCurrentBranch(alloc);
+    defer alloc.free(branch);
+
+    try testing.expect(branch.len > 0);
+    // Branch names typically don't contain spaces
+    try testing.expect(std.mem.indexOf(u8, branch, " ") == null);
+}
+
+test "getHeadCommit returns 40 char hash" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var repo = Repository.open(".") catch |err| {
+        if (err == GitError.OpenFailed or err == GitError.InitFailed) {
+            return error.SkipZigTest;
+        }
+        return err;
+    };
+    defer repo.deinit();
+
+    const commit = try repo.getHeadCommit(alloc);
+    defer alloc.free(commit);
+
+    try testing.expectEqual(@as(usize, 40), commit.len);
+    // Should be all hex characters
+    for (commit) |ch| {
+        try testing.expect((ch >= '0' and ch <= '9') or (ch >= 'a' and ch <= 'f'));
+    }
+}
+
+test "getModifiedFiles returns array" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var repo = Repository.open(".") catch |err| {
+        if (err == GitError.OpenFailed or err == GitError.InitFailed) {
+            return error.SkipZigTest;
+        }
+        return err;
+    };
+    defer repo.deinit();
+
+    const files = try repo.getModifiedFiles(alloc);
+    defer {
+        for (files) |f| alloc.free(f);
+        alloc.free(files);
+    }
+
+    // Just verify it returns without error (may be empty or have files)
+    try testing.expect(true);
+}

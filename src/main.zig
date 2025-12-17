@@ -301,3 +301,145 @@ test "version constant" {
 test "git hash constant" {
     try std.testing.expect(GIT_HASH.len > 0);
 }
+
+test "config deinit frees allocated fields" {
+    const testing = std.testing;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var config = Config{
+        .socket_path = try alloc.dupe(u8, "/tmp/test.sock"),
+        .project_root = try alloc.dupe(u8, "/home/test"),
+        .db_path = try alloc.dupe(u8, "/tmp/db.sqlite"),
+    };
+    config.deinit(alloc);
+}
+
+test "config with null fields" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var config = Config{};
+    config.deinit(alloc);
+}
+
+test "config with partial allocation" {
+    const testing = std.testing;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var config = Config{
+        .socket_path = try alloc.dupe(u8, "/tmp/test.sock"),
+        .project_root = null,
+        .db_path = try alloc.dupe(u8, "/tmp/db.sqlite"),
+    };
+    config.deinit(alloc);
+}
+
+test "mode enum comparison" {
+    const testing = std.testing;
+    const stdio_mode: Mode = .stdio;
+    const socket_mode: Mode = .socket;
+
+    try testing.expect(stdio_mode == .stdio);
+    try testing.expect(socket_mode == .socket);
+    try testing.expect(stdio_mode != socket_mode);
+}
+
+test "getConfigPath returns valid path" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const path = getConfigPath(alloc) catch |err| {
+        if (err == error.NoHomeDir) return;
+        return err;
+    };
+    defer alloc.free(path);
+
+    try testing.expect(path.len > 0);
+    try testing.expect(mem.endsWith(u8, path, "hemis/config.json"));
+}
+
+test "getSocketPath from config" {
+    const testing = std.testing;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const config = Config{
+        .socket_path = try alloc.dupe(u8, "/custom/socket.sock"),
+    };
+
+    const path = try getSocketPath(alloc, &config);
+    defer alloc.free(path);
+
+    try testing.expect(mem.eql(u8, path, "/custom/socket.sock"));
+}
+
+test "getSocketPath without config returns path" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const config = Config{};
+    const path = try getSocketPath(alloc, &config);
+    defer alloc.free(path);
+
+    try testing.expect(path.len > 0);
+    try testing.expect(mem.endsWith(u8, path, "hemis.sock"));
+}
+
+test "getDbPath from config" {
+    const testing = std.testing;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const config = Config{
+        .db_path = try alloc.dupe(u8, "/custom/db.sqlite"),
+    };
+
+    const path = try getDbPath(alloc, &config);
+    defer alloc.free(path);
+
+    try testing.expect(mem.eql(u8, path, "/custom/db.sqlite"));
+}
+
+test "getDbPath with project root" {
+    const testing = std.testing;
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    // Use a temp directory that actually exists
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const project_root = try tmp_dir.dir.realpathAlloc(alloc, ".");
+    defer alloc.free(project_root);
+
+    const config = Config{
+        .project_root = project_root,
+    };
+
+    const path = try getDbPath(alloc, &config);
+    defer alloc.free(path);
+
+    try testing.expect(mem.endsWith(u8, path, ".hemis/db.sqlite"));
+}
+
+test "getCurrentDir returns path" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const dir = try getCurrentDir(alloc);
+    defer alloc.free(dir);
+
+    try testing.expect(dir.len > 0);
+    try testing.expect(dir[0] == '/');
+}
+
+// Skip stdout tests - they can hang in test environment
+// test "printHelp does not crash" { printHelp(); }
+// test "printVersion does not crash" { printVersion(); }

@@ -453,3 +453,363 @@ test "TreeSitterError enum" {
     try testing.expect(TreeSitterError.GrammarLoadFailed != TreeSitterError.ParseFailed);
     try testing.expect(TreeSitterError.ParseFailed != TreeSitterError.QueryFailed);
 }
+
+test "registry hasGrammar empty" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var registry = try GrammarRegistry.init(allocator, "/tmp/grammars");
+    defer registry.deinit();
+
+    try testing.expect(!registry.hasGrammar("rust"));
+    try testing.expect(!registry.hasGrammar("python"));
+}
+
+test "registry getGrammar not loaded" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var registry = try GrammarRegistry.init(allocator, "/tmp/grammars");
+    defer registry.deinit();
+
+    try testing.expect(registry.getGrammar("rust") == null);
+}
+
+test "parser getCachedTree empty" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var registry = try GrammarRegistry.init(allocator, "/tmp/grammars");
+    defer registry.deinit();
+
+    var parser = try Parser.init(allocator, &registry);
+    defer parser.deinit();
+
+    try testing.expect(parser.getCachedTree("nonexistent") == null);
+}
+
+test "parser removeCached nonexistent" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var registry = try GrammarRegistry.init(allocator, "/tmp/grammars");
+    defer registry.deinit();
+
+    var parser = try Parser.init(allocator, &registry);
+    defer parser.deinit();
+
+    // Should not crash when removing nonexistent key
+    parser.removeCached("nonexistent");
+}
+
+test "QueryCursor init deinit" {
+    var cursor = try QueryCursor.init();
+    defer cursor.deinit();
+    // If init succeeds, cursor is valid (non-null pointer)
+}
+
+test "TreeSitterError all variants" {
+    const testing = std.testing;
+
+    const err1: TreeSitterError = TreeSitterError.GrammarNotAvailable;
+    const err2: TreeSitterError = TreeSitterError.GrammarLoadFailed;
+    const err3: TreeSitterError = TreeSitterError.ParseFailed;
+    const err4: TreeSitterError = TreeSitterError.QueryFailed;
+    const err5: TreeSitterError = TreeSitterError.InvalidSymbol;
+    const err6: TreeSitterError = TreeSitterError.OutOfMemory;
+
+    try testing.expect(err1 == TreeSitterError.GrammarNotAvailable);
+    try testing.expect(err2 == TreeSitterError.GrammarLoadFailed);
+    try testing.expect(err3 == TreeSitterError.ParseFailed);
+    try testing.expect(err4 == TreeSitterError.QueryFailed);
+    try testing.expect(err5 == TreeSitterError.InvalidSymbol);
+    try testing.expect(err6 == TreeSitterError.OutOfMemory);
+}
+
+test "TreeSitterError distinct variants" {
+    const testing = std.testing;
+
+    try testing.expect(TreeSitterError.GrammarNotAvailable != TreeSitterError.GrammarLoadFailed);
+    try testing.expect(TreeSitterError.GrammarLoadFailed != TreeSitterError.ParseFailed);
+    try testing.expect(TreeSitterError.ParseFailed != TreeSitterError.QueryFailed);
+    try testing.expect(TreeSitterError.QueryFailed != TreeSitterError.InvalidSymbol);
+    try testing.expect(TreeSitterError.InvalidSymbol != TreeSitterError.OutOfMemory);
+}
+
+test "Grammar struct fields" {
+    const testing = std.testing;
+
+    const allocator = testing.allocator;
+    var registry = try GrammarRegistry.init(allocator, "/tmp/grammars");
+    defer registry.deinit();
+
+    try testing.expect(registry.grammars.count() == 0);
+}
+
+test "GrammarRegistry operations sequence" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var registry = try GrammarRegistry.init(allocator, "/tmp/test_grammars");
+    defer registry.deinit();
+
+    try testing.expect(!registry.hasGrammar("test"));
+    try testing.expect(registry.getGrammar("test") == null);
+    try testing.expect(registry.grammars.count() == 0);
+}
+
+test "GrammarRegistry multiple instances" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var reg1 = try GrammarRegistry.init(allocator, "/path1");
+    defer reg1.deinit();
+
+    var reg2 = try GrammarRegistry.init(allocator, "/path2");
+    defer reg2.deinit();
+
+    try testing.expectEqualStrings("/path1", reg1.grammars_dir);
+    try testing.expectEqualStrings("/path2", reg2.grammars_dir);
+}
+
+test "Parser operations sequence" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var registry = try GrammarRegistry.init(allocator, "/tmp/grammars");
+    defer registry.deinit();
+
+    var parser = try Parser.init(allocator, &registry);
+    defer parser.deinit();
+
+    try testing.expect(parser.getCachedTree("key1") == null);
+    parser.removeCached("key1");
+    try testing.expect(parser.tree_cache.count() == 0);
+}
+
+test "Parser multiple cache operations" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var registry = try GrammarRegistry.init(allocator, "/tmp/grammars");
+    defer registry.deinit();
+
+    var parser = try Parser.init(allocator, &registry);
+    defer parser.deinit();
+
+    parser.clearCache();
+    parser.clearCache();
+    try testing.expect(parser.tree_cache.count() == 0);
+}
+
+test "Query struct operations" {
+    const testing = std.testing;
+
+    const allocator = testing.allocator;
+    var registry = try GrammarRegistry.init(allocator, "/tmp/grammars");
+    defer registry.deinit();
+
+    try testing.expect(registry.grammars.count() == 0);
+}
+
+test "Node utility functions existence" {
+    const testing = std.testing;
+
+    _ = Node.rootNode;
+    _ = Node.typeString;
+    _ = Node.symbol;
+    _ = Node.startByte;
+    _ = Node.endByte;
+    _ = Node.startPoint;
+    _ = Node.endPoint;
+    _ = Node.childCount;
+    _ = Node.child;
+    _ = Node.namedChildCount;
+    _ = Node.namedChild;
+    _ = Node.isNamed;
+    _ = Node.isNull;
+    _ = Node.parent;
+    _ = Node.nextSibling;
+    _ = Node.prevSibling;
+    _ = Node.nextNamedSibling;
+    _ = Node.prevNamedSibling;
+    _ = Node.text;
+
+    try testing.expect(true);
+}
+
+test "Node text byte range extraction" {
+    const testing = std.testing;
+
+    const source = "const x = 42;";
+    const start: u32 = 6;
+    const end: u32 = 7;
+    const slice = source[start..end];
+
+    try testing.expectEqualStrings("x", slice);
+}
+
+// ============================================================================
+// Additional Tree-sitter Tests
+// ============================================================================
+
+test "TSPoint zero initialization" {
+    const point = TSPoint{ .row = 0, .column = 0 };
+    try std.testing.expectEqual(@as(u32, 0), point.row);
+    try std.testing.expectEqual(@as(u32, 0), point.column);
+}
+
+test "TSPoint with values" {
+    const point = TSPoint{ .row = 10, .column = 25 };
+    try std.testing.expectEqual(@as(u32, 10), point.row);
+    try std.testing.expectEqual(@as(u32, 25), point.column);
+}
+
+test "TreeSitterError enum values" {
+    const testing = std.testing;
+
+    const err1: TreeSitterError = TreeSitterError.GrammarNotAvailable;
+    const err2: TreeSitterError = TreeSitterError.GrammarLoadFailed;
+    const err3: TreeSitterError = TreeSitterError.ParseFailed;
+    const err4: TreeSitterError = TreeSitterError.QueryFailed;
+    const err5: TreeSitterError = TreeSitterError.InvalidSymbol;
+    const err6: TreeSitterError = TreeSitterError.OutOfMemory;
+
+    try testing.expect(err1 == TreeSitterError.GrammarNotAvailable);
+    try testing.expect(err2 == TreeSitterError.GrammarLoadFailed);
+    try testing.expect(err3 == TreeSitterError.ParseFailed);
+    try testing.expect(err4 == TreeSitterError.QueryFailed);
+    try testing.expect(err5 == TreeSitterError.InvalidSymbol);
+    try testing.expect(err6 == TreeSitterError.OutOfMemory);
+}
+
+test "GrammarRegistry empty after init" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var registry = try GrammarRegistry.init(allocator, "/nonexistent");
+    defer registry.deinit();
+
+    try testing.expectEqual(@as(usize, 0), registry.grammars.count());
+}
+
+test "GrammarRegistry stores dir path" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var registry = try GrammarRegistry.init(allocator, "/custom/path");
+    defer registry.deinit();
+
+    try testing.expectEqualStrings("/custom/path", registry.grammars_dir);
+}
+
+test "Parser init creates empty cache" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var registry = try GrammarRegistry.init(allocator, "/tmp");
+    defer registry.deinit();
+
+    var parser = try Parser.init(allocator, &registry);
+    defer parser.deinit();
+
+    try testing.expectEqual(@as(usize, 0), parser.tree_cache.count());
+}
+
+test "Parser clearCache is idempotent" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var registry = try GrammarRegistry.init(allocator, "/tmp");
+    defer registry.deinit();
+
+    var parser = try Parser.init(allocator, &registry);
+    defer parser.deinit();
+
+    parser.clearCache();
+    parser.clearCache();
+    parser.clearCache();
+
+    try testing.expectEqual(@as(usize, 0), parser.tree_cache.count());
+}
+
+test "Parser removeCached nonexistent key" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var registry = try GrammarRegistry.init(allocator, "/tmp");
+    defer registry.deinit();
+
+    var parser = try Parser.init(allocator, &registry);
+    defer parser.deinit();
+
+    // Should not crash
+    parser.removeCached("nonexistent-key");
+    try testing.expectEqual(@as(usize, 0), parser.tree_cache.count());
+}
+
+test "Parser getCachedTree returns null for missing" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var registry = try GrammarRegistry.init(allocator, "/tmp");
+    defer registry.deinit();
+
+    var parser = try Parser.init(allocator, &registry);
+    defer parser.deinit();
+
+    try testing.expect(parser.getCachedTree("missing-key") == null);
+}
+
+test "Node byte range math" {
+    const testing = std.testing;
+
+    // Test typical byte range computation
+    const start: u32 = 100;
+    const end: u32 = 150;
+    const length = end - start;
+
+    try testing.expectEqual(@as(u32, 50), length);
+}
+
+test "Node point to byte approximation" {
+    const testing = std.testing;
+
+    // Rough approximation: line * avg_line_length + column
+    const row: u32 = 10;
+    const col: u32 = 5;
+    const avg_line_len: u32 = 80;
+    const approx_byte = row * avg_line_len + col;
+
+    try testing.expectEqual(@as(u32, 805), approx_byte);
+}
+
+test "grammar library name construction macos" {
+    const testing = std.testing;
+    const builtin = @import("builtin");
+
+    if (builtin.os.tag != .macos) return error.SkipZigTest;
+
+    const name = "rust";
+    const expected = "libtree-sitter-rust.dylib";
+
+    var buf: [64]u8 = undefined;
+    const result = std.fmt.bufPrint(&buf, "libtree-sitter-{s}.dylib", .{name}) catch unreachable;
+
+    try testing.expectEqualStrings(expected, result);
+}
+
+test "grammar library name construction linux" {
+    const testing = std.testing;
+    const builtin = @import("builtin");
+
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    const name = "python";
+    const expected = "libtree-sitter-python.so";
+
+    var buf: [64]u8 = undefined;
+    const result = std.fmt.bufPrint(&buf, "libtree-sitter-{s}.so", .{name}) catch unreachable;
+
+    try testing.expectEqualStrings(expected, result);
+}

@@ -348,3 +348,236 @@ test "FileEventKind enum" {
     try testing.expect(FileEventKind.modified != FileEventKind.deleted);
     try testing.expect(FileEventKind.created != FileEventKind.deleted);
 }
+
+test "FileEvent struct fields" {
+    const event = FileEvent{
+        .path = "/test/path",
+        .kind = .modified,
+    };
+    try std.testing.expectEqualStrings("/test/path", event.path);
+    try std.testing.expect(event.kind == .modified);
+}
+
+test "watcher debounce constant" {
+    // DEBOUNCE_MS should be reasonable (50-500ms range)
+    const debounce = Watcher.DEBOUNCE_MS;
+    try std.testing.expect(debounce >= 50);
+    try std.testing.expect(debounce <= 500);
+}
+
+test "watcher multiple init deinit" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(path);
+
+    const callback = struct {
+        fn cb(_: FileEvent, _: ?*anyopaque) void {}
+    }.cb;
+
+    // Init and deinit multiple times should work
+    var w1 = try Watcher.init(allocator, path, callback, null);
+    w1.deinit();
+
+    var w2 = try Watcher.init(allocator, path, callback, null);
+    w2.deinit();
+}
+
+test "FileEventKind all variants" {
+    const testing = std.testing;
+
+    const created: FileEventKind = .created;
+    const modified: FileEventKind = .modified;
+    const deleted: FileEventKind = .deleted;
+
+    try testing.expect(created == .created);
+    try testing.expect(modified == .modified);
+    try testing.expect(deleted == .deleted);
+}
+
+test "FileEvent with all event kinds" {
+    const testing = std.testing;
+
+    const created = FileEvent{ .path = "/test/file", .kind = .created };
+    const modified = FileEvent{ .path = "/test/file", .kind = .modified };
+    const deleted = FileEvent{ .path = "/test/file", .kind = .deleted };
+
+    try testing.expect(created.kind == .created);
+    try testing.expect(modified.kind == .modified);
+    try testing.expect(deleted.kind == .deleted);
+    try testing.expectEqualStrings("/test/file", created.path);
+}
+
+test "Callback type signature" {
+    const callback: Callback = struct {
+        fn cb(_: FileEvent, _: ?*anyopaque) void {}
+    }.cb;
+
+    const event = FileEvent{ .path = "/test", .kind = .created };
+    callback(event, null);
+}
+
+test "watcher processEvents no events" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(path);
+
+    const callback = struct {
+        fn cb(_: FileEvent, _: ?*anyopaque) void {}
+    }.cb;
+
+    var watcher = try Watcher.init(allocator, path, callback, null);
+    defer watcher.deinit();
+
+    try watcher.processEvents();
+}
+
+test "watcher userdata context passing" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(path);
+
+    var context_value: u32 = 42;
+
+    const callback = struct {
+        fn cb(_: FileEvent, userdata: ?*anyopaque) void {
+            const value: *u32 = @ptrCast(@alignCast(userdata.?));
+            value.* = 99;
+        }
+    }.cb;
+
+    var watcher = try Watcher.init(allocator, path, callback, &context_value);
+    defer watcher.deinit();
+
+    const event = FileEvent{ .path = path, .kind = .modified };
+    callback(event, &context_value);
+
+    try testing.expect(context_value == 99);
+}
+
+test "watcher path ownership" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(path);
+
+    const callback = struct {
+        fn cb(_: FileEvent, _: ?*anyopaque) void {}
+    }.cb;
+
+    var watcher = try Watcher.init(allocator, path, callback, null);
+    defer watcher.deinit();
+
+    try testing.expectEqualStrings(path, watcher.watch_path);
+}
+
+test "FileEventKind enum distinct values" {
+    const testing = std.testing;
+    try testing.expect(@intFromEnum(FileEventKind.created) != @intFromEnum(FileEventKind.modified));
+    try testing.expect(@intFromEnum(FileEventKind.modified) != @intFromEnum(FileEventKind.deleted));
+    try testing.expect(@intFromEnum(FileEventKind.created) != @intFromEnum(FileEventKind.deleted));
+}
+
+test "FileEvent struct path assignment" {
+    const testing = std.testing;
+    const event = FileEvent{ .path = "/some/path/file.txt", .kind = .modified };
+    try testing.expectEqualStrings("/some/path/file.txt", event.path);
+}
+
+test "FileEvent struct kind assignment" {
+    const testing = std.testing;
+    const event = FileEvent{ .path = "/test", .kind = .deleted };
+    try testing.expect(event.kind == .deleted);
+}
+
+test "watcher getFd returns valid fd" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(path);
+
+    const callback = struct {
+        fn cb(_: FileEvent, _: ?*anyopaque) void {}
+    }.cb;
+
+    var watcher = try Watcher.init(allocator, path, callback, null);
+    defer watcher.deinit();
+
+    const fd = watcher.getFd();
+    try testing.expect(fd >= 0);
+}
+
+test "watcher stop sets running false" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(path);
+
+    const callback = struct {
+        fn cb(_: FileEvent, _: ?*anyopaque) void {}
+    }.cb;
+
+    var watcher = try Watcher.init(allocator, path, callback, null);
+    defer watcher.deinit();
+
+    watcher.running = true;
+    watcher.stop();
+    try testing.expect(!watcher.running);
+}
+
+test "Callback can be null userdata" {
+    const callback: Callback = struct {
+        fn cb(_: FileEvent, userdata: ?*anyopaque) void {
+            _ = userdata;
+        }
+    }.cb;
+
+    const event = FileEvent{ .path = "/test", .kind = .created };
+    callback(event, null);
+}
+
+test "watcher debounce timer initial value" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(path);
+
+    const callback = struct {
+        fn cb(_: FileEvent, _: ?*anyopaque) void {}
+    }.cb;
+
+    var watcher = try Watcher.init(allocator, path, callback, null);
+    defer watcher.deinit();
+
+    try testing.expect(watcher.debounce_timer == 0);
+}

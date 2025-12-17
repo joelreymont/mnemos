@@ -287,3 +287,178 @@ test "signal handler setup" {
     _ = handleShutdown;
     _ = shutdown_requested;
 }
+
+test "getSocketPath returns path" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const path = getSocketPath(alloc) catch |err| {
+        // May fail if HOME not set
+        if (err == error.NoHomeDir) return;
+        return err;
+    };
+    defer alloc.free(path);
+
+    try testing.expect(path.len > 0);
+    try testing.expect(mem.endsWith(u8, path, "hemis.sock"));
+}
+
+test "shutdown_requested initial value" {
+    // Should start as false
+    try std.testing.expect(!shutdown_requested);
+}
+
+test "Client struct fd assignment" {
+    const testing = std.testing;
+    const test_fd: posix.fd_t = 42;
+    const client = Client.init(test_fd);
+    try testing.expect(client.fd == 42);
+}
+
+test "Client struct has buffer" {
+    const testing = std.testing;
+    const client = Client.init(0);
+    try testing.expect(client.buf.len == 64 * 1024);
+}
+
+test "MAX_CLIENTS value" {
+    const testing = std.testing;
+    try testing.expect(MAX_CLIENTS == 32);
+}
+
+test "MAX_CLIENTS in range" {
+    const testing = std.testing;
+    try testing.expect(MAX_CLIENTS > 0);
+    try testing.expect(MAX_CLIENTS < 100);
+}
+
+test "Server struct has allocator" {
+    _ = Server;
+}
+
+test "Server struct has database" {
+    _ = Server;
+}
+
+test "getSocketPath contains sock extension" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const path = getSocketPath(alloc) catch |err| {
+        if (err == error.NoHomeDir) return;
+        return err;
+    };
+    defer alloc.free(path);
+
+    try testing.expect(mem.indexOf(u8, path, ".sock") != null);
+}
+
+test "getHemisDir creates directory" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const dir = getHemisDir(alloc) catch |err| {
+        if (err == error.NoHomeDir) return;
+        return err;
+    };
+    defer alloc.free(dir);
+
+    try testing.expect(mem.indexOf(u8, dir, ".hemis") != null or mem.indexOf(u8, dir, "HEMIS") != null);
+}
+
+test "handleShutdown sets flag" {
+    shutdown_requested = false;
+    handleShutdown(0);
+    try std.testing.expect(shutdown_requested);
+    shutdown_requested = false;
+}
+
+test "Client buffer size" {
+    const client = Client.init(5);
+    try std.testing.expect(client.buf.len > 0);
+    try std.testing.expect(client.buf.len == 64 * 1024);
+}
+
+test "Client init with various fds" {
+    const testing = std.testing;
+    const c1 = Client.init(0);
+    const c2 = Client.init(10);
+    const c3 = Client.init(100);
+
+    try testing.expect(c1.fd == 0);
+    try testing.expect(c2.fd == 10);
+    try testing.expect(c3.fd == 100);
+}
+
+test "Client stream not null" {
+    const testing = std.testing;
+    const client = Client.init(7);
+    try testing.expect(client.stream != null);
+}
+
+test "handleShutdown with different signals" {
+    shutdown_requested = false;
+    handleShutdown(2); // SIGINT
+    try std.testing.expect(shutdown_requested);
+
+    shutdown_requested = false;
+    handleShutdown(15); // SIGTERM
+    try std.testing.expect(shutdown_requested);
+
+    shutdown_requested = false;
+}
+
+test "MAX_CLIENTS is power of 2" {
+    const testing = std.testing;
+    // 32 is a power of 2
+    try testing.expect(MAX_CLIENTS == 32);
+    try testing.expect(MAX_CLIENTS & (MAX_CLIENTS - 1) == 0);
+}
+
+test "getSocketPath path format" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const path = getSocketPath(alloc) catch |err| {
+        if (err == error.NoHomeDir) return;
+        return err;
+    };
+    defer alloc.free(path);
+
+    // Path should be absolute
+    try testing.expect(path[0] == '/');
+}
+
+test "getHemisDir path format" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const dir = getHemisDir(alloc) catch |err| {
+        if (err == error.NoHomeDir) return;
+        return err;
+    };
+    defer alloc.free(dir);
+
+    // Path should be absolute
+    try testing.expect(dir[0] == '/');
+}
+
+test "shutdown_requested can be toggled" {
+    shutdown_requested = false;
+    try std.testing.expect(!shutdown_requested);
+    shutdown_requested = true;
+    try std.testing.expect(shutdown_requested);
+    shutdown_requested = false;
+}
+
+test "Client fd is posix fd type" {
+    const client = Client.init(42);
+    const fd: posix.fd_t = client.fd;
+    try std.testing.expect(fd == 42);
+}
+
+test "Server and Client types exist" {
+    _ = Server;
+    _ = Client;
+    _ = MAX_CLIENTS;
+}

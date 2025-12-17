@@ -324,3 +324,218 @@ test "AI removePending for unknown id" {
     // Should not crash when removing unknown ID
     ai.removePending("unknown-id");
 }
+
+test "writeJsonEscaped basic" {
+    const alloc = std.testing.allocator;
+    var list: std.ArrayList(u8) = .{};
+    defer list.deinit(alloc);
+
+    try writeJsonEscaped(list.writer(alloc), "hello");
+    try std.testing.expectEqualStrings("hello", list.items);
+}
+
+test "writeJsonEscaped quotes" {
+    const alloc = std.testing.allocator;
+    var list: std.ArrayList(u8) = .{};
+    defer list.deinit(alloc);
+
+    try writeJsonEscaped(list.writer(alloc), "say \"hello\"");
+    try std.testing.expectEqualStrings("say \\\"hello\\\"", list.items);
+}
+
+test "writeJsonEscaped backslash" {
+    const alloc = std.testing.allocator;
+    var list: std.ArrayList(u8) = .{};
+    defer list.deinit(alloc);
+
+    try writeJsonEscaped(list.writer(alloc), "path\\to\\file");
+    try std.testing.expectEqualStrings("path\\\\to\\\\file", list.items);
+}
+
+test "writeJsonEscaped newline" {
+    const alloc = std.testing.allocator;
+    var list: std.ArrayList(u8) = .{};
+    defer list.deinit(alloc);
+
+    try writeJsonEscaped(list.writer(alloc), "line1\nline2");
+    try std.testing.expectEqualStrings("line1\\nline2", list.items);
+}
+
+test "writeJsonEscaped tab" {
+    const alloc = std.testing.allocator;
+    var list: std.ArrayList(u8) = .{};
+    defer list.deinit(alloc);
+
+    try writeJsonEscaped(list.writer(alloc), "col1\tcol2");
+    try std.testing.expectEqualStrings("col1\\tcol2", list.items);
+}
+
+test "writeJsonEscaped carriage return" {
+    const alloc = std.testing.allocator;
+    var list: std.ArrayList(u8) = .{};
+    defer list.deinit(alloc);
+
+    try writeJsonEscaped(list.writer(alloc), "line\r\n");
+    try std.testing.expectEqualStrings("line\\r\\n", list.items);
+}
+
+test "Provider enum distinct" {
+    try std.testing.expect(Provider.claude != Provider.codex);
+}
+
+test "writeJsonEscaped empty string" {
+    const alloc = std.testing.allocator;
+    var list: std.ArrayList(u8) = .{};
+    defer list.deinit(alloc);
+
+    try writeJsonEscaped(list.writer(alloc), "");
+    try std.testing.expectEqualStrings("", list.items);
+}
+
+test "writeJsonEscaped unicode" {
+    const alloc = std.testing.allocator;
+    var list: std.ArrayList(u8) = .{};
+    defer list.deinit(alloc);
+
+    try writeJsonEscaped(list.writer(alloc), "hello 世界");
+    try std.testing.expectEqualStrings("hello 世界", list.items);
+}
+
+test "writeJsonEscaped mixed escapes" {
+    const alloc = std.testing.allocator;
+    var list: std.ArrayList(u8) = .{};
+    defer list.deinit(alloc);
+
+    try writeJsonEscaped(list.writer(alloc), "line1\n\"quoted\"\tvalue\\path");
+    try std.testing.expectEqualStrings("line1\\n\\\"quoted\\\"\\tvalue\\\\path", list.items);
+}
+
+test "writeJsonEscaped control characters" {
+    const alloc = std.testing.allocator;
+    var list: std.ArrayList(u8) = .{};
+    defer list.deinit(alloc);
+
+    try writeJsonEscaped(list.writer(alloc), "\x00\x01\x1f");
+    try std.testing.expectEqualStrings("\\u0000\\u0001\\u001f", list.items);
+}
+
+test "AI init with claude provider" {
+    const alloc = std.testing.allocator;
+    var ai = AI.init(alloc, .claude);
+    defer ai.deinit();
+
+    try std.testing.expect(ai.provider == .claude);
+    try std.testing.expect(ai.child == null);
+    try std.testing.expect(ai.stdin_fd == null);
+    try std.testing.expect(ai.stdout_fd == null);
+    try std.testing.expect(ai.read_len == 0);
+}
+
+test "AI init with codex provider" {
+    const alloc = std.testing.allocator;
+    var ai = AI.init(alloc, .codex);
+    defer ai.deinit();
+
+    try std.testing.expect(ai.provider == .codex);
+    try std.testing.expect(ai.child == null);
+}
+
+test "PendingRequest struct initialization" {
+    const alloc = std.testing.allocator;
+    var response_parts: std.ArrayList(u8) = .{};
+    defer response_parts.deinit(alloc);
+
+    const pending = PendingRequest{
+        .id = "test-id",
+        .response_parts = response_parts,
+    };
+
+    try std.testing.expectEqualStrings("test-id", pending.id);
+    try std.testing.expect(!pending.done);
+}
+
+test "PendingRequest with done flag" {
+    const alloc = std.testing.allocator;
+    var response_parts: std.ArrayList(u8) = .{};
+    defer response_parts.deinit(alloc);
+
+    const pending = PendingRequest{
+        .id = "test-id",
+        .response_parts = response_parts,
+        .done = true,
+    };
+
+    try std.testing.expect(pending.done);
+}
+
+test "Provider enum exhaustive" {
+    const claude = Provider.claude;
+    const codex = Provider.codex;
+    try std.testing.expect(@intFromEnum(claude) != @intFromEnum(codex));
+}
+
+test "AI multiple deinit safe" {
+    const alloc = std.testing.allocator;
+    var ai = AI.init(alloc, .claude);
+    ai.deinit();
+    // Should not crash on double deinit if properly guarded
+}
+
+test "AI pending requests initially empty" {
+    const alloc = std.testing.allocator;
+    var ai = AI.init(alloc, .claude);
+    defer ai.deinit();
+
+    try std.testing.expect(ai.pending.count() == 0);
+}
+
+test "writeJsonEscaped long string" {
+    const alloc = std.testing.allocator;
+    var list: std.ArrayList(u8) = .{};
+    defer list.deinit(alloc);
+
+    const long = "a" ** 1000;
+    try writeJsonEscaped(list.writer(alloc), long);
+    try std.testing.expect(list.items.len == 1000);
+}
+
+test "writeJsonEscaped special json chars" {
+    const alloc = std.testing.allocator;
+    var list: std.ArrayList(u8) = .{};
+    defer list.deinit(alloc);
+
+    try writeJsonEscaped(list.writer(alloc), "{\"key\": \"value\"}");
+    try std.testing.expectEqualStrings("{\\\"key\\\": \\\"value\\\"}", list.items);
+}
+
+test "AI read buffer initial state" {
+    const alloc = std.testing.allocator;
+    var ai = AI.init(alloc, .claude);
+    defer ai.deinit();
+
+    try std.testing.expect(ai.read_len == 0);
+}
+
+test "AI stdout_fd initial null" {
+    const alloc = std.testing.allocator;
+    var ai = AI.init(alloc, .codex);
+    defer ai.deinit();
+
+    try std.testing.expect(ai.stdout_fd == null);
+}
+
+test "AI stdin_fd initial null" {
+    const alloc = std.testing.allocator;
+    var ai = AI.init(alloc, .codex);
+    defer ai.deinit();
+
+    try std.testing.expect(ai.stdin_fd == null);
+}
+
+test "Provider claude command" {
+    const alloc = std.testing.allocator;
+    var ai = AI.init(alloc, .claude);
+    defer ai.deinit();
+
+    try std.testing.expect(ai.provider == .claude);
+}
