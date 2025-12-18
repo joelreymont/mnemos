@@ -4797,13 +4797,19 @@ fn event_socket_receives_note_created() -> anyhow::Result<()> {
     let mut rpc_stream = UnixStream::connect(&rpc_socket)?;
     rpc_stream.set_read_timeout(Some(Duration::from_secs(5)))?;
 
+    // Use canonical paths to avoid /tmp vs /private/tmp issues on macOS
+    let test_file = hemis_dir.path().join("test.rs");
+    std::fs::write(&test_file, "fn main() {}")?;
+    let canonical_file = test_file.canonicalize()?;
+    let canonical_project = hemis_dir.path().canonicalize()?;
+
     let create_req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "notes/create",
         "params": {
-            "file": "/tmp/test.rs",
-            "projectRoot": "/tmp",
+            "file": canonical_file.to_string_lossy(),
+            "projectRoot": canonical_project.to_string_lossy(),
             "line": 42,
             "column": 0,
             "tags": [],
@@ -4860,7 +4866,7 @@ fn event_socket_receives_note_created() -> anyhow::Result<()> {
     );
     assert_eq!(
         event.get("file").and_then(|v| v.as_str()),
-        Some("/tmp/test.rs"),
+        Some(canonical_file.to_string_lossy().as_ref()),
         "event should contain the file"
     );
     assert_eq!(
@@ -5517,14 +5523,22 @@ fn note_history_tracks_versions() -> anyhow::Result<()> {
 fn summarize_file_returns_sections() -> anyhow::Result<()> {
     let db = NamedTempFile::new()?;
 
+    // Use canonical paths to avoid /tmp vs /private/tmp issues on macOS
+    let project_dir = tempfile::tempdir()?;
+    let test_file = project_dir.path().join("test.rs");
+    let content = "fn main() {\n    println!(\"Hello\");\n}\n";
+    std::fs::write(&test_file, content)?;
+    let canonical_file = test_file.canonicalize()?;
+    let canonical_project = project_dir.path().canonicalize()?;
+
     // Create a note
     let req_create = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "notes/create",
         "params": {
-            "file": "/tmp/test.rs",
-            "projectRoot": "/tmp",
+            "file": canonical_file.to_string_lossy(),
+            "projectRoot": canonical_project.to_string_lossy(),
             "line": 2,
             "column": 0,
             "text": "Important function"
@@ -5540,14 +5554,13 @@ fn summarize_file_returns_sections() -> anyhow::Result<()> {
         .success();
 
     // Request summary
-    let content = "fn main() {\n    println!(\"Hello\");\n}\n";
     let req_summarize = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 2,
         "method": "hemis/summarize-file",
         "params": {
-            "file": "/tmp/test.rs",
-            "projectRoot": "/tmp",
+            "file": canonical_file.to_string_lossy(),
+            "projectRoot": canonical_project.to_string_lossy(),
             "content": content
         }
     })
@@ -5566,7 +5579,10 @@ fn summarize_file_returns_sections() -> anyhow::Result<()> {
     let result = resp.result.expect("summarize-file should return result");
 
     // Should have file info and sections
-    assert_eq!(result.get("file").and_then(|v| v.as_str()), Some("/tmp/test.rs"));
+    assert_eq!(
+        result.get("file").and_then(|v| v.as_str()),
+        Some(canonical_file.to_string_lossy().as_ref())
+    );
     assert_eq!(result.get("noteCount").and_then(|v| v.as_u64()), Some(1));
 
     let sections = result.get("sections").and_then(|v| v.as_array()).unwrap();

@@ -27,6 +27,14 @@ const FIELD_SCRUBS: &[(&str, &str)] = &[
 /// Fields containing text that may have embedded UUIDs to scrub.
 const UUID_TEXT_FIELDS: &[&str] = &["text", "summary", "displayLabel"];
 
+/// Fields containing file paths that may need normalization (macOS /private/tmp -> /tmp).
+const PATH_FIELDS: &[&str] = &["file", "displayDetail", "projectRoot"];
+
+/// Normalize paths to handle macOS /tmp symlink (/private/tmp -> /tmp).
+fn scrub_path(s: &str) -> String {
+    s.replace("/private/tmp", "/tmp")
+}
+
 fn scrub_obj(obj: &mut serde_json::Map<String, Value>) {
     // Replace dynamic fields with static placeholders
     for (field, replacement) in FIELD_SCRUBS {
@@ -38,6 +46,13 @@ fn scrub_obj(obj: &mut serde_json::Map<String, Value>) {
     for key in UUID_TEXT_FIELDS {
         if let Some(Value::String(s)) = obj.get(*key) {
             let scrubbed = scrub_uuids_in_string(s);
+            obj.insert((*key).to_string(), json!(scrubbed));
+        }
+    }
+    // Normalize file paths (macOS /private/tmp -> /tmp)
+    for key in PATH_FIELDS {
+        if let Some(Value::String(s)) = obj.get(*key) {
+            let scrubbed = scrub_path(s);
             obj.insert((*key).to_string(), json!(scrubbed));
         }
     }

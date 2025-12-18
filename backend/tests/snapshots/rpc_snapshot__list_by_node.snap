@@ -26,7 +26,7 @@ expression: responses
         "fn",
         "body"
       ],
-      "projectRoot": "/private/tmp",
+      "projectRoot": "/tmp",
       "shortId": "<shortId>",
       "stale": false,
       "summary": "by-node",
@@ -59,7 +59,7 @@ expression: responses
           "fn",
           "body"
         ],
-        "projectRoot": "/private/tmp",
+        "projectRoot": "/tmp",
         "shortId": "<shortId>",
         "stale": false,
         "summary": "by-node",
