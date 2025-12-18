@@ -733,8 +733,11 @@ fn handleLoadSnapshot(alloc: Allocator, request: []const u8, db: ?*storage.Datab
     defer alloc.free(json);
 
     try storage.clearNotes(database);
+    const count = try storage.importNotesJson(database, alloc, json);
 
-    return try std.fmt.allocPrint(alloc, "{{\"ok\":true,\"path\":\"{s}\"}}", .{path});
+    const escaped_path = escapeJson(alloc, path) catch path;
+    defer if (escaped_path.ptr != path.ptr) alloc.free(escaped_path);
+    return try std.fmt.allocPrint(alloc, "{{\"ok\":true,\"path\":\"{s}\",\"imported\":{d}}}", .{ escaped_path, count });
 }
 
 fn handleFileContext(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
@@ -746,8 +749,11 @@ fn handleFileContext(alloc: Allocator, request: []const u8, db: ?*storage.Databa
     const notes = try storage.getNotesForFile(database, alloc, file);
     defer storage.freeNotes(alloc, notes);
 
+    const escaped_file = escapeJson(alloc, file) catch file;
+    defer if (escaped_file.ptr != file.ptr) alloc.free(escaped_file);
+
     var buf: std.ArrayList(u8) = .{};
-    const file_part = try std.fmt.allocPrint(alloc, "{{\"file\":\"{s}\",\"notes\":[", .{file});
+    const file_part = try std.fmt.allocPrint(alloc, "{{\"file\":\"{s}\",\"notes\":[", .{escaped_file});
     defer alloc.free(file_part);
     try buf.appendSlice(alloc, file_part);
 
@@ -975,9 +981,12 @@ fn handleCodeReferences(alloc: Allocator, request: []const u8, _: ?*storage.Data
         return error.MissingFile;
     const line = extractNestedInt(request, "\"params\"", "\"line\"") orelse 1;
 
+    const escaped_file = escapeJson(alloc, file) catch file;
+    defer if (escaped_file.ptr != file.ptr) alloc.free(escaped_file);
+
     return try std.fmt.allocPrint(alloc,
         \\{{"references":[],"anchor":{{"line":{d},"file":"{s}"}}}}
-    , .{ line, file });
+    , .{ line, escaped_file });
 }
 
 fn handleSummarizeFile(alloc: Allocator, request: []const u8, db: ?*storage.Database) ![]const u8 {
@@ -988,11 +997,14 @@ fn handleSummarizeFile(alloc: Allocator, request: []const u8, db: ?*storage.Data
     const notes = try storage.getNotesForFile(database, alloc, file);
     defer storage.freeNotes(alloc, notes);
 
+    const escaped_file = escapeJson(alloc, file) catch file;
+    defer if (escaped_file.ptr != file.ptr) alloc.free(escaped_file);
+
     var buf: std.ArrayList(u8) = .{};
     errdefer buf.deinit(alloc);
 
     try buf.appendSlice(alloc, "{\"file\":\"");
-    try buf.appendSlice(alloc, file);
+    try buf.appendSlice(alloc, escaped_file);
     try buf.appendSlice(alloc, "\",\"sections\":[");
 
     for (notes, 0..) |note, i| {

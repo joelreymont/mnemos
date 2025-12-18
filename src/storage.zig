@@ -439,6 +439,34 @@ pub fn getFile(db: *Database, alloc: Allocator, path: []const u8) !?File {
     return null;
 }
 
+/// Escape a string for JSON embedding
+fn escapeJsonString(alloc: Allocator, s: []const u8) ![]const u8 {
+    var buf: std.ArrayList(u8) = .{};
+    errdefer buf.deinit(alloc);
+
+    for (s) |ch| {
+        switch (ch) {
+            '"' => try buf.appendSlice(alloc, "\\\""),
+            '\\' => try buf.appendSlice(alloc, "\\\\"),
+            '\n' => try buf.appendSlice(alloc, "\\n"),
+            '\r' => try buf.appendSlice(alloc, "\\r"),
+            '\t' => try buf.appendSlice(alloc, "\\t"),
+            else => {
+                if (ch < 0x20) {
+                    // Control characters
+                    var hex_buf: [6]u8 = undefined;
+                    const hex = std.fmt.bufPrint(&hex_buf, "\\u{x:0>4}", .{ch}) catch continue;
+                    try buf.appendSlice(alloc, hex);
+                } else {
+                    try buf.append(alloc, ch);
+                }
+            },
+        }
+    }
+
+    return buf.toOwnedSlice(alloc);
+}
+
 /// Export all notes as JSON
 pub fn exportNotesJson(db: *Database, alloc: Allocator) ![]const u8 {
     const notes = try listProjectNotes(db, alloc);
@@ -461,15 +489,158 @@ pub fn exportNotesJson(db: *Database, alloc: Allocator) ![]const u8 {
     try buf.appendSlice(alloc, "[");
     for (notes, 0..) |note, i| {
         if (i > 0) try buf.appendSlice(alloc, ",");
+
+        // Escape content for JSON
+        const escaped_content = try escapeJsonString(alloc, note.content);
+        defer alloc.free(escaped_content);
+
+        // Escape file path for JSON
+        const escaped_path = try escapeJsonString(alloc, note.file_path);
+        defer alloc.free(escaped_path);
+
         const item = try std.fmt.allocPrint(alloc,
             \\{{"id":"{s}","filePath":"{s}","content":"{s}"}}
-        , .{ note.id, note.file_path, note.content });
+        , .{ note.id, escaped_path, escaped_content });
         defer alloc.free(item);
         try buf.appendSlice(alloc, item);
     }
     try buf.appendSlice(alloc, "]");
 
     return buf.toOwnedSlice(alloc);
+}
+
+/// Import notes from JSON snapshot
+/// JSON format: [{"id":"...","filePath":"...","content":"..."},...]
+pub fn importNotesJson(db: *Database, alloc: Allocator, json: []const u8) !usize {
+    var count: usize = 0;
+    var pos: usize = 0;
+
+    // Find each object in the array
+    while (pos < json.len) {
+        // Find start of object
+        const obj_start = mem.indexOf(u8, json[pos..], "{") orelse break;
+        const abs_start = pos + obj_start;
+
+        // Find end of object (matching brace)
+        var depth: usize = 1;
+        var obj_end = abs_start + 1;
+        while (obj_end < json.len and depth > 0) : (obj_end += 1) {
+            if (json[obj_end] == '{') depth += 1;
+            if (json[obj_end] == '}') depth -= 1;
+        }
+
+        const obj = json[abs_start..obj_end];
+        pos = obj_end;
+
+        // Extract fields using simple string search
+        const id = extractJsonField(obj, "id") orelse continue;
+        const file_path = extractJsonField(obj, "filePath") orelse continue;
+        const content_raw = extractJsonField(obj, "content") orelse continue;
+
+        // Unescape content
+        const content = unescapeJsonString(alloc, content_raw) catch continue;
+        defer alloc.free(content);
+
+        // Get timestamp
+        var ts_buf: [32]u8 = undefined;
+        const timestamp = getTimestamp(&ts_buf);
+
+        // Create note
+        const note = Note{
+            .id = id,
+            .file_path = file_path,
+            .node_path = null,
+            .node_text_hash = null,
+            .line_number = null,
+            .column_number = null,
+            .content = content,
+            .created_at = timestamp,
+            .updated_at = timestamp,
+        };
+        createNote(db, note) catch continue;
+        count += 1;
+    }
+
+    return count;
+}
+
+/// Extract a JSON field value by key
+fn extractJsonField(json: []const u8, key: []const u8) ?[]const u8 {
+    // Look for "key":"value"
+    var search_buf: [64]u8 = undefined;
+    const search = std.fmt.bufPrint(&search_buf, "\"{s}\":\"", .{key}) catch return null;
+
+    const start = mem.indexOf(u8, json, search) orelse return null;
+    const value_start = start + search.len;
+
+    // Find closing quote (handling escapes)
+    var end = value_start;
+    while (end < json.len) : (end += 1) {
+        if (json[end] == '"' and (end == value_start or json[end - 1] != '\\')) {
+            return json[value_start..end];
+        }
+    }
+    return null;
+}
+
+/// Unescape a JSON string value
+fn unescapeJsonString(alloc: Allocator, s: []const u8) ![]const u8 {
+    var buf: std.ArrayList(u8) = .{};
+    errdefer buf.deinit(alloc);
+
+    var i: usize = 0;
+    while (i < s.len) {
+        if (s[i] == '\\' and i + 1 < s.len) {
+            switch (s[i + 1]) {
+                '"' => {
+                    try buf.append(alloc, '"');
+                    i += 2;
+                },
+                '\\' => {
+                    try buf.append(alloc, '\\');
+                    i += 2;
+                },
+                'n' => {
+                    try buf.append(alloc, '\n');
+                    i += 2;
+                },
+                'r' => {
+                    try buf.append(alloc, '\r');
+                    i += 2;
+                },
+                't' => {
+                    try buf.append(alloc, '\t');
+                    i += 2;
+                },
+                'u' => {
+                    // Unicode escape - skip for now, just output as-is
+                    try buf.append(alloc, s[i]);
+                    i += 1;
+                },
+                else => {
+                    try buf.append(alloc, s[i]);
+                    i += 1;
+                },
+            }
+        } else {
+            try buf.append(alloc, s[i]);
+            i += 1;
+        }
+    }
+
+    return buf.toOwnedSlice(alloc);
+}
+
+/// Get current timestamp in ISO format
+fn getTimestamp(buf: *[32]u8) []const u8 {
+    const now = std.time.timestamp();
+    const secs: u64 = @intCast(now);
+    const mins = secs / 60;
+    const hours = mins / 60;
+    const days = hours / 24;
+
+    // Simple timestamp - not a full ISO date parser
+    return std.fmt.bufPrint(buf, "{d}", .{days}) catch "0";
 }
 
 /// Search files by path pattern
