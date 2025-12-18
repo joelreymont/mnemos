@@ -509,68 +509,35 @@ pub fn exportNotesJson(db: *Database, alloc: Allocator) ![]const u8 {
     return buf.toOwnedSlice(alloc);
 }
 
+/// JSON format for snapshot notes
+const SnapshotNote = struct {
+    id: []const u8,
+    filePath: []const u8,
+    content: []const u8,
+};
+
 /// Import notes from JSON snapshot
 /// JSON format: [{"id":"...","filePath":"...","content":"..."},...]
 pub fn importNotesJson(db: *Database, alloc: Allocator, json: []const u8) !usize {
+    const parsed = std.json.parseFromSlice([]SnapshotNote, alloc, json, .{}) catch |err| {
+        std.log.err("JSON parse error: {}", .{err});
+        return error.InvalidJson;
+    };
+    defer parsed.deinit();
+
     var count: usize = 0;
-    var pos: usize = 0;
+    var ts_buf: [32]u8 = undefined;
+    const timestamp = getTimestamp(&ts_buf);
 
-    // Find each object in the array
-    while (pos < json.len) {
-        // Find start of object
-        const obj_start = mem.indexOf(u8, json[pos..], "{") orelse break;
-        const abs_start = pos + obj_start;
-
-        // Find end of object (matching brace, string-aware)
-        var depth: usize = 1;
-        var obj_end = abs_start + 1;
-        var in_string = false;
-        while (obj_end < json.len and depth > 0) : (obj_end += 1) {
-            const ch = json[obj_end];
-            if (in_string) {
-                if (ch == '"' and json[obj_end - 1] != '\\') {
-                    in_string = false;
-                }
-            } else {
-                if (ch == '"') {
-                    in_string = true;
-                } else if (ch == '{') {
-                    depth += 1;
-                } else if (ch == '}') {
-                    depth -= 1;
-                }
-            }
-        }
-
-        const obj = json[abs_start..obj_end];
-        pos = obj_end;
-
-        // Extract fields using simple string search
-        const id_raw = extractJsonField(obj, "id") orelse continue;
-        const file_path_raw = extractJsonField(obj, "filePath") orelse continue;
-        const content_raw = extractJsonField(obj, "content") orelse continue;
-
-        // Unescape all fields
-        const id = unescapeJsonString(alloc, id_raw) catch continue;
-        defer alloc.free(id);
-        const file_path = unescapeJsonString(alloc, file_path_raw) catch continue;
-        defer alloc.free(file_path);
-        const content = unescapeJsonString(alloc, content_raw) catch continue;
-        defer alloc.free(content);
-
-        // Get timestamp
-        var ts_buf: [32]u8 = undefined;
-        const timestamp = getTimestamp(&ts_buf);
-
-        // Create note
+    for (parsed.value) |sn| {
         const note = Note{
-            .id = id,
-            .file_path = file_path,
+            .id = sn.id,
+            .file_path = sn.filePath,
             .node_path = null,
             .node_text_hash = null,
             .line_number = null,
             .column_number = null,
-            .content = content,
+            .content = sn.content,
             .created_at = timestamp,
             .updated_at = timestamp,
         };
@@ -579,73 +546,6 @@ pub fn importNotesJson(db: *Database, alloc: Allocator, json: []const u8) !usize
     }
 
     return count;
-}
-
-/// Extract a JSON field value by key
-fn extractJsonField(json: []const u8, key: []const u8) ?[]const u8 {
-    // Look for "key":"value"
-    var search_buf: [64]u8 = undefined;
-    const search = std.fmt.bufPrint(&search_buf, "\"{s}\":\"", .{key}) catch return null;
-
-    const start = mem.indexOf(u8, json, search) orelse return null;
-    const value_start = start + search.len;
-
-    // Find closing quote (handling escapes)
-    var end = value_start;
-    while (end < json.len) : (end += 1) {
-        if (json[end] == '"' and (end == value_start or json[end - 1] != '\\')) {
-            return json[value_start..end];
-        }
-    }
-    return null;
-}
-
-/// Unescape a JSON string value
-fn unescapeJsonString(alloc: Allocator, s: []const u8) ![]const u8 {
-    var buf: std.ArrayList(u8) = .{};
-    errdefer buf.deinit(alloc);
-
-    var i: usize = 0;
-    while (i < s.len) {
-        if (s[i] == '\\' and i + 1 < s.len) {
-            switch (s[i + 1]) {
-                '"' => {
-                    try buf.append(alloc, '"');
-                    i += 2;
-                },
-                '\\' => {
-                    try buf.append(alloc, '\\');
-                    i += 2;
-                },
-                'n' => {
-                    try buf.append(alloc, '\n');
-                    i += 2;
-                },
-                'r' => {
-                    try buf.append(alloc, '\r');
-                    i += 2;
-                },
-                't' => {
-                    try buf.append(alloc, '\t');
-                    i += 2;
-                },
-                'u' => {
-                    // Unicode escape - skip for now, just output as-is
-                    try buf.append(alloc, s[i]);
-                    i += 1;
-                },
-                else => {
-                    try buf.append(alloc, s[i]);
-                    i += 1;
-                },
-            }
-        } else {
-            try buf.append(alloc, s[i]);
-            i += 1;
-        }
-    }
-
-    return buf.toOwnedSlice(alloc);
 }
 
 /// Get current timestamp as seconds since epoch
