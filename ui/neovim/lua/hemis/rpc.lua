@@ -57,6 +57,27 @@ local function get_log_path()
   return get_hemis_dir() .. "/hemis.log"
 end
 
+-- Async-safe helpers (no vim.fn.* - safe to call in libuv callbacks)
+local function mkdir_p(dir)
+  os.execute(string.format('mkdir -p "%s"', dir))
+end
+
+local function file_exists(path)
+  local stat = vim.uv.fs_stat(path)
+  return stat ~= nil
+end
+
+local function is_executable(path)
+  local stat = vim.uv.fs_stat(path)
+  if not stat then return false end
+  -- Check if it's a file and has user execute bit (mode & 0100)
+  return stat.type == "file" and math.floor(stat.mode / 64) % 2 == 1
+end
+
+local function shell_escape(s)
+  return "'" .. s:gsub("'", "'\\''") .. "'"
+end
+
 -- Read last N lines from log file for startup error messages
 local function read_log_tail(max_lines)
   local log_path = get_log_path()
@@ -234,10 +255,10 @@ end
 local function try_acquire_lock()
   local hemis_dir = get_hemis_dir()
   -- Ensure directory exists before trying to create lock
-  vim.fn.mkdir(hemis_dir, "p")
+  mkdir_p(hemis_dir)
   local lock_path = get_lock_path()
   -- Use O_CREAT | O_EXCL via shell
-  local cmd = string.format('set -C; echo %d > "%s" 2>/dev/null', vim.fn.getpid(), lock_path)
+  local cmd = string.format('set -C; echo %d > "%s" 2>/dev/null', vim.uv.os_getpid(), lock_path)
   local ok = os.execute(cmd)
   return ok == 0 or ok == true
 end
@@ -256,7 +277,7 @@ local function start_server()
     return false
   end
 
-  if vim.fn.executable(backend) ~= 1 then
+  if not is_executable(backend) then
     log("error", "Backend not found or not executable: " .. backend)
     return false
   end
@@ -264,13 +285,13 @@ local function start_server()
   local hemis_dir = get_hemis_dir()
 
   -- Ensure hemis directory exists
-  vim.fn.mkdir(hemis_dir, "p")
+  mkdir_p(hemis_dir)
 
   -- Build command with optional --config flag
   local config_path = config.get("config_path")
   local config_arg = ""
   if config_path then
-    config_arg = " --config " .. vim.fn.shellescape(config_path)
+    config_arg = " --config " .. shell_escape(config_path)
   end
 
   -- Start server in background (detached)
@@ -278,10 +299,10 @@ local function start_server()
   -- Use env command to ensure the env var is properly set
   local cmd = string.format(
     "env HEMIS_DIR=%s %s --serve%s >> %s/hemis.log 2>&1 &",
-    vim.fn.shellescape(hemis_dir),
-    vim.fn.shellescape(backend),
+    shell_escape(hemis_dir),
+    shell_escape(backend),
     config_arg,
-    vim.fn.shellescape(hemis_dir)
+    shell_escape(hemis_dir)
   )
   log("debug", "Starting server: " .. cmd)
   os.execute(cmd)
@@ -303,7 +324,7 @@ local function wait_for_socket(timeout_ms, callback)
     if done then
       return
     end
-    if vim.fn.filereadable(socket_path) == 1 then
+    if file_exists(socket_path) then
       done = true
       timer:stop()
       timer:close()
@@ -378,7 +399,7 @@ function M.ensure_connected(callback)
   local socket_path = get_socket_path()
 
   -- Check if socket exists
-  if vim.fn.filereadable(socket_path) == 1 then
+  if file_exists(socket_path) then
     -- Try to connect
     connect_socket(function(err)
       if not err then
