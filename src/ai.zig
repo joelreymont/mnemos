@@ -246,15 +246,16 @@ pub const AI = struct {
 
 /// Run AI synchronously with a prompt, return response
 /// Tries claude first, falls back to codex
-pub fn explain(alloc: Allocator, code: []const u8) ![]const u8 {
-    // Build prompt
+/// Ask AI with custom prompt about code
+pub fn ask(alloc: Allocator, code: []const u8, user_prompt: []const u8) ![]const u8 {
+    // Build full prompt with code context
     const prompt = try std.fmt.allocPrint(alloc,
-        \\Explain this code concisely in 1-2 sentences:
+        \\{s}
         \\
         \\```
         \\{s}
         \\```
-    , .{code});
+    , .{ user_prompt, code });
     defer alloc.free(prompt);
 
     // Try claude first
@@ -264,6 +265,11 @@ pub fn explain(alloc: Allocator, code: []const u8) ![]const u8 {
 
     // Fall back to codex
     return runProvider(alloc, "codex", prompt);
+}
+
+/// Legacy explain function - uses default prompt
+pub fn explain(alloc: Allocator, code: []const u8) ![]const u8 {
+    return ask(alloc, code, "explain this code");
 }
 
 fn runProvider(alloc: Allocator, cmd: []const u8, prompt: []const u8) ![]const u8 {

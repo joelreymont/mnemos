@@ -1068,7 +1068,8 @@ function M.clear_selection()
 end
 
 -- Explain region using AI and create a note
-function M.explain_region()
+-- Ask AI about selected region with custom prompt
+function M.ask_ai()
   -- Exit visual mode first to set '< and '> marks
   local mode = vim.fn.mode()
   if mode:match("[vV]") then
@@ -1084,6 +1085,17 @@ function M.explain_region()
     vim.notify("Select a region first", vim.log.levels.WARN)
     return
   end
+
+  -- Prompt for AI instruction with default
+  local ok, prompt = pcall(vim.fn.input, {
+    prompt = "Ask AI: ",
+    default = "explain this code",
+  })
+  if not ok or not prompt or prompt == "" then
+    vim.cmd("echo ''")
+    return
+  end
+  vim.cmd("echo ''")
 
   -- Set flag to prevent race with event-triggered refresh
   M.explain_region_in_progress = true
@@ -1134,144 +1146,26 @@ function M.explain_region()
   -- Start timer to update elapsed time every second
   status_timer:start(1000, 1000, vim.schedule_wrap(update_status))
 
-  -- Request AI explanation
-  notes.explain_region(file, start_line, end_line, true, false, function(err, result)
+  -- Request AI response with custom prompt
+  notes.explain_region(file, start_line, end_line, prompt, function(err, result)
     if err then
       stop_and_clear()
       M.explain_region_in_progress = false
-      vim.notify("Failed to explain region: " .. (err.message or vim.inspect(err)), vim.log.levels.ERROR)
+      vim.notify("AI request failed: " .. (err.message or vim.inspect(err)), vim.log.levels.ERROR)
       return
     end
 
     if not result or not result.explanation then
       stop_and_clear()
       M.explain_region_in_progress = false
-      vim.notify("No AI explanation available", vim.log.levels.WARN)
+      vim.notify("No AI response", vim.log.levels.WARN)
       return
     end
 
     -- Backend guarantees ai.statusDisplay when AI is used
     local text = string.format("%s %s", result.ai.statusDisplay, result.explanation)
 
-    -- Timer reference already stored at start of function
-
-    -- Create note with explanation
-    notes.create(text, {
-      anchor = anchor,
-      source_buf = source_buf,
-    }, function(create_err, _)
-      if create_err then
-        M._pending_status_timer = nil
-        stop_and_clear()
-        M.explain_region_in_progress = false
-        vim.notify("Failed to create note: " .. (create_err.message or "unknown"), vim.log.levels.ERROR)
-        return
-      end
-
-      -- Event handler will handle refresh and message clearing
-      -- Add fallback timeout in case event doesn't arrive
-      vim.defer_fn(function()
-        if M._pending_status_timer == status_timer then
-          -- Event handler didn't clean up, do it ourselves
-          M._pending_status_timer = nil
-          M.explain_region_in_progress = false
-          M.refresh_sync(5000)
-          stop_and_clear()
-        end
-      end, 5000)
-    end)
-  end)
-end
-
--- Explain region using AI with detailed/comprehensive explanation
-function M.explain_region_full()
-  -- Exit visual mode first to set '< and '> marks
-  local mode = vim.fn.mode()
-  if mode:match("[vV]") then
-    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
-  end
-
-  local start_pos = vim.fn.getpos("'<")
-  local end_pos = vim.fn.getpos("'>")
-  local start_line = start_pos[2]
-  local end_line = end_pos[2]
-
-  if start_line == 0 or end_line == 0 then
-    vim.notify("Select a region first", vim.log.levels.WARN)
-    return
-  end
-
-  -- Set flag to prevent race with event-triggered refresh
-  M.explain_region_in_progress = true
-
-  -- Capture context before async operations
-  vim.api.nvim_win_set_cursor(0, { start_line, 0 })
-  local anchor = get_cursor_position()
-  local source_buf = vim.api.nvim_get_current_buf()
-  local file = vim.fn.expand("%:p")
-
-  -- Track timing for display
-  local start_time = vim.uv.now()
-
-  -- Increment generation to invalidate any queued timer callbacks from previous runs
-  M._status_generation = M._status_generation + 1
-  local current_generation = M._status_generation
-
-  -- Show persistent status in echo area with timer
-  local status_timer = vim.uv.new_timer()
-  local function update_status()
-    -- Check both timer reference AND generation (generation invalidates queued callbacks)
-    if M._pending_status_timer ~= status_timer then return end
-    if M._status_generation ~= current_generation then return end
-    local elapsed = math.floor((vim.uv.now() - start_time) / 1000)
-    vim.api.nvim_echo({ { string.format("AI thinking deeply... %ds", elapsed), "Comment" } }, false, {})
-  end
-
-  -- Helper to stop the status timer and clear message
-  local function stop_and_clear()
-    -- Increment generation FIRST to invalidate any queued timer callbacks
-    M._status_generation = M._status_generation + 1
-    M._pending_status_timer = nil
-    if status_timer then
-      status_timer:stop()
-      status_timer:close()
-      status_timer = nil
-    end
-    vim.cmd("redraw!")
-    vim.api.nvim_echo({ { "" } }, false, {})
-  end
-
-  -- Store timer reference so update_status can check if it's still active
-  M._pending_status_timer = status_timer
-
-  update_status()
-  vim.cmd("redraw")
-
-  -- Start timer to update elapsed time every second
-  status_timer:start(1000, 1000, vim.schedule_wrap(update_status))
-
-  -- Request detailed AI explanation
-  notes.explain_region(file, start_line, end_line, true, true, function(err, result)
-    if err then
-      stop_and_clear()
-      M.explain_region_in_progress = false
-      vim.notify("Failed to explain region: " .. (err.message or vim.inspect(err)), vim.log.levels.ERROR)
-      return
-    end
-
-    if not result or not result.explanation then
-      stop_and_clear()
-      M.explain_region_in_progress = false
-      vim.notify("No AI explanation available", vim.log.levels.WARN)
-      return
-    end
-
-    -- Backend guarantees ai.statusDisplay when AI is used
-    local text = string.format("%s %s", result.ai.statusDisplay, result.explanation)
-
-    -- Timer reference already stored at start of function
-
-    -- Create note with explanation
+    -- Create note with AI response
     notes.create(text, {
       anchor = anchor,
       source_buf = source_buf,
@@ -1370,8 +1264,8 @@ function M.setup_keymaps()
   local prefix = config.get("keymap_prefix") or "<leader>h"
 
   local mappings = {
-    { "a", M.add_note, "Add note" },
-    { "A", M.add_note_multiline, "Add note (multiline)" },
+    { "n", M.add_note, "Add note" },
+    { "N", M.add_note_multiline, "Add note (multiline)" },
     { "l", M.list_notes, "List notes" },
     { "r", M.refresh, "Refresh notes" },
     { "R", M.reattach_note, "Reattach note" },
@@ -1382,7 +1276,7 @@ function M.setup_keymaps()
     { "F", M.search_project, "Search project" },
     { "p", M.index_project, "Index project" },
     { "P", M.index_file, "Index file" },
-    { "k", M.insert_link, "Insert link" },
+    { "i", M.insert_link, "Insert link" },
     { "]", M.follow_link, "Follow link" },
     { "[", M.navigate_back, "Navigate back" },
     { "b", M.show_backlinks, "Show backlinks" },
@@ -1396,9 +1290,8 @@ function M.setup_keymaps()
     vim.keymap.set("n", prefix .. m[1], m[2], { desc = "Hemis: " .. m[3] })
   end
 
-  -- Visual mode mappings for explain region
-  vim.keymap.set("v", prefix .. "x", M.explain_region, { desc = "Hemis: Explain region (AI)" })
-  vim.keymap.set("v", prefix .. "X", M.explain_region_full, { desc = "Hemis: Explain region (AI detailed)" })
+  -- Visual mode mapping for Ask AI
+  vim.keymap.set("v", prefix .. "a", M.ask_ai, { desc = "Hemis: Ask AI" })
 
   -- Clear selection with prefix + Escape
   vim.keymap.set("n", prefix .. "<Esc>", M.clear_selection, { desc = "Hemis: Clear selection" })

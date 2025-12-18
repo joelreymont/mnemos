@@ -890,43 +890,60 @@ fn handleFileContext(alloc: Allocator, req: ParsedRequest, db: ?*storage.Databas
     return jsonStringify(alloc, FileContextResponse{ .file = file, .notes = items });
 }
 
+const AskAIResponse = struct {
+    explanation: []const u8,
+    ai: struct {
+        statusDisplay: []const u8 = "[Claude]",
+    } = .{},
+};
+
 fn handleExplainRegion(alloc: Allocator, req: ParsedRequest, _: ?*storage.Database) ![]const u8 {
     // Extract code content from params (passed by editor)
     const content = req.getString("content") orelse {
-        // Fallback: try to get file path
         const file = req.getString("file") orelse
             return error.MissingFile;
-        return try std.fmt.allocPrint(alloc,
-            \\{{"file":"{s}","explanation":"No content provided"}}
-        , .{file});
+        return jsonStringify(alloc, .{ .file = file, .explanation = "No content provided" });
     };
 
-    // Call AI to explain the code
-    const explanation = ai.explain(alloc, content) catch |err| {
-        return try std.fmt.allocPrint(alloc,
-            \\{{"error":"AI unavailable: {s}"}}
-        , .{@errorName(err)});
+    // Get line range (1-indexed)
+    const start_line = req.getInt("startLine") orelse 1;
+    const end_line = req.getInt("endLine") orelse start_line;
+
+    // Extract only the selected lines
+    var selected: std.ArrayList(u8) = .{};
+    defer selected.deinit(alloc);
+    var line_num: i64 = 1;
+    var line_start: usize = 0;
+    for (content, 0..) |c, i| {
+        if (c == '\n') {
+            if (line_num >= start_line and line_num <= end_line) {
+                try selected.appendSlice(alloc, content[line_start..i]);
+                try selected.append(alloc, '\n');
+            }
+            line_num += 1;
+            line_start = i + 1;
+        }
+    }
+    // Handle last line (no trailing newline)
+    if (line_start < content.len and line_num >= start_line and line_num <= end_line) {
+        try selected.appendSlice(alloc, content[line_start..]);
+    }
+
+    const code = selected.items;
+    if (code.len == 0) {
+        return jsonStringify(alloc, .{ .explanation = "No code selected" });
+    }
+
+    // Get custom prompt or use default
+    const prompt = req.getString("prompt") orelse "explain this code";
+
+    // Call AI
+    const explanation = ai.ask(alloc, code, prompt) catch |err| {
+        return jsonStringify(alloc, .{ .@"error" = @errorName(err) });
     };
     defer alloc.free(explanation);
 
-    // Escape the explanation for JSON
-    var escaped: std.ArrayList(u8) = .{};
-    defer escaped.deinit(alloc);
-    const writer = escaped.writer(alloc);
-    for (explanation) |c| {
-        switch (c) {
-            '"' => try writer.writeAll("\\\""),
-            '\\' => try writer.writeAll("\\\\"),
-            '\n' => try writer.writeAll("\\n"),
-            '\r' => try writer.writeAll("\\r"),
-            '\t' => try writer.writeAll("\\t"),
-            else => try writer.writeByte(c),
-        }
-    }
-
-    return try std.fmt.allocPrint(alloc,
-        \\{{"explanation":"{s}","ai":{{"statusDisplay":"[Claude]"}}}}
-    , .{escaped.items});
+    return jsonStringify(alloc, AskAIResponse{ .explanation = explanation });
 }
 
 fn handleBufferContext(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {

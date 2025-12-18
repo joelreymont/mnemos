@@ -9,7 +9,7 @@ return {
   {
     dir = "/Users/joel/Work/hemis/ui/neovim",
     opts = {
-      backend = "/Users/joel/Work/hemis/target/debug/hemis",
+      backend = "/Users/joel/Work/hemis/zig-out/bin/hemis",
       backend_env = {
         HEMIS_DB_PATH = "/Users/joel/Work/hemis/hemis-notes.db",
       },

@@ -212,7 +212,7 @@ end
 -- Server computes projectRoot from file
 -- If use_ai is true, will use AI to generate explanation
 -- If detailed is true, will generate a comprehensive explanation
-function M.explain_region(file, start_line, end_line, use_ai, detailed, callback)
+function M.explain_region(file, start_line, end_line, prompt, callback)
   local bufnr = vim.fn.bufnr(file)
   local content = nil
   if bufnr ~= -1 then
@@ -223,16 +223,12 @@ function M.explain_region(file, start_line, end_line, use_ai, detailed, callback
     file = file,
     startLine = start_line,
     endLine = end_line,
-    -- Server computes projectRoot from file
   }
   if content then
     params.content = content
   end
-  if use_ai then
-    params.useAI = true
-  end
-  if detailed then
-    params.detailed = true
+  if prompt then
+    params.prompt = prompt
   end
   rpc.request("hemis/explain-region", params, callback)
 end
