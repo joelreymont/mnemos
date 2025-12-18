@@ -284,6 +284,7 @@ fn handleNotesCreate(alloc: Allocator, request: []const u8, db: ?*storage.Databa
         .node_path = node_path,
         .node_text_hash = node_text_hash,
         .line_number = line,
+        .column_number = column,
         .content = text,
         .created_at = timestamp,
         .updated_at = timestamp,
@@ -295,8 +296,9 @@ fn handleNotesCreate(alloc: Allocator, request: []const u8, db: ?*storage.Databa
     const escaped_text = escapeJson(alloc, text) catch text;
     defer if (escaped_text.ptr != text.ptr) alloc.free(escaped_text);
 
-    // Build formattedLines array from text
-    const formatted_lines = try formatTextLines(alloc, text);
+    // Build formattedLines array from text with proper indentation and comment prefix
+    const col_num = column orelse @as(i64, 0);
+    const formatted_lines = try formatTextLinesWithContext(alloc, text, file_path, col_num);
     defer alloc.free(formatted_lines);
 
     // Generate display fields
@@ -306,7 +308,6 @@ fn handleNotesCreate(alloc: Allocator, request: []const u8, db: ?*storage.Databa
     defer if (escaped_summary.ptr != summary.ptr) alloc.free(escaped_summary);
 
     const line_num = line orelse @as(i64, 1);
-    const col_num = column orelse @as(i64, 0);
 
     const display_marker = try std.fmt.allocPrint(alloc, "[n:{s}]", .{short_id});
     defer alloc.free(display_marker);
@@ -327,10 +328,52 @@ fn handleNotesCreate(alloc: Allocator, request: []const u8, db: ?*storage.Databa
     , .{ id, short_id, file_path, line_num, col_num, escaped_text, escaped_summary, formatted_lines, timestamp, timestamp, display_marker, display_label, display_detail });
 }
 
-/// Format note text into JSON array of lines
-fn formatTextLines(alloc: Allocator, text: []const u8) ![]const u8 {
+/// Get comment prefix for file extension
+fn getCommentPrefix(file_path: []const u8) []const u8 {
+    // Find extension
+    var ext_start: usize = file_path.len;
+    var i = file_path.len;
+    while (i > 0) {
+        i -= 1;
+        if (file_path[i] == '.') {
+            ext_start = i + 1;
+            break;
+        }
+        if (file_path[i] == '/' or file_path[i] == '\\') break;
+    }
+    const ext = if (ext_start < file_path.len) file_path[ext_start..] else "";
+
+    // Match extension to comment style
+    if (mem.eql(u8, ext, "rs") or mem.eql(u8, ext, "go") or mem.eql(u8, ext, "js") or
+        mem.eql(u8, ext, "ts") or mem.eql(u8, ext, "tsx") or mem.eql(u8, ext, "java") or
+        mem.eql(u8, ext, "c") or mem.eql(u8, ext, "h") or mem.eql(u8, ext, "cpp") or
+        mem.eql(u8, ext, "swift") or mem.eql(u8, ext, "zig"))
+    {
+        return "//";
+    }
+    if (mem.eql(u8, ext, "py") or mem.eql(u8, ext, "rb") or mem.eql(u8, ext, "sh") or
+        mem.eql(u8, ext, "yaml") or mem.eql(u8, ext, "yml") or mem.eql(u8, ext, "toml"))
+    {
+        return "#";
+    }
+    if (mem.eql(u8, ext, "lua") or mem.eql(u8, ext, "sql") or mem.eql(u8, ext, "hs")) {
+        return "--";
+    }
+    if (mem.eql(u8, ext, "el") or mem.eql(u8, ext, "lisp") or mem.eql(u8, ext, "clj") or
+        mem.eql(u8, ext, "scm"))
+    {
+        return ";";
+    }
+    return "//"; // Default
+}
+
+/// Format note text into JSON array of lines with proper indentation and comment prefix
+fn formatTextLinesWithContext(alloc: Allocator, text: []const u8, file_path: []const u8, column: i64) ![]const u8 {
     var buf: std.ArrayList(u8) = .{};
     errdefer buf.deinit(alloc);
+
+    const prefix = getCommentPrefix(file_path);
+    const indent: usize = if (column > 0) @intCast(column) else 0;
 
     try buf.appendSlice(alloc, "[");
     var start: usize = 0;
@@ -341,11 +384,7 @@ fn formatTextLines(alloc: Allocator, text: []const u8) ![]const u8 {
             if (!first) try buf.appendSlice(alloc, ",");
             first = false;
             const line = text[start..i];
-            const escaped = escapeJson(alloc, line) catch line;
-            defer if (escaped.ptr != line.ptr) alloc.free(escaped);
-            try buf.appendSlice(alloc, "\"");
-            try buf.appendSlice(alloc, escaped);
-            try buf.appendSlice(alloc, "\"");
+            try formatSingleLine(alloc, &buf, line, prefix, indent);
             start = i + 1;
         }
     }
@@ -353,15 +392,39 @@ fn formatTextLines(alloc: Allocator, text: []const u8) ![]const u8 {
     if (start <= text.len) {
         if (!first) try buf.appendSlice(alloc, ",");
         const line = text[start..];
-        const escaped = escapeJson(alloc, line) catch line;
-        defer if (escaped.ptr != line.ptr) alloc.free(escaped);
-        try buf.appendSlice(alloc, "\"");
-        try buf.appendSlice(alloc, escaped);
-        try buf.appendSlice(alloc, "\"");
+        try formatSingleLine(alloc, &buf, line, prefix, indent);
     }
     try buf.appendSlice(alloc, "]");
 
     return buf.toOwnedSlice(alloc);
+}
+
+fn formatSingleLine(alloc: Allocator, buf: *std.ArrayList(u8), line: []const u8, prefix: []const u8, indent: usize) !void {
+    // Build formatted line: indent + prefix + " " + text
+    var formatted: std.ArrayList(u8) = .{};
+    defer formatted.deinit(alloc);
+
+    // Add indent spaces
+    for (0..indent) |_| {
+        try formatted.append(alloc, ' ');
+    }
+    // Add comment prefix and space
+    try formatted.appendSlice(alloc, prefix);
+    try formatted.append(alloc, ' ');
+    // Add line text
+    try formatted.appendSlice(alloc, line);
+
+    // Escape and append to output
+    const escaped = escapeJson(alloc, formatted.items) catch formatted.items;
+    defer if (escaped.ptr != formatted.items.ptr) alloc.free(escaped);
+    try buf.appendSlice(alloc, "\"");
+    try buf.appendSlice(alloc, escaped);
+    try buf.appendSlice(alloc, "\"");
+}
+
+/// Format note text into JSON array of lines (without context - for backward compat)
+fn formatTextLines(alloc: Allocator, text: []const u8) ![]const u8 {
+    return formatTextLinesWithContext(alloc, text, "", 0);
 }
 
 /// Get line at 1-based line number
@@ -1033,6 +1096,7 @@ fn handleNotesExplainAndCreate(alloc: Allocator, request: []const u8, db: ?*stor
         .node_path = null,
         .node_text_hash = null,
         .line_number = null,
+        .column_number = null,
         .content = note_content,
         .created_at = timestamp,
         .updated_at = timestamp,
@@ -1107,9 +1171,14 @@ fn formatNotesArrayWithContent(alloc: Allocator, notes: []const storage.Note, co
             try alloc.dupe(u8, "");
         defer alloc.free(hash_field);
 
+        // Build formattedLines array from text with proper indentation and comment prefix
+        const col_num = note.column_number orelse 0;
+        const formatted_lines = try formatTextLinesWithContext(alloc, note.content, note.file_path, col_num);
+        defer alloc.free(formatted_lines);
+
         const item = try std.fmt.allocPrint(alloc,
-            \\{{"id":"{s}","shortId":"{s}","file":"{s}","projectRoot":"","line":{d},"column":0,"text":"{s}","summary":"{s}","stale":{s},"iconHint":"{s}","displayLine":{d},"createdAt":"{s}","updatedAt":"{s}","displayMarker":"{s}","displayLabel":"{s}","displayDetail":"{s}"{s}}}
-        , .{ note.id, short_id, escaped_file, reported_line, escaped_text, escaped_summary, stale_str, icon_hint, display_line, note.created_at, note.updated_at, display_marker, display_label, display_detail, hash_field });
+            \\{{"id":"{s}","shortId":"{s}","file":"{s}","projectRoot":"","line":{d},"column":{d},"text":"{s}","summary":"{s}","stale":{s},"iconHint":"{s}","displayLine":{d},"formattedLines":{s},"createdAt":"{s}","updatedAt":"{s}","displayMarker":"{s}","displayLabel":"{s}","displayDetail":"{s}"{s}}}
+        , .{ note.id, short_id, escaped_file, reported_line, col_num, escaped_text, escaped_summary, stale_str, icon_hint, display_line, formatted_lines, note.created_at, note.updated_at, display_marker, display_label, display_detail, hash_field });
         defer alloc.free(item);
         try buf.appendSlice(alloc, item);
     }
