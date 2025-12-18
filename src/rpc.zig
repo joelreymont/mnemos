@@ -91,6 +91,66 @@ fn formatId(alloc: Allocator, id: std.json.Value) ![]const u8 {
     };
 }
 
+/// Serialize any struct to JSON
+fn jsonStringify(alloc: Allocator, value: anytype) ![]const u8 {
+    return std.fmt.allocPrint(alloc, "{f}", .{std.json.fmt(value, .{})});
+}
+
+/// Note response for JSON serialization
+const NoteResponse = struct {
+    id: []const u8,
+    shortId: []const u8,
+    file: []const u8,
+    projectRoot: []const u8 = "",
+    line: i64,
+    column: i64,
+    text: []const u8,
+    summary: []const u8,
+    stale: bool = false,
+    iconHint: []const u8 = "fresh",
+    nodeTextHash: ?[]const u8 = null,
+    formattedLines: []const []const u8,
+    createdAt: []const u8,
+    updatedAt: []const u8,
+    displayMarker: []const u8,
+    displayLabel: []const u8,
+    displayDetail: []const u8,
+};
+
+/// Note list item (includes displayLine)
+const NoteListItem = struct {
+    id: []const u8,
+    shortId: []const u8,
+    file: []const u8,
+    projectRoot: []const u8 = "",
+    line: i64,
+    column: i64,
+    text: []const u8,
+    summary: []const u8,
+    stale: bool = false,
+    iconHint: []const u8 = "fresh",
+    displayLine: i64,
+    nodeTextHash: ?[]const u8 = null,
+    formattedLines: []const []const u8,
+    createdAt: []const u8,
+    updatedAt: []const u8,
+    displayMarker: []const u8,
+    displayLabel: []const u8,
+    displayDetail: []const u8,
+};
+
+/// Notes list response wrapper
+const NotesListResponse = struct {
+    notes: []const NoteListItem,
+};
+
+/// Simple note response (minimal fields)
+const SimpleNoteResponse = struct {
+    id: []const u8,
+    filePath: []const u8,
+    content: []const u8,
+};
+
 /// RPC stream for reading/writing framed messages
 pub const Stream = struct {
     read_fd: posix.fd_t,
@@ -285,24 +345,32 @@ fn handleStatus(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![
     const proj = req.getString("projectRoot");
     const note_count: i64 = if (db) |d| storage.countNotes(d) catch 0 else 0;
     const file_count: i64 = if (db) |d| storage.countFiles(d) catch 0 else 0;
+    const proj_display = proj orelse "None";
 
-    const proj_str = proj orelse "None";
+    const status_display = try std.fmt.allocPrint(alloc,
+        "Hemis Status: OK\nProject: {s}\nNotes: {d}\nFiles: {d}\nEmbeddings: 0",
+        .{ proj_display, note_count, file_count },
+    );
+    defer alloc.free(status_display);
 
-    if (proj) |p| {
-        return try std.fmt.allocPrint(alloc,
-            \\{{"ok":true,"projectRoot":"{s}","counts":{{"notes":{d},"files":{d},"embeddings":0,"edges":0}},"statusDisplay":"Hemis Status: OK\\nProject: {s}\\nNotes: {d}\\nFiles: {d}\\nEmbeddings: 0"}}
-        , .{ p, note_count, file_count, p, note_count, file_count });
-    } else {
-        return try std.fmt.allocPrint(alloc,
-            \\{{"ok":true,"projectRoot":null,"counts":{{"notes":{d},"files":{d},"embeddings":0,"edges":0}},"statusDisplay":"Hemis Status: OK\\nProject: {s}\\nNotes: {d}\\nFiles: {d}\\nEmbeddings: 0"}}
-        , .{ note_count, file_count, proj_str, note_count, file_count });
-    }
+    return jsonStringify(alloc, .{
+        .ok = true,
+        .projectRoot = proj,
+        .counts = .{
+            .notes = note_count,
+            .files = file_count,
+            .embeddings = @as(i64, 0),
+            .edges = @as(i64, 0),
+        },
+        .statusDisplay = status_display,
+    });
 }
 
 fn handleVersion(alloc: Allocator, _: ParsedRequest, _: ?*storage.Database) ![]const u8 {
-    return try std.fmt.allocPrint(alloc,
-        \\{{"version":"0.1.0","language":"zig"}}
-    , .{});
+    return jsonStringify(alloc, .{
+        .version = "0.1.0",
+        .language = "zig",
+    });
 }
 
 fn handleShutdown(_: Allocator, _: ParsedRequest, _: ?*storage.Database) ![]const u8 {
@@ -364,40 +432,41 @@ fn handleNotesCreate(alloc: Allocator, req: ParsedRequest, db: ?*storage.Databas
 
     try storage.createNote(database, note);
 
-    // Escape text for JSON
-    const escaped_text = escapeJson(alloc, text) catch text;
-    defer if (escaped_text.ptr != text.ptr) alloc.free(escaped_text);
-
-    // Build formattedLines array from text with proper indentation and comment prefix
+    // Build formattedLines array
     const col_num = column orelse @as(i64, 0);
-    const formatted_lines = try formatTextLinesWithContext(alloc, text, file_path, col_num);
-    defer alloc.free(formatted_lines);
+    var formatted = try formatTextLinesWithContext(alloc, text, file_path, col_num);
+    defer formatted.deinit();
 
     // Generate display fields
     const short_id = if (id.len >= 8) id[0..8] else id;
     const summary = getSummary(text);
-    const escaped_summary = escapeJson(alloc, summary) catch summary;
-    defer if (escaped_summary.ptr != summary.ptr) alloc.free(escaped_summary);
-
     const line_num = line orelse @as(i64, 1);
 
     const display_marker = try std.fmt.allocPrint(alloc, "[n:{s}]", .{short_id});
     defer alloc.free(display_marker);
-    const display_label = try std.fmt.allocPrint(alloc, "[Note] {s}", .{escaped_summary});
+    const display_label = try std.fmt.allocPrint(alloc, "[Note] {s}", .{summary});
     defer alloc.free(display_label);
     const display_detail = try std.fmt.allocPrint(alloc, "{s}:{d}", .{ file_path, line_num });
     defer alloc.free(display_detail);
 
-    // Include nodeTextHash in response if computed
-    if (node_text_hash) |hash| {
-        return try std.fmt.allocPrint(alloc,
-            \\{{"id":"{s}","shortId":"{s}","file":"{s}","projectRoot":"","line":{d},"column":{d},"text":"{s}","summary":"{s}","stale":false,"iconHint":"fresh","nodeTextHash":"{s}","formattedLines":{s},"createdAt":"{s}","updatedAt":"{s}","displayMarker":"{s}","displayLabel":"{s}","displayDetail":"{s}"}}
-        , .{ id, short_id, file_path, line_num, col_num, escaped_text, escaped_summary, hash, formatted_lines, timestamp, timestamp, display_marker, display_label, display_detail });
-    }
+    const response = NoteResponse{
+        .id = id,
+        .shortId = short_id,
+        .file = file_path,
+        .line = line_num,
+        .column = col_num,
+        .text = text,
+        .summary = summary,
+        .nodeTextHash = node_text_hash,
+        .formattedLines = formatted.lines,
+        .createdAt = timestamp,
+        .updatedAt = timestamp,
+        .displayMarker = display_marker,
+        .displayLabel = display_label,
+        .displayDetail = display_detail,
+    };
 
-    return try std.fmt.allocPrint(alloc,
-        \\{{"id":"{s}","shortId":"{s}","file":"{s}","projectRoot":"","line":{d},"column":{d},"text":"{s}","summary":"{s}","stale":false,"iconHint":"fresh","formattedLines":{s},"createdAt":"{s}","updatedAt":"{s}","displayMarker":"{s}","displayLabel":"{s}","displayDetail":"{s}"}}
-    , .{ id, short_id, file_path, line_num, col_num, escaped_text, escaped_summary, formatted_lines, timestamp, timestamp, display_marker, display_label, display_detail });
+    return jsonStringify(alloc, response);
 }
 
 /// Get comment prefix for file extension
@@ -439,42 +508,51 @@ fn getCommentPrefix(file_path: []const u8) []const u8 {
     return "//"; // Default
 }
 
-/// Format note text into JSON array of lines with proper indentation and comment prefix
-fn formatTextLinesWithContext(alloc: Allocator, text: []const u8, file_path: []const u8, column: i64) ![]const u8 {
-    var buf: std.ArrayList(u8) = .{};
-    errdefer buf.deinit(alloc);
+/// Result of formatting text lines - caller must free with freeFormattedLines
+const FormattedLines = struct {
+    lines: [][]const u8,
+    alloc: Allocator,
 
+    pub fn deinit(self: *FormattedLines) void {
+        for (self.lines) |line| {
+            self.alloc.free(line);
+        }
+        self.alloc.free(self.lines);
+    }
+};
+
+/// Format note text into array of lines with proper indentation and comment prefix
+fn formatTextLinesWithContext(alloc: Allocator, text: []const u8, file_path: []const u8, column: i64) !FormattedLines {
     const prefix = getCommentPrefix(file_path);
     const indent: usize = if (column > 0) @intCast(column) else 0;
 
-    try buf.appendSlice(alloc, "[");
-    var start: usize = 0;
-    var first = true;
+    var lines: std.ArrayList([]const u8) = .{};
+    errdefer {
+        for (lines.items) |line| alloc.free(line);
+        lines.deinit(alloc);
+    }
 
+    var start: usize = 0;
     for (text, 0..) |ch, i| {
         if (ch == '\n') {
-            if (!first) try buf.appendSlice(alloc, ",");
-            first = false;
-            const line = text[start..i];
-            try formatSingleLine(alloc, &buf, line, prefix, indent);
+            const line = try formatSingleLine(alloc, text[start..i], prefix, indent);
+            try lines.append(alloc, line);
             start = i + 1;
         }
     }
     // Last line
     if (start <= text.len) {
-        if (!first) try buf.appendSlice(alloc, ",");
-        const line = text[start..];
-        try formatSingleLine(alloc, &buf, line, prefix, indent);
+        const line = try formatSingleLine(alloc, text[start..], prefix, indent);
+        try lines.append(alloc, line);
     }
-    try buf.appendSlice(alloc, "]");
 
-    return buf.toOwnedSlice(alloc);
+    return .{ .lines = try lines.toOwnedSlice(alloc), .alloc = alloc };
 }
 
-fn formatSingleLine(alloc: Allocator, buf: *std.ArrayList(u8), line: []const u8, prefix: []const u8, indent: usize) !void {
+fn formatSingleLine(alloc: Allocator, line: []const u8, prefix: []const u8, indent: usize) ![]const u8 {
     // Build formatted line: indent + prefix + " " + text
     var formatted: std.ArrayList(u8) = .{};
-    defer formatted.deinit(alloc);
+    errdefer formatted.deinit(alloc);
 
     // Add indent spaces
     for (0..indent) |_| {
@@ -486,17 +564,7 @@ fn formatSingleLine(alloc: Allocator, buf: *std.ArrayList(u8), line: []const u8,
     // Add line text
     try formatted.appendSlice(alloc, line);
 
-    // Escape and append to output
-    const escaped = escapeJson(alloc, formatted.items) catch formatted.items;
-    defer if (escaped.ptr != formatted.items.ptr) alloc.free(escaped);
-    try buf.appendSlice(alloc, "\"");
-    try buf.appendSlice(alloc, escaped);
-    try buf.appendSlice(alloc, "\"");
-}
-
-/// Format note text into JSON array of lines (without context - for backward compat)
-fn formatTextLines(alloc: Allocator, text: []const u8) ![]const u8 {
-    return formatTextLinesWithContext(alloc, text, "", 0);
+    return formatted.toOwnedSlice(alloc);
 }
 
 /// Get line at 1-based line number
@@ -540,25 +608,15 @@ fn handleNotesListProject(alloc: Allocator, _: ParsedRequest, db: ?*storage.Data
     const notes = try storage.listProjectNotes(database, alloc);
     defer storage.freeNotes(alloc, notes);
 
-    // Build JSON array
-    var buf: std.ArrayList(u8) = .{};
-    errdefer buf.deinit(alloc);
+    // Build response array
+    const items = try alloc.alloc(SimpleNoteResponse, notes.len);
+    defer alloc.free(items);
 
-    try buf.appendSlice(alloc, "[");
     for (notes, 0..) |note, i| {
-        if (i > 0) try buf.appendSlice(alloc, ",");
-        const escaped_content = escapeJson(alloc, note.content) catch note.content;
-        defer if (escaped_content.ptr != note.content.ptr) alloc.free(escaped_content);
-
-        const item = try std.fmt.allocPrint(alloc,
-            \\{{"id":"{s}","filePath":"{s}","content":"{s}"}}
-        , .{ note.id, note.file_path, escaped_content });
-        defer alloc.free(item);
-        try buf.appendSlice(alloc, item);
+        items[i] = .{ .id = note.id, .filePath = note.file_path, .content = note.content };
     }
-    try buf.appendSlice(alloc, "]");
 
-    return buf.toOwnedSlice(alloc);
+    return jsonStringify(alloc, items);
 }
 
 fn handleNotesGet(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
@@ -570,13 +628,11 @@ fn handleNotesGet(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) 
     const note_opt = try storage.getNote(database, alloc, id);
     if (note_opt) |note| {
         defer storage.freeNoteFields(alloc, note);
-
-        const escaped_content = escapeJson(alloc, note.content) catch note.content;
-        defer if (escaped_content.ptr != note.content.ptr) alloc.free(escaped_content);
-
-        return try std.fmt.allocPrint(alloc,
-            \\{{"id":"{s}","filePath":"{s}","content":"{s}"}}
-        , .{ note.id, note.file_path, escaped_content });
+        return jsonStringify(alloc, SimpleNoteResponse{
+            .id = note.id,
+            .filePath = note.file_path,
+            .content = note.content,
+        });
     }
 
     return error.NoteNotFound;
@@ -590,7 +646,7 @@ fn handleNotesDelete(alloc: Allocator, req: ParsedRequest, db: ?*storage.Databas
 
     try storage.deleteNote(database, id);
 
-    return try std.fmt.allocPrint(alloc, "{{\"ok\":true}}", .{});
+    return jsonStringify(alloc, .{ .ok = true });
 }
 
 fn handleNotesUpdate(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
@@ -609,13 +665,11 @@ fn handleNotesUpdate(alloc: Allocator, req: ParsedRequest, db: ?*storage.Databas
     const note_opt = try storage.getNote(database, alloc, id);
     if (note_opt) |note| {
         defer storage.freeNoteFields(alloc, note);
-
-        const escaped_content = escapeJson(alloc, note.content) catch note.content;
-        defer if (escaped_content.ptr != note.content.ptr) alloc.free(escaped_content);
-
-        return try std.fmt.allocPrint(alloc,
-            \\{{"id":"{s}","filePath":"{s}","content":"{s}"}}
-        , .{ note.id, note.file_path, escaped_content });
+        return jsonStringify(alloc, SimpleNoteResponse{
+            .id = note.id,
+            .filePath = note.file_path,
+            .content = note.content,
+        });
     }
 
     return error.NoteNotFound;
@@ -638,13 +692,13 @@ fn handleNotesSearch(alloc: Allocator, req: ParsedRequest, db: ?*storage.Databas
 fn handleNotesBacklinks(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
     _ = req;
     _ = db;
-    return try std.fmt.allocPrint(alloc, "[]", .{});
+    return alloc.dupe(u8, "[]");
 }
 
 fn handleNotesAnchor(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
     _ = req;
     _ = db;
-    return try std.fmt.allocPrint(alloc, "{{\"line\":0,\"column\":0}}", .{});
+    return jsonStringify(alloc, .{ .line = @as(i64, 0), .column = @as(i64, 0) });
 }
 
 fn handleNotesListForFile(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
@@ -665,19 +719,19 @@ fn handleNotesListForFile(alloc: Allocator, req: ParsedRequest, db: ?*storage.Da
 fn handleNotesListByNode(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
     _ = req;
     _ = db;
-    return try std.fmt.allocPrint(alloc, "[]", .{});
+    return alloc.dupe(u8, "[]");
 }
 
 fn handleNotesGetAtPosition(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
     _ = req;
     _ = db;
-    return try std.fmt.allocPrint(alloc, "null", .{});
+    return alloc.dupe(u8, "null");
 }
 
 fn handleNotesBufferUpdate(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
     _ = req;
     _ = db;
-    return try std.fmt.allocPrint(alloc, "{{\"ok\":true}}", .{});
+    return jsonStringify(alloc, .{ .ok = true });
 }
 
 fn handleNotesReattach(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
@@ -713,8 +767,12 @@ fn handleNotesReattach(alloc: Allocator, req: ParsedRequest, db: ?*storage.Datab
 // hemis/* handlers
 
 fn handleOpenProject(alloc: Allocator, _: ParsedRequest, _: ?*storage.Database) ![]const u8 {
-    return try std.fmt.allocPrint(alloc, "{{\"ok\":true}}", .{});
+    return jsonStringify(alloc, .{ .ok = true });
 }
+
+const SearchResultsResponse = struct {
+    results: []const SimpleNoteResponse,
+};
 
 fn handleHemisSearch(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
     const database = db orelse return error.NoDatabaseConnection;
@@ -725,26 +783,18 @@ fn handleHemisSearch(alloc: Allocator, req: ParsedRequest, db: ?*storage.Databas
     const notes = try storage.searchNotes(database, alloc, query, 50, 0);
     defer storage.freeNotes(alloc, notes);
 
-    var buf: std.ArrayList(u8) = .{};
-    try buf.appendSlice(alloc, "{\"results\":[");
+    const items = try alloc.alloc(SimpleNoteResponse, notes.len);
+    defer alloc.free(items);
+
     for (notes, 0..) |note, i| {
-        if (i > 0) try buf.appendSlice(alloc, ",");
-        const escaped_content = escapeJson(alloc, note.content) catch note.content;
-        defer if (escaped_content.ptr != note.content.ptr) alloc.free(escaped_content);
-
-        const item = try std.fmt.allocPrint(alloc,
-            \\{{"id":"{s}","filePath":"{s}","content":"{s}"}}
-        , .{ note.id, note.file_path, escaped_content });
-        defer alloc.free(item);
-        try buf.appendSlice(alloc, item);
+        items[i] = .{ .id = note.id, .filePath = note.file_path, .content = note.content };
     }
-    try buf.appendSlice(alloc, "]}");
 
-    return buf.toOwnedSlice(alloc);
+    return jsonStringify(alloc, SearchResultsResponse{ .results = items });
 }
 
 fn handleIndexProject(alloc: Allocator, _: ParsedRequest, _: ?*storage.Database) ![]const u8 {
-    return try std.fmt.allocPrint(alloc, "{{\"ok\":true,\"indexed\":0}}", .{});
+    return jsonStringify(alloc, .{ .ok = true, .indexed = @as(i64, 0) });
 }
 
 fn handleProjectMeta(alloc: Allocator, _: ParsedRequest, db: ?*storage.Database) ![]const u8 {
@@ -762,9 +812,12 @@ fn handleProjectMeta(alloc: Allocator, _: ParsedRequest, db: ?*storage.Database)
     defer if (commit) |c| alloc.free(c);
     const commit_str = commit orelse "unknown";
 
-    return try std.fmt.allocPrint(alloc,
-        \\{{"noteCount":{d},"indexed":0,"gitBranch":"{s}","gitCommit":"{s}"}}
-    , .{ note_count, branch_str, commit_str });
+    return jsonStringify(alloc, .{
+        .noteCount = note_count,
+        .indexed = @as(i64, 0),
+        .gitBranch = branch_str,
+        .gitCommit = commit_str,
+    });
 }
 
 fn handleSaveSnapshot(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
@@ -784,7 +837,7 @@ fn handleSaveSnapshot(alloc: Allocator, req: ParsedRequest, db: ?*storage.Databa
 
     try file.writeAll(snapshot);
 
-    return try std.fmt.allocPrint(alloc, "{{\"ok\":true,\"path\":\"{s}\"}}", .{path});
+    return jsonStringify(alloc, .{ .ok = true, .path = path });
 }
 
 fn handleLoadSnapshot(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
@@ -805,10 +858,18 @@ fn handleLoadSnapshot(alloc: Allocator, req: ParsedRequest, db: ?*storage.Databa
     try storage.clearNotes(database);
     const count = try storage.importNotesJson(database, alloc, snapshot);
 
-    const escaped_path = escapeJson(alloc, path) catch path;
-    defer if (escaped_path.ptr != path.ptr) alloc.free(escaped_path);
-    return try std.fmt.allocPrint(alloc, "{{\"ok\":true,\"path\":\"{s}\",\"imported\":{d}}}", .{ escaped_path, count });
+    return jsonStringify(alloc, .{ .ok = true, .path = path, .imported = @as(i64, @intCast(count)) });
 }
+
+const FileContextNoteItem = struct {
+    id: []const u8,
+    content: []const u8,
+};
+
+const FileContextResponse = struct {
+    file: []const u8,
+    notes: []const FileContextNoteItem,
+};
 
 fn handleFileContext(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
     const database = db orelse return error.NoDatabaseConnection;
@@ -819,28 +880,14 @@ fn handleFileContext(alloc: Allocator, req: ParsedRequest, db: ?*storage.Databas
     const notes = try storage.getNotesForFile(database, alloc, file);
     defer storage.freeNotes(alloc, notes);
 
-    const escaped_file = escapeJson(alloc, file) catch file;
-    defer if (escaped_file.ptr != file.ptr) alloc.free(escaped_file);
-
-    var buf: std.ArrayList(u8) = .{};
-    const file_part = try std.fmt.allocPrint(alloc, "{{\"file\":\"{s}\",\"notes\":[", .{escaped_file});
-    defer alloc.free(file_part);
-    try buf.appendSlice(alloc, file_part);
+    const items = try alloc.alloc(FileContextNoteItem, notes.len);
+    defer alloc.free(items);
 
     for (notes, 0..) |note, i| {
-        if (i > 0) try buf.appendSlice(alloc, ",");
-        const escaped_content = escapeJson(alloc, note.content) catch note.content;
-        defer if (escaped_content.ptr != note.content.ptr) alloc.free(escaped_content);
-
-        const item = try std.fmt.allocPrint(alloc,
-            \\{{"id":"{s}","content":"{s}"}}
-        , .{ note.id, escaped_content });
-        defer alloc.free(item);
-        try buf.appendSlice(alloc, item);
+        items[i] = .{ .id = note.id, .content = note.content };
     }
-    try buf.appendSlice(alloc, "]}");
 
-    return buf.toOwnedSlice(alloc);
+    return jsonStringify(alloc, FileContextResponse{ .file = file, .notes = items });
 }
 
 fn handleExplainRegion(alloc: Allocator, req: ParsedRequest, _: ?*storage.Database) ![]const u8 {
@@ -963,6 +1010,14 @@ fn handleIndexAddFile(alloc: Allocator, req: ParsedRequest, db: ?*storage.Databa
     , .{ file_path, &hash_hex });
 }
 
+const SearchHitResponse = struct {
+    file: []const u8,
+    line: i64,
+    column: i64,
+    text: []const u8,
+    score: f64 = 1.0,
+};
+
 fn handleIndexSearch(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
     const database = db orelse return error.NoDatabaseConnection;
 
@@ -972,24 +1027,19 @@ fn handleIndexSearch(alloc: Allocator, req: ParsedRequest, db: ?*storage.Databas
     const hits = try storage.searchContent(database, alloc, query);
     defer storage.freeSearchHits(alloc, hits);
 
-    var buf: std.ArrayList(u8) = .{};
-    errdefer buf.deinit(alloc);
+    const items = try alloc.alloc(SearchHitResponse, hits.len);
+    defer alloc.free(items);
 
-    try buf.appendSlice(alloc, "[");
     for (hits, 0..) |hit, i| {
-        if (i > 0) try buf.appendSlice(alloc, ",");
-        const escaped_text = escapeJson(alloc, hit.text) catch hit.text;
-        defer if (escaped_text.ptr != hit.text.ptr) alloc.free(escaped_text);
-
-        const item = try std.fmt.allocPrint(alloc,
-            \\{{"file":"{s}","line":{d},"column":{d},"text":"{s}","score":1.0}}
-        , .{ hit.file, hit.line, hit.column, escaped_text });
-        defer alloc.free(item);
-        try buf.appendSlice(alloc, item);
+        items[i] = .{
+            .file = hit.file,
+            .line = @intCast(hit.line),
+            .column = @intCast(hit.column),
+            .text = hit.text,
+        };
     }
-    try buf.appendSlice(alloc, "]");
 
-    return buf.toOwnedSlice(alloc);
+    return jsonStringify(alloc, items);
 }
 
 // New handlers
@@ -1047,13 +1097,21 @@ fn handleCodeReferences(alloc: Allocator, req: ParsedRequest, _: ?*storage.Datab
         return error.MissingFile;
     const line = req.getInt("line") orelse 1;
 
-    const escaped_file = escapeJson(alloc, file) catch file;
-    defer if (escaped_file.ptr != file.ptr) alloc.free(escaped_file);
-
-    return try std.fmt.allocPrint(alloc,
-        \\{{"references":[],"anchor":{{"line":{d},"file":"{s}"}}}}
-    , .{ line, escaped_file });
+    return jsonStringify(alloc, .{
+        .references = @as([]const u8, &.{}),
+        .anchor = .{ .line = line, .file = file },
+    });
 }
+
+const SummarySectionItem = struct {
+    noteId: []const u8,
+    summary: []const u8,
+};
+
+const SummarizeFileResponse = struct {
+    file: []const u8,
+    sections: []const SummarySectionItem,
+};
 
 fn handleSummarizeFile(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
     const database = db orelse return error.NoDatabaseConnection;
@@ -1063,29 +1121,14 @@ fn handleSummarizeFile(alloc: Allocator, req: ParsedRequest, db: ?*storage.Datab
     const notes = try storage.getNotesForFile(database, alloc, file);
     defer storage.freeNotes(alloc, notes);
 
-    const escaped_file = escapeJson(alloc, file) catch file;
-    defer if (escaped_file.ptr != file.ptr) alloc.free(escaped_file);
-
-    var buf: std.ArrayList(u8) = .{};
-    errdefer buf.deinit(alloc);
-
-    try buf.appendSlice(alloc, "{\"file\":\"");
-    try buf.appendSlice(alloc, escaped_file);
-    try buf.appendSlice(alloc, "\",\"sections\":[");
+    const items = try alloc.alloc(SummarySectionItem, notes.len);
+    defer alloc.free(items);
 
     for (notes, 0..) |note, i| {
-        if (i > 0) try buf.appendSlice(alloc, ",");
-        const escaped = escapeJson(alloc, note.content) catch note.content;
-        defer if (escaped.ptr != note.content.ptr) alloc.free(escaped);
-        const item = try std.fmt.allocPrint(alloc,
-            \\{{"noteId":"{s}","summary":"{s}"}}
-        , .{ note.id, escaped });
-        defer alloc.free(item);
-        try buf.appendSlice(alloc, item);
+        items[i] = .{ .noteId = note.id, .summary = note.content };
     }
 
-    try buf.appendSlice(alloc, "]}");
-    return buf.toOwnedSlice(alloc);
+    return jsonStringify(alloc, SummarizeFileResponse{ .file = file, .sections = items });
 }
 
 fn handleNotesHistory(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
@@ -1121,6 +1164,22 @@ fn handleNotesRestoreVersion(alloc: Allocator, req: ParsedRequest, db: ?*storage
     , .{ id, version });
 }
 
+const LinkSuggestionItem = struct {
+    noteId: []const u8,
+    summary: []const u8,
+    formatted: []const u8,
+};
+
+/// Holds allocated strings for link suggestion items
+const AllocatedLinkItem = struct {
+    item: LinkSuggestionItem,
+    formatted: []const u8,
+
+    fn deinit(self: *AllocatedLinkItem, a: Allocator) void {
+        a.free(self.formatted);
+    }
+};
+
 fn handleNotesLinkSuggestions(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
     const database = db orelse return error.NoDatabaseConnection;
     const query = req.getString("query") orelse "";
@@ -1128,30 +1187,36 @@ fn handleNotesLinkSuggestions(alloc: Allocator, req: ParsedRequest, db: ?*storag
     const notes = try storage.searchNotes(database, alloc, query, 10, 0);
     defer storage.freeNotes(alloc, notes);
 
-    var buf: std.ArrayList(u8) = .{};
-    errdefer buf.deinit(alloc);
+    var items: std.ArrayList(AllocatedLinkItem) = .{};
+    defer {
+        for (items.items) |*item| item.deinit(alloc);
+        items.deinit(alloc);
+    }
 
-    try buf.appendSlice(alloc, "[");
-    for (notes, 0..) |note, i| {
-        if (i > 0) try buf.appendSlice(alloc, ",");
+    for (notes) |note| {
         // Get first line as summary
         const first_line = if (mem.indexOf(u8, note.content, "\n")) |nl|
             note.content[0..nl]
         else
             note.content;
         const summary = if (first_line.len > 50) first_line[0..50] else first_line;
-        const escaped = escapeJson(alloc, summary) catch summary;
-        defer if (escaped.ptr != summary.ptr) alloc.free(escaped);
+        const formatted = try std.fmt.allocPrint(alloc, "[[{s}][{s}]]", .{ summary, note.id });
+        errdefer alloc.free(formatted);
 
-        const item = try std.fmt.allocPrint(alloc,
-            \\{{"noteId":"{s}","summary":"{s}","formatted":"[[{s}][{s}]]"}}
-        , .{ note.id, escaped, escaped, note.id });
-        defer alloc.free(item);
-        try buf.appendSlice(alloc, item);
+        try items.append(alloc, .{
+            .item = .{ .noteId = note.id, .summary = summary, .formatted = formatted },
+            .formatted = formatted,
+        });
     }
-    try buf.appendSlice(alloc, "]");
 
-    return buf.toOwnedSlice(alloc);
+    // Extract just the items for serialization
+    const result = try alloc.alloc(LinkSuggestionItem, items.items.len);
+    defer alloc.free(result);
+    for (items.items, 0..) |item, i| {
+        result[i] = item.item;
+    }
+
+    return jsonStringify(alloc, result);
 }
 
 fn handleNotesExplainAndCreate(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
@@ -1191,24 +1256,36 @@ fn formatNotesArray(alloc: Allocator, notes: []const storage.Note) ![]const u8 {
     return formatNotesArrayWithContent(alloc, notes, null);
 }
 
+/// Allocated item with its resources
+const AllocatedNoteItem = struct {
+    item: NoteListItem,
+    display_marker: []const u8,
+    display_label: []const u8,
+    display_detail: []const u8,
+    formatted: FormattedLines,
+
+    fn deinit(self: *AllocatedNoteItem, alloc: Allocator) void {
+        alloc.free(self.display_marker);
+        alloc.free(self.display_label);
+        alloc.free(self.display_detail);
+        var f = self.formatted;
+        f.deinit();
+    }
+};
+
 fn formatNotesArrayWithContent(alloc: Allocator, notes: []const storage.Note, content: ?[]const u8) ![]const u8 {
-    var buf: std.ArrayList(u8) = .{};
-    errdefer buf.deinit(alloc);
+    // Build array of note items
+    var items: std.ArrayList(AllocatedNoteItem) = .{};
+    defer {
+        for (items.items) |*item| item.deinit(alloc);
+        items.deinit(alloc);
+    }
 
-    // Wrap in {"notes": [...]} to match Rust backend format
-    try buf.appendSlice(alloc, "{\"notes\":[");
-    for (notes, 0..) |note, i| {
-        if (i > 0) try buf.appendSlice(alloc, ",");
-        const escaped_text = escapeJson(alloc, note.content) catch note.content;
-        defer if (escaped_text.ptr != note.content.ptr) alloc.free(escaped_text);
-
-        // Generate summary (first line, truncated)
-        const summary = getSummary(note.content);
-        const escaped_summary = escapeJson(alloc, summary) catch summary;
-        defer if (escaped_summary.ptr != summary.ptr) alloc.free(escaped_summary);
-
+    for (notes) |note| {
         const stored_line = note.line_number orelse 1;
         const short_id = if (note.id.len >= 8) note.id[0..8] else note.id;
+        const summary = getSummary(note.content);
+        const col_num = note.column_number orelse 0;
 
         // Compute displayLine and stale from content if available
         var is_stale = false;
@@ -1217,52 +1294,61 @@ fn formatNotesArrayWithContent(alloc: Allocator, notes: []const storage.Note, co
                 if (findLineByHash(c, hash)) |found_line| {
                     break :blk found_line;
                 } else {
-                    is_stale = true; // Hash not found = stale
+                    is_stale = true;
                     break :blk stored_line;
                 }
             }
             break :blk stored_line;
         } else stored_line;
 
-        const stale_str = if (is_stale) "true" else "false";
-        const icon_hint = if (is_stale) "stale" else "fresh";
-
-        // When content is provided, return displayLine as line for compatibility
         const reported_line = if (content != null) display_line else stored_line;
 
-        // Escape file path for JSON
-        const escaped_file = escapeJson(alloc, note.file_path) catch note.file_path;
-        defer if (escaped_file.ptr != note.file_path.ptr) alloc.free(escaped_file);
-
-        // Build display fields matching Rust
+        // Allocate display strings
         const display_marker = try std.fmt.allocPrint(alloc, "[n:{s}]", .{short_id});
-        defer alloc.free(display_marker);
-        const display_label = try std.fmt.allocPrint(alloc, "[Note] {s}", .{escaped_summary});
-        defer alloc.free(display_label);
-        const display_detail = try std.fmt.allocPrint(alloc, "{s}:{d}", .{ escaped_file, reported_line });
-        defer alloc.free(display_detail);
+        errdefer alloc.free(display_marker);
+        const display_label = try std.fmt.allocPrint(alloc, "[Note] {s}", .{summary});
+        errdefer alloc.free(display_label);
+        const display_detail = try std.fmt.allocPrint(alloc, "{s}:{d}", .{ note.file_path, reported_line });
+        errdefer alloc.free(display_detail);
 
-        // nodeTextHash field (optional)
-        const hash_field = if (note.node_text_hash) |h|
-            try std.fmt.allocPrint(alloc, ",\"nodeTextHash\":\"{s}\"", .{h})
-        else
-            try alloc.dupe(u8, "");
-        defer alloc.free(hash_field);
+        var formatted = try formatTextLinesWithContext(alloc, note.content, note.file_path, col_num);
+        errdefer formatted.deinit();
 
-        // Build formattedLines array from text with proper indentation and comment prefix
-        const col_num = note.column_number orelse 0;
-        const formatted_lines = try formatTextLinesWithContext(alloc, note.content, note.file_path, col_num);
-        defer alloc.free(formatted_lines);
-
-        const item = try std.fmt.allocPrint(alloc,
-            \\{{"id":"{s}","shortId":"{s}","file":"{s}","projectRoot":"","line":{d},"column":{d},"text":"{s}","summary":"{s}","stale":{s},"iconHint":"{s}","displayLine":{d},"formattedLines":{s},"createdAt":"{s}","updatedAt":"{s}","displayMarker":"{s}","displayLabel":"{s}","displayDetail":"{s}"{s}}}
-        , .{ note.id, short_id, escaped_file, reported_line, col_num, escaped_text, escaped_summary, stale_str, icon_hint, display_line, formatted_lines, note.created_at, note.updated_at, display_marker, display_label, display_detail, hash_field });
-        defer alloc.free(item);
-        try buf.appendSlice(alloc, item);
+        try items.append(alloc, .{
+            .item = .{
+                .id = note.id,
+                .shortId = short_id,
+                .file = note.file_path,
+                .line = reported_line,
+                .column = col_num,
+                .text = note.content,
+                .summary = summary,
+                .stale = is_stale,
+                .iconHint = if (is_stale) "stale" else "fresh",
+                .displayLine = display_line,
+                .nodeTextHash = note.node_text_hash,
+                .formattedLines = formatted.lines,
+                .createdAt = note.created_at,
+                .updatedAt = note.updated_at,
+                .displayMarker = display_marker,
+                .displayLabel = display_label,
+                .displayDetail = display_detail,
+            },
+            .display_marker = display_marker,
+            .display_label = display_label,
+            .display_detail = display_detail,
+            .formatted = formatted,
+        });
     }
-    try buf.appendSlice(alloc, "]}");
 
-    return buf.toOwnedSlice(alloc);
+    // Extract just the NoteListItems for serialization
+    const note_items = try alloc.alloc(NoteListItem, items.items.len);
+    defer alloc.free(note_items);
+    for (items.items, 0..) |item, i| {
+        note_items[i] = item.item;
+    }
+
+    return jsonStringify(alloc, NotesListResponse{ .notes = note_items });
 }
 
 /// Find line number where hash matches a line's SHA256
@@ -1364,31 +1450,6 @@ fn getTimestamp(buf: *[32]u8) []const u8 {
     const secs: u64 = @intCast(ts);
     // Simple format: seconds since epoch
     return std.fmt.bufPrint(buf, "{d}", .{secs}) catch "0";
-}
-
-/// Escape JSON string
-fn escapeJson(alloc: Allocator, s: []const u8) ![]const u8 {
-    var needs_escape = false;
-    for (s) |c| {
-        if (c == '"' or c == '\\' or c == '\n' or c == '\r' or c == '\t') {
-            needs_escape = true;
-            break;
-        }
-    }
-    if (!needs_escape) return s;
-
-    var buf: std.ArrayList(u8) = .{};
-    for (s) |c| {
-        switch (c) {
-            '"' => try buf.appendSlice(alloc, "\\\""),
-            '\\' => try buf.appendSlice(alloc, "\\\\"),
-            '\n' => try buf.appendSlice(alloc, "\\n"),
-            '\r' => try buf.appendSlice(alloc, "\\r"),
-            '\t' => try buf.appendSlice(alloc, "\\t"),
-            else => try buf.append(alloc, c),
-        }
-    }
-    return buf.toOwnedSlice(alloc);
 }
 
 /// Extract a string value for a given key from JSON
@@ -1566,23 +1627,6 @@ test "extract nested int" {
     try std.testing.expect(offset != null);
     try std.testing.expectEqual(@as(i64, 50), limit.?);
     try std.testing.expectEqual(@as(i64, 10), offset.?);
-}
-
-test "escape json" {
-    const alloc = std.testing.allocator;
-
-    // No escape needed
-    const simple = try escapeJson(alloc, "hello");
-    try std.testing.expectEqualStrings("hello", simple);
-
-    // With escapes
-    const with_quotes = try escapeJson(alloc, "say \"hello\"");
-    defer alloc.free(with_quotes);
-    try std.testing.expectEqualStrings("say \\\"hello\\\"", with_quotes);
-
-    const with_newline = try escapeJson(alloc, "line1\nline2");
-    defer alloc.free(with_newline);
-    try std.testing.expectEqualStrings("line1\\nline2", with_newline);
 }
 
 test "dispatch hemis project meta" {
