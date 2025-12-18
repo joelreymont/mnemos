@@ -187,12 +187,17 @@ describe("explain_region end-to-end", function()
         return
       end
 
+      -- Get buffer content (required by backend for AI explanation)
+      local lines = vim.api.nvim_buf_get_lines(env.buf, 0, -1, false)
+      local content = table.concat(lines, "\n")
+
       env.rpc.request("hemis/explain-region", {
         file = env.file,
         startLine = 2,
         endLine = 4,
         projectRoot = env.dir,
         useAI = true,
+        content = content,
       }, function(err, res)
         err_result = err
         result = res
