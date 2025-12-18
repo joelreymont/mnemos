@@ -439,74 +439,20 @@ pub fn getFile(db: *Database, alloc: Allocator, path: []const u8) !?File {
     return null;
 }
 
-/// Escape a string for JSON embedding
-fn escapeJsonString(alloc: Allocator, s: []const u8) ![]const u8 {
-    var buf: std.ArrayList(u8) = .{};
-    errdefer buf.deinit(alloc);
-
-    for (s) |ch| {
-        switch (ch) {
-            '"' => try buf.appendSlice(alloc, "\\\""),
-            '\\' => try buf.appendSlice(alloc, "\\\\"),
-            '\n' => try buf.appendSlice(alloc, "\\n"),
-            '\r' => try buf.appendSlice(alloc, "\\r"),
-            '\t' => try buf.appendSlice(alloc, "\\t"),
-            else => {
-                if (ch < 0x20) {
-                    // Control characters
-                    var hex_buf: [6]u8 = undefined;
-                    const hex = std.fmt.bufPrint(&hex_buf, "\\u{x:0>4}", .{ch}) catch continue;
-                    try buf.appendSlice(alloc, hex);
-                } else {
-                    try buf.append(alloc, ch);
-                }
-            },
-        }
-    }
-
-    return buf.toOwnedSlice(alloc);
-}
-
-/// Export all notes as JSON
+/// Export all notes as JSON using std.json (matches import format)
 pub fn exportNotesJson(db: *Database, alloc: Allocator) ![]const u8 {
     const notes = try listProjectNotes(db, alloc);
-    defer {
-        for (notes) |note| {
-            alloc.free(note.id);
-            alloc.free(note.file_path);
-            if (note.node_path) |np| alloc.free(np);
-            if (note.node_text_hash) |h| alloc.free(h);
-            alloc.free(note.content);
-            alloc.free(note.created_at);
-            alloc.free(note.updated_at);
-        }
-        alloc.free(notes);
-    }
+    defer freeNotes(alloc, notes);
 
-    var buf: std.ArrayList(u8) = .{};
-    errdefer buf.deinit(alloc);
+    // Build array of SnapshotNote for serialization
+    const snapshot = try alloc.alloc(SnapshotNote, notes.len);
+    defer alloc.free(snapshot);
 
-    try buf.appendSlice(alloc, "[");
     for (notes, 0..) |note, i| {
-        if (i > 0) try buf.appendSlice(alloc, ",");
-
-        // Escape content for JSON
-        const escaped_content = try escapeJsonString(alloc, note.content);
-        defer alloc.free(escaped_content);
-
-        // Escape file path for JSON
-        const escaped_path = try escapeJsonString(alloc, note.file_path);
-        defer alloc.free(escaped_path);
-
-        const item = try std.fmt.allocPrint(alloc,
-            \\{{"id":"{s}","filePath":"{s}","content":"{s}"}}
-        , .{ note.id, escaped_path, escaped_content });
-        defer alloc.free(item);
-        try buf.appendSlice(alloc, item);
+        snapshot[i] = .{ .id = note.id, .filePath = note.file_path, .content = note.content };
     }
-    try buf.appendSlice(alloc, "]");
 
-    return buf.toOwnedSlice(alloc);
+    return std.fmt.allocPrint(alloc, "{f}", .{std.json.fmt(snapshot, .{})});
 }
 
 /// JSON format for snapshot notes

@@ -81,12 +81,12 @@ fn parseRequest(alloc: Allocator, request: []const u8) !ParsedRequest {
     };
 }
 
-/// Format id for JSON response
+/// Format id for JSON response (properly escapes string IDs)
 fn formatId(alloc: Allocator, id: std.json.Value) ![]const u8 {
     return switch (id) {
         .null => try alloc.dupe(u8, "null"),
         .integer => |i| try std.fmt.allocPrint(alloc, "{d}", .{i}),
-        .string => |s| try std.fmt.allocPrint(alloc, "\"{s}\"", .{s}),
+        .string => |s| try std.fmt.allocPrint(alloc, "{f}", .{std.json.fmt(s, .{})}),
         else => try alloc.dupe(u8, "null"),
     };
 }
@@ -1219,6 +1219,17 @@ fn handleNotesLinkSuggestions(alloc: Allocator, req: ParsedRequest, db: ?*storag
     return jsonStringify(alloc, result);
 }
 
+const ExplainAndCreateResponse = struct {
+    note: struct {
+        id: []const u8,
+        filePath: []const u8,
+    },
+    ai: struct {
+        provider: []const u8 = "none",
+        hadContext: bool = false,
+    } = .{},
+};
+
 fn handleNotesExplainAndCreate(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
     const database = db orelse return error.NoDatabaseConnection;
     const file = req.getString("file") orelse
@@ -1247,9 +1258,9 @@ fn handleNotesExplainAndCreate(alloc: Allocator, req: ParsedRequest, db: ?*stora
 
     try storage.createNote(database, note);
 
-    return try std.fmt.allocPrint(alloc,
-        \\{{"note":{{"id":"{s}","filePath":"{s}"}},"ai":{{"provider":"none","hadContext":false}}}}
-    , .{ id, file });
+    return jsonStringify(alloc, ExplainAndCreateResponse{
+        .note = .{ .id = id, .filePath = file },
+    });
 }
 
 fn formatNotesArray(alloc: Allocator, notes: []const storage.Note) ![]const u8 {
