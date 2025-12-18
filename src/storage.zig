@@ -81,6 +81,7 @@ pub const Database = struct {
             \\    node_path TEXT,
             \\    node_text_hash TEXT,
             \\    line_number INTEGER,
+            \\    column_number INTEGER,
             \\    content TEXT NOT NULL,
             \\    created_at TEXT NOT NULL,
             \\    updated_at TEXT NOT NULL
@@ -176,6 +177,7 @@ pub const Note = struct {
     node_path: ?[]const u8,
     node_text_hash: ?[]const u8,
     line_number: ?i64,
+    column_number: ?i64,
     content: []const u8,
     created_at: []const u8,
     updated_at: []const u8,
@@ -184,8 +186,8 @@ pub const Note = struct {
 /// Create a new note
 pub fn createNote(db: *Database, note: Note) !void {
     var stmt = try db.prepare(
-        \\INSERT INTO notes (id, file_path, node_path, node_text_hash, line_number, content, created_at, updated_at)
-        \\VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        \\INSERT INTO notes (id, file_path, node_path, node_text_hash, line_number, column_number, content, created_at, updated_at)
+        \\VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
     );
     defer stmt.deinit();
 
@@ -194,9 +196,10 @@ pub fn createNote(db: *Database, note: Note) !void {
     if (note.node_path) |np| try stmt.bindText(3, np) else try stmt.bindNull(3);
     if (note.node_text_hash) |h| try stmt.bindText(4, h) else try stmt.bindNull(4);
     if (note.line_number) |ln| try stmt.bindInt(5, ln) else try stmt.bindNull(5);
-    try stmt.bindText(6, note.content);
-    try stmt.bindText(7, note.created_at);
-    try stmt.bindText(8, note.updated_at);
+    if (note.column_number) |cn| try stmt.bindInt(6, cn) else try stmt.bindNull(6);
+    try stmt.bindText(7, note.content);
+    try stmt.bindText(8, note.created_at);
+    try stmt.bindText(9, note.updated_at);
 
     _ = try stmt.step();
 }
@@ -204,7 +207,7 @@ pub fn createNote(db: *Database, note: Note) !void {
 /// List notes for a project (all notes)
 pub fn listProjectNotes(db: *Database, alloc: Allocator) ![]Note {
     var stmt = try db.prepare(
-        \\SELECT id, file_path, node_path, node_text_hash, line_number, content, created_at, updated_at
+        \\SELECT id, file_path, node_path, node_text_hash, line_number, column_number, content, created_at, updated_at
         \\FROM notes ORDER BY created_at DESC
     );
     defer stmt.deinit();
@@ -219,9 +222,10 @@ pub fn listProjectNotes(db: *Database, alloc: Allocator) ![]Note {
             .node_path = if (stmt.columnText(2)) |np| try alloc.dupe(u8, np) else null,
             .node_text_hash = if (stmt.columnText(3)) |h| try alloc.dupe(u8, h) else null,
             .line_number = if (stmt.columnInt(4) != 0) stmt.columnInt(4) else null,
-            .content = try alloc.dupe(u8, stmt.columnText(5) orelse ""),
-            .created_at = try alloc.dupe(u8, stmt.columnText(6) orelse ""),
-            .updated_at = try alloc.dupe(u8, stmt.columnText(7) orelse ""),
+            .column_number = if (stmt.columnInt(5) != 0) stmt.columnInt(5) else null,
+            .content = try alloc.dupe(u8, stmt.columnText(6) orelse ""),
+            .created_at = try alloc.dupe(u8, stmt.columnText(7) orelse ""),
+            .updated_at = try alloc.dupe(u8, stmt.columnText(8) orelse ""),
         };
         try notes.append(alloc, note);
     }
@@ -248,7 +252,7 @@ pub fn countFiles(db: *Database) !i64 {
 /// Get a note by ID
 pub fn getNote(db: *Database, alloc: Allocator, id: []const u8) !?Note {
     var stmt = try db.prepare(
-        \\SELECT id, file_path, node_path, node_text_hash, line_number, content, created_at, updated_at
+        \\SELECT id, file_path, node_path, node_text_hash, line_number, column_number, content, created_at, updated_at
         \\FROM notes WHERE id = ?1
     );
     defer stmt.deinit();
@@ -262,9 +266,10 @@ pub fn getNote(db: *Database, alloc: Allocator, id: []const u8) !?Note {
             .node_path = if (stmt.columnText(2)) |np| try alloc.dupe(u8, np) else null,
             .node_text_hash = if (stmt.columnText(3)) |h| try alloc.dupe(u8, h) else null,
             .line_number = if (stmt.columnInt(4) != 0) stmt.columnInt(4) else null,
-            .content = try alloc.dupe(u8, stmt.columnText(5) orelse ""),
-            .created_at = try alloc.dupe(u8, stmt.columnText(6) orelse ""),
-            .updated_at = try alloc.dupe(u8, stmt.columnText(7) orelse ""),
+            .column_number = if (stmt.columnInt(5) != 0) stmt.columnInt(5) else null,
+            .content = try alloc.dupe(u8, stmt.columnText(6) orelse ""),
+            .created_at = try alloc.dupe(u8, stmt.columnText(7) orelse ""),
+            .updated_at = try alloc.dupe(u8, stmt.columnText(8) orelse ""),
         };
     }
     return null;
@@ -310,7 +315,7 @@ pub fn reattachNote(db: *Database, id: []const u8, file_path: ?[]const u8, line:
 /// Search notes by query
 pub fn searchNotes(db: *Database, alloc: Allocator, query: []const u8, limit: i64, offset: i64) ![]Note {
     var stmt = try db.prepare(
-        \\SELECT id, file_path, node_path, node_text_hash, line_number, content, created_at, updated_at
+        \\SELECT id, file_path, node_path, node_text_hash, line_number, column_number, content, created_at, updated_at
         \\FROM notes WHERE content LIKE ?1 ORDER BY created_at DESC LIMIT ?2 OFFSET ?3
     );
     defer stmt.deinit();
@@ -332,9 +337,10 @@ pub fn searchNotes(db: *Database, alloc: Allocator, query: []const u8, limit: i6
             .node_path = if (stmt.columnText(2)) |np| try alloc.dupe(u8, np) else null,
             .node_text_hash = if (stmt.columnText(3)) |h| try alloc.dupe(u8, h) else null,
             .line_number = if (stmt.columnInt(4) != 0) stmt.columnInt(4) else null,
-            .content = try alloc.dupe(u8, stmt.columnText(5) orelse ""),
-            .created_at = try alloc.dupe(u8, stmt.columnText(6) orelse ""),
-            .updated_at = try alloc.dupe(u8, stmt.columnText(7) orelse ""),
+            .column_number = if (stmt.columnInt(5) != 0) stmt.columnInt(5) else null,
+            .content = try alloc.dupe(u8, stmt.columnText(6) orelse ""),
+            .created_at = try alloc.dupe(u8, stmt.columnText(7) orelse ""),
+            .updated_at = try alloc.dupe(u8, stmt.columnText(8) orelse ""),
         };
         try notes.append(alloc, note);
     }
@@ -345,7 +351,7 @@ pub fn searchNotes(db: *Database, alloc: Allocator, query: []const u8, limit: i6
 /// Get notes for a file
 pub fn getNotesForFile(db: *Database, alloc: Allocator, file_path: []const u8) ![]Note {
     var stmt = try db.prepare(
-        \\SELECT id, file_path, node_path, node_text_hash, line_number, content, created_at, updated_at
+        \\SELECT id, file_path, node_path, node_text_hash, line_number, column_number, content, created_at, updated_at
         \\FROM notes WHERE file_path = ?1 ORDER BY created_at DESC
     );
     defer stmt.deinit();
@@ -362,9 +368,10 @@ pub fn getNotesForFile(db: *Database, alloc: Allocator, file_path: []const u8) !
             .node_path = if (stmt.columnText(2)) |np| try alloc.dupe(u8, np) else null,
             .node_text_hash = if (stmt.columnText(3)) |h| try alloc.dupe(u8, h) else null,
             .line_number = if (stmt.columnInt(4) != 0) stmt.columnInt(4) else null,
-            .content = try alloc.dupe(u8, stmt.columnText(5) orelse ""),
-            .created_at = try alloc.dupe(u8, stmt.columnText(6) orelse ""),
-            .updated_at = try alloc.dupe(u8, stmt.columnText(7) orelse ""),
+            .column_number = if (stmt.columnInt(5) != 0) stmt.columnInt(5) else null,
+            .content = try alloc.dupe(u8, stmt.columnText(6) orelse ""),
+            .created_at = try alloc.dupe(u8, stmt.columnText(7) orelse ""),
+            .updated_at = try alloc.dupe(u8, stmt.columnText(8) orelse ""),
         };
         try notes.append(alloc, note);
     }
