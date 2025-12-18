@@ -521,23 +521,40 @@ pub fn importNotesJson(db: *Database, alloc: Allocator, json: []const u8) !usize
         const obj_start = mem.indexOf(u8, json[pos..], "{") orelse break;
         const abs_start = pos + obj_start;
 
-        // Find end of object (matching brace)
+        // Find end of object (matching brace, string-aware)
         var depth: usize = 1;
         var obj_end = abs_start + 1;
+        var in_string = false;
         while (obj_end < json.len and depth > 0) : (obj_end += 1) {
-            if (json[obj_end] == '{') depth += 1;
-            if (json[obj_end] == '}') depth -= 1;
+            const ch = json[obj_end];
+            if (in_string) {
+                if (ch == '"' and json[obj_end - 1] != '\\') {
+                    in_string = false;
+                }
+            } else {
+                if (ch == '"') {
+                    in_string = true;
+                } else if (ch == '{') {
+                    depth += 1;
+                } else if (ch == '}') {
+                    depth -= 1;
+                }
+            }
         }
 
         const obj = json[abs_start..obj_end];
         pos = obj_end;
 
         // Extract fields using simple string search
-        const id = extractJsonField(obj, "id") orelse continue;
-        const file_path = extractJsonField(obj, "filePath") orelse continue;
+        const id_raw = extractJsonField(obj, "id") orelse continue;
+        const file_path_raw = extractJsonField(obj, "filePath") orelse continue;
         const content_raw = extractJsonField(obj, "content") orelse continue;
 
-        // Unescape content
+        // Unescape all fields
+        const id = unescapeJsonString(alloc, id_raw) catch continue;
+        defer alloc.free(id);
+        const file_path = unescapeJsonString(alloc, file_path_raw) catch continue;
+        defer alloc.free(file_path);
         const content = unescapeJsonString(alloc, content_raw) catch continue;
         defer alloc.free(content);
 
@@ -631,16 +648,11 @@ fn unescapeJsonString(alloc: Allocator, s: []const u8) ![]const u8 {
     return buf.toOwnedSlice(alloc);
 }
 
-/// Get current timestamp in ISO format
+/// Get current timestamp as seconds since epoch
 fn getTimestamp(buf: *[32]u8) []const u8 {
     const now = std.time.timestamp();
     const secs: u64 = @intCast(now);
-    const mins = secs / 60;
-    const hours = mins / 60;
-    const days = hours / 24;
-
-    // Simple timestamp - not a full ISO date parser
-    return std.fmt.bufPrint(buf, "{d}", .{days}) catch "0";
+    return std.fmt.bufPrint(buf, "{d}", .{secs}) catch "0";
 }
 
 /// Search files by path pattern
