@@ -19,7 +19,9 @@ pub const GitError = error{
 pub const Repository = struct {
     repo: *c.git_repository,
 
-    pub fn open(path: []const u8) !Repository {
+    /// Open a git repository at the given path.
+    /// Path must be null-terminated (use string literals or [:0]const u8).
+    pub fn open(path: [:0]const u8) !Repository {
         if (c.git_libgit2_init() < 0) {
             return GitError.InitFailed;
         }
@@ -72,7 +74,9 @@ pub const Repository = struct {
         return alloc.dupe(u8, buf[0..40]);
     }
 
-    pub fn isIgnored(self: *Repository, path: []const u8) !bool {
+    /// Check if a path is ignored by .gitignore.
+    /// Path must be null-terminated (use string literals or [:0]const u8).
+    pub fn isIgnored(self: *Repository, path: [:0]const u8) !bool {
         var ignored: c_int = 0;
         const result = c.git_ignore_path_is_ignored(&ignored, self.repo, path.ptr);
         if (result < 0) {
@@ -177,7 +181,9 @@ pub const Repository = struct {
         }
     };
 
-    pub fn getBlameForLine(self: *Repository, alloc: Allocator, path: []const u8, line_number: usize) !BlameInfo {
+    /// Get blame information for a specific line in a file.
+    /// Path must be null-terminated (use string literals or [:0]const u8).
+    pub fn getBlameForLine(self: *Repository, alloc: Allocator, path: [:0]const u8, line_number: usize) !BlameInfo {
         var blame: ?*c.git_blame = null;
         var opts: c.git_blame_options = undefined;
         _ = c.git_blame_options_init(&opts, c.GIT_BLAME_OPTIONS_VERSION);

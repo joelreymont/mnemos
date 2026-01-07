@@ -211,6 +211,8 @@ pub const Stream = struct {
 
                 // Read until we have the full body
                 while (self.buf_len < total_needed) {
+                    // Check if buffer can fit the request
+                    if (total_needed > self.buf.len) return error.ContentTooLarge;
                     const n = try posix.read(self.read_fd, self.buf[self.buf_len..]);
                     if (n == 0) return error.EndOfStream;
                     self.buf_len += n;
@@ -226,6 +228,9 @@ pub const Stream = struct {
 
                 return body;
             }
+
+            // Buffer full without finding header terminator - malformed request
+            if (self.buf_len >= self.buf.len) return error.InvalidHeader;
 
             // Need more data for header
             const n = try posix.read(self.read_fd, self.buf[self.buf_len..]);
@@ -252,6 +257,9 @@ pub const Stream = struct {
 
                 return line;
             }
+
+            // Buffer full without finding newline - line too long
+            if (self.buf_len >= self.buf.len) return error.ContentTooLarge;
 
             // Need more data
             const n = try posix.read(self.read_fd, self.buf[self.buf_len..]);
@@ -756,6 +764,20 @@ fn handleNotesBufferUpdate(alloc: Allocator, req: ParsedRequest, db: ?*storage.D
     return jsonStringify(alloc, .{ .ok = true });
 }
 
+/// Reattach response with note details
+const ReattachResponse = struct {
+    id: []const u8,
+    filePath: []const u8,
+    lineNumber: ?i64,
+    content: []const u8,
+};
+
+/// Simple OK response with id
+const OkIdResponse = struct {
+    ok: bool = true,
+    id: []const u8,
+};
+
 fn handleNotesReattach(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
     const database = db orelse return error.NoDatabaseConnection;
 
@@ -773,17 +795,20 @@ fn handleNotesReattach(alloc: Allocator, req: ParsedRequest, db: ?*storage.Datab
 
     // Return the updated note
     const note = storage.getNote(database, alloc, id) catch {
-        return try std.fmt.allocPrint(alloc, "{{\"ok\":true,\"id\":\"{s}\"}}", .{id});
+        return jsonStringify(alloc, OkIdResponse{ .id = id });
     };
 
     if (note) |n| {
         defer storage.freeNoteFields(alloc, n);
-        return try std.fmt.allocPrint(alloc,
-            \\{{"id":"{s}","filePath":"{s}","lineNumber":{?},"content":"{s}"}}
-        , .{ n.id, n.file_path, n.line_number, n.content });
+        return jsonStringify(alloc, ReattachResponse{
+            .id = n.id,
+            .filePath = n.file_path,
+            .lineNumber = n.line_number,
+            .content = n.content,
+        });
     }
 
-    return try std.fmt.allocPrint(alloc, "{{\"ok\":true,\"id\":\"{s}\"}}", .{id});
+    return jsonStringify(alloc, OkIdResponse{ .id = id });
 }
 
 // mnemos/* handlers
@@ -1095,40 +1120,39 @@ fn handleNoteTemplates(alloc: Allocator, _: ParsedRequest, _: ?*storage.Database
     , .{});
 }
 
+/// Tag suggestions response
+const TagsResponse = struct {
+    tags: []const []const u8,
+};
+
 fn handleSuggestTags(alloc: Allocator, req: ParsedRequest, _: ?*storage.Database) ![]const u8 {
     const file = req.getString("file") orelse
         return error.MissingFile;
 
-    // Suggest tags based on file extension
-    var tags: std.ArrayList(u8) = .{};
+    var tags: std.ArrayList([]const u8) = .{};
     defer tags.deinit(alloc);
-
-    try tags.appendSlice(alloc, "[");
 
     // Language tag from extension
     if (mem.endsWith(u8, file, ".zig")) {
-        try tags.appendSlice(alloc, "\"zig\"");
+        try tags.append(alloc, "zig");
     } else if (mem.endsWith(u8, file, ".rs")) {
-        try tags.appendSlice(alloc, "\"rust\"");
+        try tags.append(alloc, "rust");
     } else if (mem.endsWith(u8, file, ".py")) {
-        try tags.appendSlice(alloc, "\"python\"");
+        try tags.append(alloc, "python");
     } else if (mem.endsWith(u8, file, ".js") or mem.endsWith(u8, file, ".ts")) {
-        try tags.appendSlice(alloc, "\"javascript\"");
+        try tags.append(alloc, "javascript");
     } else if (mem.endsWith(u8, file, ".go")) {
-        try tags.appendSlice(alloc, "\"go\"");
+        try tags.append(alloc, "go");
     }
 
     // Pattern-based tags (case-insensitive)
     const file_lower = std.ascii.allocLowerString(alloc, file) catch file;
     defer if (file_lower.ptr != file.ptr) alloc.free(file_lower);
     if (mem.indexOf(u8, file_lower, "test") != null or mem.indexOf(u8, file_lower, "spec") != null) {
-        if (tags.items.len > 1) try tags.appendSlice(alloc, ",");
-        try tags.appendSlice(alloc, "\"test\"");
+        try tags.append(alloc, "test");
     }
 
-    try tags.appendSlice(alloc, "]");
-
-    return try std.fmt.allocPrint(alloc, "{{\"tags\":{s}}}", .{tags.items});
+    return jsonStringify(alloc, TagsResponse{ .tags = tags.items });
 }
 
 fn handleCodeReferences(alloc: Allocator, req: ParsedRequest, _: ?*storage.Database) ![]const u8 {
@@ -1170,13 +1194,24 @@ fn handleSummarizeFile(alloc: Allocator, req: ParsedRequest, db: ?*storage.Datab
     return jsonStringify(alloc, SummarizeFileResponse{ .file = file, .sections = items });
 }
 
+/// Note version record (placeholder for future implementation)
+const NoteVersion = struct {
+    version: u32,
+};
+
+/// Note history response
+const NoteHistoryResponse = struct {
+    noteId: []const u8,
+    versions: []const NoteVersion = &.{},
+};
+
 fn handleNotesHistory(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
     _ = db;
     const id = req.getString("id") orelse
         return error.MissingId;
 
     // Version history not yet implemented - return empty
-    return try std.fmt.allocPrint(alloc, "{{\"noteId\":\"{s}\",\"versions\":[]}}", .{id});
+    return jsonStringify(alloc, NoteHistoryResponse{ .noteId = id });
 }
 
 fn handleNotesGetVersion(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {

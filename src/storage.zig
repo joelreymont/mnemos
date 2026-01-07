@@ -171,6 +171,17 @@ pub const Statement = struct {
     pub fn columnInt(self: *Statement, idx: c_int) i64 {
         return c.sqlite3_column_int64(self.stmt, idx);
     }
+
+    /// Check if column is NULL (use to distinguish NULL from 0)
+    pub fn columnIsNull(self: *Statement, idx: c_int) bool {
+        return c.sqlite3_column_type(self.stmt, idx) == c.SQLITE_NULL;
+    }
+
+    /// Get optional int (returns null for NULL values, not for 0)
+    pub fn columnOptionalInt(self: *Statement, idx: c_int) ?i64 {
+        if (self.columnIsNull(idx)) return null;
+        return self.columnInt(idx);
+    }
 };
 
 /// Note record
@@ -224,8 +235,8 @@ pub fn listProjectNotes(db: *Database, alloc: Allocator) ![]Note {
             .file_path = try alloc.dupe(u8, stmt.columnText(1) orelse ""),
             .node_path = if (stmt.columnText(2)) |np| try alloc.dupe(u8, np) else null,
             .node_text_hash = if (stmt.columnText(3)) |h| try alloc.dupe(u8, h) else null,
-            .line_number = if (stmt.columnInt(4) != 0) stmt.columnInt(4) else null,
-            .column_number = if (stmt.columnInt(5) != 0) stmt.columnInt(5) else null,
+            .line_number = stmt.columnOptionalInt(4),
+            .column_number = stmt.columnOptionalInt(5),
             .content = try alloc.dupe(u8, stmt.columnText(6) orelse ""),
             .created_at = try alloc.dupe(u8, stmt.columnText(7) orelse ""),
             .updated_at = try alloc.dupe(u8, stmt.columnText(8) orelse ""),
@@ -268,8 +279,8 @@ pub fn getNote(db: *Database, alloc: Allocator, id: []const u8) !?Note {
             .file_path = try alloc.dupe(u8, stmt.columnText(1) orelse ""),
             .node_path = if (stmt.columnText(2)) |np| try alloc.dupe(u8, np) else null,
             .node_text_hash = if (stmt.columnText(3)) |h| try alloc.dupe(u8, h) else null,
-            .line_number = if (stmt.columnInt(4) != 0) stmt.columnInt(4) else null,
-            .column_number = if (stmt.columnInt(5) != 0) stmt.columnInt(5) else null,
+            .line_number = stmt.columnOptionalInt(4),
+            .column_number = stmt.columnOptionalInt(5),
             .content = try alloc.dupe(u8, stmt.columnText(6) orelse ""),
             .created_at = try alloc.dupe(u8, stmt.columnText(7) orelse ""),
             .updated_at = try alloc.dupe(u8, stmt.columnText(8) orelse ""),
@@ -315,15 +326,45 @@ pub fn reattachNote(db: *Database, id: []const u8, file_path: ?[]const u8, line:
     _ = try stmt.step();
 }
 
+/// Escape LIKE metacharacters (%, _, \) for SQLite LIKE queries
+fn escapeLikePattern(alloc: Allocator, query: []const u8) ![]const u8 {
+    // Count characters needing escape
+    var extra: usize = 0;
+    for (query) |ch| {
+        if (ch == '%' or ch == '_' or ch == '\\') extra += 1;
+    }
+
+    if (extra == 0) {
+        // No escaping needed, just wrap with %
+        return std.fmt.allocPrint(alloc, "%{s}%", .{query});
+    }
+
+    // Build escaped pattern
+    var result = try alloc.alloc(u8, query.len + extra + 2); // +2 for surrounding %
+    var i: usize = 0;
+    result[i] = '%';
+    i += 1;
+    for (query) |ch| {
+        if (ch == '%' or ch == '_' or ch == '\\') {
+            result[i] = '\\';
+            i += 1;
+        }
+        result[i] = ch;
+        i += 1;
+    }
+    result[i] = '%';
+    return result;
+}
+
 /// Search notes by query
 pub fn searchNotes(db: *Database, alloc: Allocator, query: []const u8, limit: i64, offset: i64) ![]Note {
     var stmt = try db.prepare(
         \\SELECT id, file_path, node_path, node_text_hash, line_number, column_number, content, created_at, updated_at
-        \\FROM notes WHERE content LIKE ?1 ORDER BY created_at DESC LIMIT ?2 OFFSET ?3
+        \\FROM notes WHERE content LIKE ?1 ESCAPE '\' ORDER BY created_at DESC LIMIT ?2 OFFSET ?3
     );
     defer stmt.deinit();
 
-    const pattern = try std.fmt.allocPrint(alloc, "%{s}%", .{query});
+    const pattern = try escapeLikePattern(alloc, query);
     defer alloc.free(pattern);
 
     try stmt.bindText(1, pattern);
@@ -339,8 +380,8 @@ pub fn searchNotes(db: *Database, alloc: Allocator, query: []const u8, limit: i6
             .file_path = try alloc.dupe(u8, stmt.columnText(1) orelse ""),
             .node_path = if (stmt.columnText(2)) |np| try alloc.dupe(u8, np) else null,
             .node_text_hash = if (stmt.columnText(3)) |h| try alloc.dupe(u8, h) else null,
-            .line_number = if (stmt.columnInt(4) != 0) stmt.columnInt(4) else null,
-            .column_number = if (stmt.columnInt(5) != 0) stmt.columnInt(5) else null,
+            .line_number = stmt.columnOptionalInt(4),
+            .column_number = stmt.columnOptionalInt(5),
             .content = try alloc.dupe(u8, stmt.columnText(6) orelse ""),
             .created_at = try alloc.dupe(u8, stmt.columnText(7) orelse ""),
             .updated_at = try alloc.dupe(u8, stmt.columnText(8) orelse ""),
@@ -370,8 +411,8 @@ pub fn getNotesForFile(db: *Database, alloc: Allocator, file_path: []const u8) !
             .file_path = try alloc.dupe(u8, stmt.columnText(1) orelse ""),
             .node_path = if (stmt.columnText(2)) |np| try alloc.dupe(u8, np) else null,
             .node_text_hash = if (stmt.columnText(3)) |h| try alloc.dupe(u8, h) else null,
-            .line_number = if (stmt.columnInt(4) != 0) stmt.columnInt(4) else null,
-            .column_number = if (stmt.columnInt(5) != 0) stmt.columnInt(5) else null,
+            .line_number = stmt.columnOptionalInt(4),
+            .column_number = stmt.columnOptionalInt(5),
             .content = try alloc.dupe(u8, stmt.columnText(6) orelse ""),
             .created_at = try alloc.dupe(u8, stmt.columnText(7) orelse ""),
             .updated_at = try alloc.dupe(u8, stmt.columnText(8) orelse ""),
