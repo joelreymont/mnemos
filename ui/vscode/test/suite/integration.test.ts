@@ -8,7 +8,7 @@ import { spawn } from 'child_process';
 // Find the backend binary
 function findBackend(): string | null {
   // Check environment variable first
-  const envBackend = process.env['HEMIS_BACKEND'];
+  const envBackend = process.env['MNEMOS_BACKEND'];
   if (envBackend && fs.existsSync(envBackend)) {
     return envBackend;
   }
@@ -16,8 +16,8 @@ function findBackend(): string | null {
   // Try relative paths from extension root
   const extensionRoot = path.resolve(__dirname, '../../../');
   const candidates = [
-    path.join(extensionRoot, '../../target/debug/hemis'),
-    path.join(extensionRoot, '../../target/release/hemis'),
+    path.join(extensionRoot, '../../target/debug/mnemos'),
+    path.join(extensionRoot, '../../target/release/mnemos'),
   ];
 
   for (const candidate of candidates) {
@@ -31,7 +31,7 @@ function findBackend(): string | null {
 
 // Create isolated test directory
 function createTestDir(): string {
-  const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hemis-vscode-test-'));
+  const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mnemos-vscode-test-'));
   return testDir;
 }
 
@@ -52,12 +52,12 @@ class TestRpcClient {
   private buffer = '';
 
   constructor(
-    private hemisDir: string,
+    private mnemosDir: string,
     private backendPath: string
   ) {}
 
   private getSocketPath(): string {
-    return path.join(this.hemisDir, 'hemis.sock');
+    return path.join(this.mnemosDir, 'mnemos.sock');
   }
 
   private socketExists(): boolean {
@@ -65,15 +65,15 @@ class TestRpcClient {
   }
 
   async startServer(): Promise<void> {
-    if (!fs.existsSync(this.hemisDir)) {
-      fs.mkdirSync(this.hemisDir, { recursive: true });
+    if (!fs.existsSync(this.mnemosDir)) {
+      fs.mkdirSync(this.mnemosDir, { recursive: true });
     }
 
     const env: Record<string, string | undefined> = { ...process.env };
-    env['HEMIS_DIR'] = this.hemisDir;
-    env['HEMIS_DB_PATH'] = path.join(this.hemisDir, 'hemis.db');
+    env['MNEMOS_DIR'] = this.mnemosDir;
+    env['MNEMOS_DB_PATH'] = path.join(this.mnemosDir, 'mnemos.db');
 
-    const logPath = path.join(this.hemisDir, 'hemis.log');
+    const logPath = path.join(this.mnemosDir, 'mnemos.log');
     const logFd = fs.openSync(logPath, 'a');
 
     const proc = spawn(this.backendPath, ['--serve'], {
@@ -266,7 +266,7 @@ suite('Integration Test Suite', () => {
 
     await client.start();
 
-    const version = await client.request<{ protocolVersion: number; gitHash: string }>('hemis/version');
+    const version = await client.request<{ protocolVersion: number; gitHash: string }>('mnemos/version');
     assert.ok(version, 'Should get version response');
     assert.ok(typeof version.protocolVersion === 'number', 'Protocol version should be a number');
     assert.ok(typeof version.gitHash === 'string', 'Git hash should be a string');
@@ -282,7 +282,7 @@ suite('Integration Test Suite', () => {
 
     await client.start();
 
-    const status = await client.request<{ counts: { notes: number; files: number } }>('hemis/status');
+    const status = await client.request<{ counts: { notes: number; files: number } }>('mnemos/status');
     assert.ok(status, 'Should get status response');
     assert.ok(status.counts, 'Status should have counts');
     assert.strictEqual(typeof status.counts.notes, 'number', 'Notes count should be a number');
@@ -363,7 +363,7 @@ suite('Integration Test Suite', () => {
 
     await client.start();
 
-    const version1 = await client.request<{ protocolVersion: number }>('hemis/version');
+    const version1 = await client.request<{ protocolVersion: number }>('mnemos/version');
     assert.ok(version1.protocolVersion, 'Should get version');
 
     // Disconnect (but don't shutdown server)
@@ -375,7 +375,7 @@ suite('Integration Test Suite', () => {
     // Reconnect
     await client.start();
 
-    const version2 = await client.request<{ protocolVersion: number }>('hemis/version');
+    const version2 = await client.request<{ protocolVersion: number }>('mnemos/version');
     assert.ok(version2.protocolVersion, 'Should get version after reconnect');
   });
 
@@ -471,7 +471,7 @@ suite('Integration Test Suite', () => {
     });
 
     // Search for it
-    const results = await client.request<unknown[]>('hemis/search', {
+    const results = await client.request<unknown[]>('mnemos/search', {
       query: 'Searchable',
       projectRoot: '/tmp',
     });
@@ -517,7 +517,7 @@ suite('Integration Test Suite', () => {
     fs.writeFileSync(testFile, 'fn main() { println!("hello"); }\n');
 
     // Index the project
-    const result = await client.request<{ indexed: number }>('hemis/index-project', {
+    const result = await client.request<{ indexed: number }>('mnemos/index-project', {
       projectRoot: testDir,
     });
 
@@ -540,7 +540,7 @@ suite('Integration Test Suite', () => {
     fs.writeFileSync(testFile, 'fn main() {\n    println!("hello");\n}\n');
 
     // Explain a region
-    const result = await client.request<{ content?: string; explanation?: string }>('hemis/explain-region', {
+    const result = await client.request<{ content?: string; explanation?: string }>('mnemos/explain-region', {
       file: testFile,
       startLine: 1,
       endLine: 3,
@@ -572,7 +572,7 @@ suite('Integration Test Suite', () => {
 
     // Save snapshot
     const snapshotPath = path.join(testDir, 'snapshot.json');
-    const saveResult = await client.request<{ counts: { notes: number } }>('hemis/save-snapshot', {
+    const saveResult = await client.request<{ counts: { notes: number } }>('mnemos/save-snapshot', {
       path: snapshotPath,
       projectRoot: '/tmp',
     });
@@ -582,7 +582,7 @@ suite('Integration Test Suite', () => {
     assert.ok(fs.existsSync(snapshotPath), 'Snapshot file should exist');
 
     // Load snapshot
-    const loadResult = await client.request<{ counts: { notes: number } }>('hemis/load-snapshot', {
+    const loadResult = await client.request<{ counts: { notes: number } }>('mnemos/load-snapshot', {
       path: snapshotPath,
     });
 
@@ -885,8 +885,8 @@ impl Server {
     }
 
     // Skip if AI not configured
-    const aiConfigured = process.env['HEMIS_AI_PROVIDER'] ||
-      fs.existsSync(path.join(os.homedir(), '.config/hemis/config.toml'));
+    const aiConfigured = process.env['MNEMOS_AI_PROVIDER'] ||
+      fs.existsSync(path.join(os.homedir(), '.config/mnemos/config.toml'));
 
     this.timeout(120000); // AI can take up to 2 minutes
 
@@ -901,7 +901,7 @@ impl Server {
       content?: string;
       explanation?: string;
       ai?: { statusDisplay?: string };
-    }>('hemis/explain-region', {
+    }>('mnemos/explain-region', {
       file: testFile,
       startLine: 2,
       endLine: 4,
@@ -1156,7 +1156,7 @@ impl Default for Config {
     this.timeout(10000);
 
     // Use /tmp which is symlinked on macOS to /private/tmp
-    const tmpDir = fs.mkdtempSync(path.join('/tmp', 'hemis-goto-symlink-'));
+    const tmpDir = fs.mkdtempSync(path.join('/tmp', 'mnemos-goto-symlink-'));
     const testFile = path.join(tmpDir, 'app.rs');
     const tmpClient = new TestRpcClient(tmpDir, backend!);
 

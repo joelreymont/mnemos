@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "description": "Shared test fixtures for Hemis UI implementations",
+  "description": "Shared test fixtures for Mnemos UI implementations",
 
   "sample_note": {
     "id": "test-note-001",
@@ -102,13 +102,13 @@
       }
     },
     "index_project": {
-      "method": "hemis/index-project",
+      "method": "mnemos/index-project",
       "params": {
         "projectRoot": "/tmp/test"
       }
     },
     "status": {
-      "method": "hemis/status",
+      "method": "mnemos/status",
       "params": {}
     }
   },

@@ -1,4 +1,4 @@
-# Hemis UI Testing Strategy
+# Mnemos UI Testing Strategy
 
 ## Overview
 
@@ -61,24 +61,24 @@ DisplayState = {
 Uses ERT (Emacs Lisp Regression Testing). Run headless:
 
 ```bash
-cd ui/emacs && emacs --batch -L . -L tests -l ert -l hemis.el -l hemis-test.el \
+cd ui/emacs && emacs --batch -L . -L tests -l ert -l mnemos.el -l mnemos-test.el \
   -f ert-run-tests-batch-and-exit
 ```
 
 ### Display State Capture
 
 ```elisp
-(defun hemis-test--capture-overlay-state ()
-  "Capture the display state of all hemis overlays in current buffer.
+(defun mnemos-test--capture-overlay-state ()
+  "Capture the display state of all mnemos overlays in current buffer.
 Returns list of plists with :line :before-string :face :count :texts."
   (let (result)
-    (dolist (ov hemis--overlays)
-      (when (overlay-get ov 'hemis-note-marker)
+    (dolist (ov mnemos--overlays)
+      (when (overlay-get ov 'mnemos-note-marker)
         (push (list :line (line-number-at-pos (overlay-start ov))
                     :before-string (overlay-get ov 'before-string)
                     :face (get-text-property 0 'face (or (overlay-get ov 'before-string) ""))
-                    :count (overlay-get ov 'hemis-note-count)
-                    :texts (overlay-get ov 'hemis-note-texts))
+                    :count (overlay-get ov 'mnemos-note-count)
+                    :texts (overlay-get ov 'mnemos-note-texts))
               result)))
     (nreverse result)))
 ```
@@ -87,26 +87,26 @@ Returns list of plists with :line :before-string :face :count :texts."
 
 ```elisp
 ;; Verify overlay content (uses before-string, not after-string)
-(ert-deftest hemis-note-overlay-shows-text ()
+(ert-deftest mnemos-note-overlay-shows-text ()
   (with-temp-buffer
     (insert "fn main() {}\n")
     (set-visited-file-name "/tmp/test.rs" t t)
     (setq comment-start "// ")
-    (hemis--apply-notes '(((id . "1") (file . "/tmp/test.rs") (line . 1) (column . 0)
+    (mnemos--apply-notes '(((id . "1") (file . "/tmp/test.rs") (line . 1) (column . 0)
                            (text . "Test note"))))
-    (let* ((state (hemis-test--capture-overlay-state))
+    (let* ((state (mnemos-test--capture-overlay-state))
            (ov-state (car state))
            (before-str (plist-get ov-state :before-string)))
       (should (string-match-p "Test note" before-str)))))
 
 ;; Verify face color
-(ert-deftest hemis-overlay-has-steel-blue-face ()
+(ert-deftest mnemos-overlay-has-steel-blue-face ()
   (with-temp-buffer
     (insert "fn main() {}\n")
     (set-visited-file-name "/tmp/face.rs" t t)
-    (hemis--apply-notes '(((id . "1") (file . "/tmp/face.rs") (line . 1) (column . 0)
+    (mnemos--apply-notes '(((id . "1") (file . "/tmp/face.rs") (line . 1) (column . 0)
                            (text . "Blue note"))))
-    (let* ((state (hemis-test--capture-overlay-state))
+    (let* ((state (mnemos-test--capture-overlay-state))
            (face (plist-get (car state) :face)))
       (should (equal (plist-get face :foreground) "SteelBlue")))))
 ```
@@ -125,7 +125,7 @@ cd ui/neovim && nvim --headless -u NONE -c "set rtp+=." -c "lua require('tests.r
 -- tests/display_spec.lua
 local helpers = require("tests.helpers")
 
-describe("hemis display", function()
+describe("mnemos display", function()
   before_each(function()
     helpers.setup_test_buffer()
   end)
@@ -135,7 +135,7 @@ describe("hemis display", function()
   end)
 
   it("shows note as virtual text", function()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
     local notes = {{id = "1", line = 1, text = "Test note"}}
 
     display.render_notes(0, notes)
@@ -152,10 +152,9 @@ end)
 ```lua
 -- tests/helpers.lua (simplified - see actual file for full implementation)
 local M = {}
-
 function M.capture_display_state(buf)
   buf = buf or vim.api.nvim_get_current_buf()
-  local display = require("hemis.display")
+  local display = require("mnemos.display")
   local ns = display.ns_id
   local marks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })
 
@@ -220,7 +219,7 @@ return M
 ```lua
 -- Verify extmark content
 it("renders note with correct text", function()
-  local display = require("hemis.display")
+  local display = require("mnemos.display")
   display.render_notes(0, {{id = "1", line = 1, text = "Important"}})
 
   local state = helpers.capture_display_state()
@@ -229,12 +228,12 @@ end)
 
 -- Verify list buffer
 it("list_notes shows notes in buffer", function()
-  local commands = require("hemis.commands")
+  local commands = require("mnemos.commands")
   commands.buffer_notes = {{id = "1", line = 1, text = "Listed note"}}
   commands.list_notes()
 
   local buf_name = vim.api.nvim_buf_get_name(0)
-  assert.truthy(string.find(buf_name, "Hemis Notes"))
+  assert.truthy(string.find(buf_name, "Mnemos Notes"))
 
   local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
   local found = false
@@ -262,7 +261,7 @@ import * as vscode from 'vscode';
 import { refreshNotes } from '../../decorations';
 import { Note } from '../../notes';
 
-suite('Hemis Display', () => {
+suite('Mnemos Display', () => {
   let editor: vscode.TextEditor;
 
   setup(async () => {
@@ -327,8 +326,8 @@ test('notes tree shows created notes', async () => {
 ### Emacs
 
 ```bash
-# From project root - with HEMIS_BACKEND pointing to the backend binary
-HEMIS_BACKEND=./target/debug/hemis emacs -batch -L ui/emacs -l ui/emacs/tests/hemis-test.el \
+# From project root - with MNEMOS_BACKEND pointing to the backend binary
+MNEMOS_BACKEND=./target/debug/mnemos emacs -batch -L ui/emacs -l ui/emacs/tests/mnemos-test.el \
   -f ert-run-tests-batch-and-exit
 ```
 
@@ -352,11 +351,11 @@ Snapshot tests compare captured display state against committed baseline files.
 
 ```bash
 # Run tests (fails if snapshots missing or mismatched)
-HEMIS_BACKEND=./target/debug/hemis emacs -batch -L ui/emacs -l ui/emacs/tests/hemis-test.el \
+MNEMOS_BACKEND=./target/debug/mnemos emacs -batch -L ui/emacs -l ui/emacs/tests/mnemos-test.el \
   -f ert-run-tests-batch-and-exit
 
 # Create or update snapshots (Neovim)
-HEMIS_UPDATE_SNAPSHOTS=1 cd ui/neovim && nvim --headless -u tests/minimal_init.lua -c "luafile tests/run.lua"
+MNEMOS_UPDATE_SNAPSHOTS=1 cd ui/neovim && nvim --headless -u tests/minimal_init.lua -c "luafile tests/run.lua"
 ```
 
 ## Test Coverage Goals

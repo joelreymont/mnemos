@@ -1,11 +1,11 @@
 # 1. Architecture
 
-Hemis is a three-process architecture designed for interactive, local code intelligence.
+Mnemos is a three-process architecture designed for interactive, local code intelligence.
 
 ```text
 +---------------------+        JSON-RPC        +--------------------+       HTTP/JSON        +------------------+
 |   UI (Lauri +       | <--------------------> |   Lisp Backend     | <--------------------> |   LLM Runner     |
-|   React front-end)  |                        |  (Hemis Brain)     |                       | (Qwen / Llama)   |
+|   React front-end)  |                        |  (Mnemos Brain)     |                       | (Qwen / Llama)   |
 +---------------------+                        +--------------------+                       +------------------+
        ^                                                ^
        |                                                |
@@ -29,7 +29,7 @@ Hemis is a three-process architecture designed for interactive, local code intel
   - `compare-versions`
 - Streams partial responses from Lisp/LLM to the user.
 
-### Lisp Backend (Hemis Brain)
+### Lisp Backend (Mnemos Brain)
 - Maintains all long-lived state:
   - Project registry and configuration.
   - Symbol graph and AST cache.

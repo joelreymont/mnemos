@@ -23,7 +23,7 @@ pub fn build(b: *std.Build) void {
     exe_mod.addOptions("build_options", options);
 
     const exe = b.addExecutable(.{
-        .name = "hemis",
+        .name = "mnemos",
         .root_module = exe_mod,
     });
 
@@ -36,7 +36,7 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
-    const run_step = b.step("run", "Run hemis");
+    const run_step = b.step("run", "Run mnemos");
     run_step.dependOn(&run_cmd.step);
 
     // Tests

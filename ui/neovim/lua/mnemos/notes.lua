@@ -1,5 +1,5 @@
--- Note operations for Hemis
-local rpc = require("hemis.rpc")
+-- Note operations for Mnemos
+local rpc = require("mnemos.rpc")
 -- NOTE: treesitter module no longer needed - server computes anchor position from content
 -- NOTE: git info (commit/blob) no longer needed - server auto-computes from file
 -- NOTE: projectRoot no longer needed - server computes from file via git::find_root()
@@ -175,7 +175,7 @@ function M.index_project(include_ai, callback)
   if include_ai then
     params.includeAI = true
   end
-  rpc.request("hemis/index-project", params, function(err, result)
+  rpc.request("mnemos/index-project", params, function(err, result)
     if callback then
       callback(err, result)
     end
@@ -195,12 +195,12 @@ function M.search_project(query, opts, callback)
     file = opts.file or get_current_file(), -- Server computes projectRoot
     includeNotes = opts.include_notes ~= false,
   }
-  rpc.request("hemis/search", params, callback)
+  rpc.request("mnemos/search", params, callback)
 end
 
 -- Get backend status
 function M.status(callback)
-  rpc.request("hemis/status", {}, callback)
+  rpc.request("mnemos/status", {}, callback)
 end
 
 -- Get backlinks (notes that link to this note)
@@ -230,13 +230,13 @@ function M.explain_region(file, start_line, end_line, prompt, callback)
   if prompt then
     params.prompt = prompt
   end
-  rpc.request("hemis/explain-region", params, callback)
+  rpc.request("mnemos/explain-region", params, callback)
 end
 
 -- Get project metadata (indexing and AI analysis status)
 -- Server computes projectRoot from file
 function M.project_meta(callback)
-  rpc.request("hemis/project-meta", { file = get_current_file() }, callback)
+  rpc.request("mnemos/project-meta", { file = get_current_file() }, callback)
 end
 
 -- Reattach a stale note to a new position

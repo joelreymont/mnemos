@@ -1,23 +1,23 @@
-//! Hemis configuration
+//! Mnemos configuration
 //!
 //! Configuration is loaded from (in order of precedence):
 //! 1. CLI flags (--db-path, --ai-provider)
-//! 2. Environment variables (HEMIS_DB_PATH, HEMIS_AI_PROVIDER)
-//! 3. Config file (~/.config/hemis/config.toml or --config path)
+//! 2. Environment variables (MNEMOS_DB_PATH, MNEMOS_AI_PROVIDER)
+//! 3. Config file (~/.config/mnemos/config.toml or --config path)
 //! 4. Default values
 //!
 //! Config file format (TOML):
-//!   db-path = "/path/to/hemis.db"
+//!   db-path = "/path/to/mnemos.db"
 //!   ai-provider = "claude"  # or "codex", "none"
 
 use log::warn;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// Hemis configuration
+/// Mnemos configuration
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
-pub struct HemisConfig {
+pub struct MnemosConfig {
     /// Database path
     #[serde(rename = "db-path")]
     pub db_path: Option<String>,
@@ -27,45 +27,45 @@ pub struct HemisConfig {
     pub ai_provider: Option<String>,
 }
 
-/// Get the hemis config directory.
-/// Priority: HEMIS_CONFIG_DIR env var > ~/.config/hemis (if exists) > platform default
+/// Get the mnemos config directory.
+/// Priority: MNEMOS_CONFIG_DIR env var > ~/.config/mnemos (if exists) > platform default
 pub fn config_dir() -> PathBuf {
     // 1. Check env var first
-    if let Ok(dir) = std::env::var("HEMIS_CONFIG_DIR") {
+    if let Ok(dir) = std::env::var("MNEMOS_CONFIG_DIR") {
         return PathBuf::from(dir);
     }
 
-    // 2. Check XDG location (~/.config/hemis) - preferred for CLI tools
+    // 2. Check XDG location (~/.config/mnemos) - preferred for CLI tools
     if let Some(home) = dirs::home_dir() {
-        let xdg_config = home.join(".config").join("hemis");
+        let xdg_config = home.join(".config").join("mnemos");
         if xdg_config.exists() {
             return xdg_config;
         }
     }
 
-    // 3. Fall back to platform-native location (~/Library/Application Support/hemis on macOS)
+    // 3. Fall back to platform-native location (~/Library/Application Support/mnemos on macOS)
     dirs::config_dir()
         .unwrap_or_else(|| {
             dirs::home_dir()
                 .map(|h| h.join(".config"))
                 .unwrap_or_else(|| PathBuf::from(".config"))
         })
-        .join("hemis")
+        .join("mnemos")
 }
 
-/// Get the hemis data directory (~/.hemis or HEMIS_DIR).
+/// Get the mnemos data directory (~/.mnemos or MNEMOS_DIR).
 pub fn data_dir() -> PathBuf {
-    std::env::var("HEMIS_DIR")
+    std::env::var("MNEMOS_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
             dirs::home_dir()
-                .map(|h| h.join(".hemis"))
-                .unwrap_or_else(|| PathBuf::from(".hemis"))
+                .map(|h| h.join(".mnemos"))
+                .unwrap_or_else(|| PathBuf::from(".mnemos"))
         })
 }
 
 /// Load configuration from a specific path or the default location
-pub fn load_config_from(path: Option<&Path>) -> HemisConfig {
+pub fn load_config_from(path: Option<&Path>) -> MnemosConfig {
     let config_path = path
         .map(PathBuf::from)
         .unwrap_or_else(|| config_dir().join("config.toml"));
@@ -76,16 +76,16 @@ pub fn load_config_from(path: Option<&Path>) -> HemisConfig {
                 Ok(config) => config,
                 Err(e) => {
                     warn!("Failed to parse {}: {}", config_path.display(), e);
-                    HemisConfig::default()
+                    MnemosConfig::default()
                 }
             },
             Err(e) => {
                 warn!("Failed to read {}: {}", config_path.display(), e);
-                HemisConfig::default()
+                MnemosConfig::default()
             }
         }
     } else {
-        HemisConfig::default()
+        MnemosConfig::default()
     }
 }
 
@@ -114,19 +114,19 @@ impl ResolvedConfig {
         // DB path: CLI > env var > config file > default
         let db_path = overrides
             .db_path
-            .or_else(|| std::env::var("HEMIS_DB_PATH").ok())
+            .or_else(|| std::env::var("MNEMOS_DB_PATH").ok())
             .or(config.db_path)
-            .unwrap_or_else(|| data_dir.join("hemis.db").to_string_lossy().into_owned());
+            .unwrap_or_else(|| data_dir.join("mnemos.db").to_string_lossy().into_owned());
 
         // AI provider: CLI > env var > config file > auto-detect
         let ai_provider = overrides
             .ai_provider
-            .or_else(|| std::env::var("HEMIS_AI_PROVIDER").ok())
+            .or_else(|| std::env::var("MNEMOS_AI_PROVIDER").ok())
             .or(config.ai_provider);
 
         // Set AI provider env var so ai_cli module can pick it up
         if let Some(ref provider) = ai_provider {
-            std::env::set_var("HEMIS_AI_PROVIDER", provider);
+            std::env::set_var("MNEMOS_AI_PROVIDER", provider);
         }
 
         Self {
@@ -144,18 +144,18 @@ mod tests {
     #[test]
     fn test_parse_config() {
         let toml = r#"
-            db-path = "/custom/hemis.db"
+            db-path = "/custom/mnemos.db"
             ai-provider = "claude"
         "#;
 
-        let config: HemisConfig = toml::from_str(toml).unwrap();
-        assert_eq!(config.db_path, Some("/custom/hemis.db".to_string()));
+        let config: MnemosConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.db_path, Some("/custom/mnemos.db".to_string()));
         assert_eq!(config.ai_provider, Some("claude".to_string()));
     }
 
     #[test]
     fn test_default_config() {
-        let config = HemisConfig::default();
+        let config = MnemosConfig::default();
         assert!(config.db_path.is_none());
         assert!(config.ai_provider.is_none());
     }
@@ -167,8 +167,8 @@ mod tests {
     fn test_cli_overrides_env_var() {
         // CLI arg should take precedence over env var
         // Set env var
-        std::env::set_var("HEMIS_DB_PATH", "/env/db.db");
-        std::env::set_var("HEMIS_AI_PROVIDER", "env-provider");
+        std::env::set_var("MNEMOS_DB_PATH", "/env/db.db");
+        std::env::set_var("MNEMOS_AI_PROVIDER", "env-provider");
 
         // CLI override
         let overrides = CliOverrides {
@@ -183,8 +183,8 @@ mod tests {
         assert_eq!(config.ai_provider, Some("cli-provider".to_string()));
 
         // Cleanup
-        std::env::remove_var("HEMIS_DB_PATH");
-        std::env::remove_var("HEMIS_AI_PROVIDER");
+        std::env::remove_var("MNEMOS_DB_PATH");
+        std::env::remove_var("MNEMOS_AI_PROVIDER");
     }
 
     #[test]
@@ -204,8 +204,8 @@ mod tests {
         .unwrap();
 
         // Set env var (should override config)
-        std::env::set_var("HEMIS_DB_PATH", "/env/db.db");
-        std::env::set_var("HEMIS_AI_PROVIDER", "env-provider");
+        std::env::set_var("MNEMOS_DB_PATH", "/env/db.db");
+        std::env::set_var("MNEMOS_AI_PROVIDER", "env-provider");
 
         // No CLI override
         let overrides = CliOverrides::default();
@@ -217,8 +217,8 @@ mod tests {
         assert_eq!(config.ai_provider, Some("env-provider".to_string()));
 
         // Cleanup
-        std::env::remove_var("HEMIS_DB_PATH");
-        std::env::remove_var("HEMIS_AI_PROVIDER");
+        std::env::remove_var("MNEMOS_DB_PATH");
+        std::env::remove_var("MNEMOS_AI_PROVIDER");
     }
 
     #[test]
@@ -226,8 +226,8 @@ mod tests {
     fn test_cli_overrides_config_file() {
         // CLI arg should take precedence over config file
         // Clear env vars
-        std::env::remove_var("HEMIS_DB_PATH");
-        std::env::remove_var("HEMIS_AI_PROVIDER");
+        std::env::remove_var("MNEMOS_DB_PATH");
+        std::env::remove_var("MNEMOS_AI_PROVIDER");
 
         // Create temp config file
         let tmp = tempfile::TempDir::new().unwrap();
@@ -259,8 +259,8 @@ mod tests {
     fn test_config_file_used_when_no_cli_or_env() {
         // Config file should be used when no CLI or env var is set
         // Clear env vars
-        std::env::remove_var("HEMIS_DB_PATH");
-        std::env::remove_var("HEMIS_AI_PROVIDER");
+        std::env::remove_var("MNEMOS_DB_PATH");
+        std::env::remove_var("MNEMOS_AI_PROVIDER");
 
         // Create temp config file
         let tmp = tempfile::TempDir::new().unwrap();
@@ -289,8 +289,8 @@ mod tests {
     fn test_default_used_when_nothing_set() {
         // Default should be used when nothing is set
         // Clear env vars
-        std::env::remove_var("HEMIS_DB_PATH");
-        std::env::remove_var("HEMIS_AI_PROVIDER");
+        std::env::remove_var("MNEMOS_DB_PATH");
+        std::env::remove_var("MNEMOS_AI_PROVIDER");
 
         // Create empty config file
         let tmp = tempfile::TempDir::new().unwrap();
@@ -302,10 +302,10 @@ mod tests {
 
         let config = ResolvedConfig::new(Some(config_path.to_str().unwrap()), overrides);
 
-        // Default db_path should end with hemis.db
+        // Default db_path should end with mnemos.db
         assert!(
-            config.db_path.ends_with("hemis.db"),
-            "Expected default db_path to end with hemis.db, got: {}",
+            config.db_path.ends_with("mnemos.db"),
+            "Expected default db_path to end with mnemos.db, got: {}",
             config.db_path
         );
         // Default ai_provider should be None

@@ -6,7 +6,7 @@ Build the Rust backend and verify it works correctly.
 
 1. **Build in debug mode** (faster compilation):
    ```bash
-   cd /Users/joel/Work/hemis && cargo build 2>&1
+   cd /Users/joel/Work/mnemos && cargo build 2>&1
    ```
 
 2. **Check for warnings** that might indicate issues:
@@ -16,7 +16,7 @@ Build the Rust backend and verify it works correctly.
 
 3. **Verify the binary works**:
    ```bash
-   ./target/debug/hemis --version 2>&1
+   ./target/debug/mnemos --version 2>&1
    ```
 
 4. **Run backend tests**:
@@ -34,6 +34,6 @@ Build the Rust backend and verify it works correctly.
 Use `cargo build --release` for optimized builds. These take longer but run faster.
 
 ## Common Issues
-- **Lock file conflict**: Another hemis process is running. Kill it with `pkill -f 'hemis --serve'`
-- **Database locked**: Remove `~/.hemis/hemis.db-lock` or the test's temp directory
-- **Socket stale**: Remove `~/.hemis/hemis.sock` and `~/.hemis/hemis.lock`
+- **Lock file conflict**: Another mnemos process is running. Kill it with `pkill -f 'mnemos --serve'`
+- **Database locked**: Remove `~/.mnemos/mnemos.db-lock` or the test's temp directory
+- **Socket stale**: Remove `~/.mnemos/mnemos.sock` and `~/.mnemos/mnemos.lock`

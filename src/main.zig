@@ -154,12 +154,12 @@ fn loadConfigFile(alloc: Allocator, config: *Config) !void {
 fn getConfigPath(alloc: Allocator) ![]const u8 {
     if (process.getEnvVarOwned(alloc, "XDG_CONFIG_HOME")) |xdg_config| {
         defer alloc.free(xdg_config);
-        return try std.fmt.allocPrint(alloc, "{s}/hemis/config.json", .{xdg_config});
+        return try std.fmt.allocPrint(alloc, "{s}/mnemos/config.json", .{xdg_config});
     } else |_| {}
 
     if (process.getEnvVarOwned(alloc, "HOME")) |home| {
         defer alloc.free(home);
-        return try std.fmt.allocPrint(alloc, "{s}/.config/hemis/config.json", .{home});
+        return try std.fmt.allocPrint(alloc, "{s}/.config/mnemos/config.json", .{home});
     } else |_| {}
 
     return error.NoHomeDir;
@@ -170,18 +170,18 @@ fn getSocketPath(alloc: Allocator, config: *const Config) ![]const u8 {
         return try alloc.dupe(u8, path);
     }
 
-    // Check HEMIS_DIR first (for tests and custom setups)
-    if (process.getEnvVarOwned(alloc, "HEMIS_DIR")) |hemis_dir| {
-        defer alloc.free(hemis_dir);
-        return try std.fmt.allocPrint(alloc, "{s}/hemis.sock", .{hemis_dir});
+    // Check MNEMOS_DIR first (for tests and custom setups)
+    if (process.getEnvVarOwned(alloc, "MNEMOS_DIR")) |mnemos_dir| {
+        defer alloc.free(mnemos_dir);
+        return try std.fmt.allocPrint(alloc, "{s}/mnemos.sock", .{mnemos_dir});
     } else |_| {}
 
     if (process.getEnvVarOwned(alloc, "XDG_RUNTIME_DIR")) |runtime_dir| {
         defer alloc.free(runtime_dir);
-        return try std.fmt.allocPrint(alloc, "{s}/hemis.sock", .{runtime_dir});
+        return try std.fmt.allocPrint(alloc, "{s}/mnemos.sock", .{runtime_dir});
     } else |_| {}
 
-    return try std.fmt.allocPrint(alloc, "/tmp/hemis.sock", .{});
+    return try std.fmt.allocPrint(alloc, "/tmp/mnemos.sock", .{});
 }
 
 fn getDbPath(alloc: Allocator, config: *const Config) ![]const u8 {
@@ -189,28 +189,28 @@ fn getDbPath(alloc: Allocator, config: *const Config) ![]const u8 {
         return try alloc.dupe(u8, path);
     }
 
-    // Check HEMIS_DB_PATH env var
-    if (process.getEnvVarOwned(alloc, "HEMIS_DB_PATH")) |db_path| {
+    // Check MNEMOS_DB_PATH env var
+    if (process.getEnvVarOwned(alloc, "MNEMOS_DB_PATH")) |db_path| {
         return db_path;
     } else |_| {}
 
-    // Check HEMIS_DIR env var
-    if (process.getEnvVarOwned(alloc, "HEMIS_DIR")) |hemis_dir| {
-        defer alloc.free(hemis_dir);
-        return try std.fmt.allocPrint(alloc, "{s}/hemis.db", .{hemis_dir});
+    // Check MNEMOS_DIR env var
+    if (process.getEnvVarOwned(alloc, "MNEMOS_DIR")) |mnemos_dir| {
+        defer alloc.free(mnemos_dir);
+        return try std.fmt.allocPrint(alloc, "{s}/mnemos.db", .{mnemos_dir});
     } else |_| {}
 
     const project_root = config.project_root orelse try getCurrentDir(alloc);
     defer if (config.project_root == null) alloc.free(project_root);
 
-    const hemis_dir = try std.fmt.allocPrint(alloc, "{s}/.hemis", .{project_root});
-    defer alloc.free(hemis_dir);
+    const mnemos_dir = try std.fmt.allocPrint(alloc, "{s}/.mnemos", .{project_root});
+    defer alloc.free(mnemos_dir);
 
-    fs.makeDirAbsolute(hemis_dir) catch |err| {
+    fs.makeDirAbsolute(mnemos_dir) catch |err| {
         if (err != error.PathAlreadyExists) return err;
     };
 
-    return try std.fmt.allocPrint(alloc, "{s}/db.sqlite", .{hemis_dir});
+    return try std.fmt.allocPrint(alloc, "{s}/db.sqlite", .{mnemos_dir});
 }
 
 fn getCurrentDir(alloc: Allocator) ![]const u8 {
@@ -260,18 +260,18 @@ fn printError(msg: []const u8) !void {
 
 fn printHelp() void {
     const help =
-        \\hemis - A second brain for your code
+        \\mnemos - A second brain for your code
         \\
         \\USAGE:
-        \\    hemis [OPTIONS]
-        \\    hemis grammar <COMMAND>
+        \\    mnemos [OPTIONS]
+        \\    mnemos grammar <COMMAND>
         \\
         \\OPTIONS:
         \\    --stdio              Run in stdio mode (for editor integration)
         \\    --serve              Run as Unix socket server (alias for --socket)
         \\    --socket <path>      Run as Unix socket server at specific path
         \\    --project <path>     Set project root directory (default: current directory)
-        \\    --db <path>          Database file path (default: .hemis/db.sqlite)
+        \\    --db <path>          Database file path (default: .mnemos/db.sqlite)
         \\    --version, -v        Print version
         \\    --help, -h           Print this help
         \\
@@ -280,16 +280,16 @@ fn printHelp() void {
         \\
         \\ENVIRONMENT:
         \\    XDG_RUNTIME_DIR      Used for default socket path if set
-        \\    XDG_CONFIG_HOME      Used for config file location (~/.config/hemis/config.json)
+        \\    XDG_CONFIG_HOME      Used for config file location (~/.config/mnemos/config.json)
         \\    HOME                 Fallback for config file location
         \\
         \\CONFIG FILE:
-        \\    Config file location: $XDG_CONFIG_HOME/hemis/config.json
-        \\                      or: ~/.config/hemis/config.json
+        \\    Config file location: $XDG_CONFIG_HOME/mnemos/config.json
+        \\                      or: ~/.config/mnemos/config.json
         \\
         \\    Example config.json:
         \\    {
-        \\      "socket_path": "/tmp/hemis.sock",
+        \\      "socket_path": "/tmp/mnemos.sock",
         \\      "project_root": "/path/to/project",
         \\      "db_path": "/path/to/db.sqlite"
         \\    }
@@ -301,7 +301,7 @@ fn printHelp() void {
 }
 
 fn printVersion() void {
-    const version_str = "Hemis v" ++ VERSION ++ " (" ++ GIT_HASH ++ ")\n";
+    const version_str = "Mnemos v" ++ VERSION ++ " (" ++ GIT_HASH ++ ")\n";
     fs.File.stdout().writeAll(version_str) catch {};
 }
 
@@ -397,7 +397,7 @@ test "getConfigPath returns valid path" {
     defer alloc.free(path);
 
     try testing.expect(path.len > 0);
-    try testing.expect(mem.endsWith(u8, path, "hemis/config.json"));
+    try testing.expect(mem.endsWith(u8, path, "mnemos/config.json"));
 }
 
 test "getSocketPath from config" {
@@ -425,7 +425,7 @@ test "getSocketPath without config returns path" {
     defer alloc.free(path);
 
     try testing.expect(path.len > 0);
-    try testing.expect(mem.endsWith(u8, path, "hemis.sock"));
+    try testing.expect(mem.endsWith(u8, path, "mnemos.sock"));
 }
 
 test "getDbPath from config" {
@@ -464,7 +464,7 @@ test "getDbPath with project root" {
     const path = try getDbPath(alloc, &config);
     defer alloc.free(path);
 
-    try testing.expect(mem.endsWith(u8, path, ".hemis/db.sqlite"));
+    try testing.expect(mem.endsWith(u8, path, ".mnemos/db.sqlite"));
 }
 
 test "getCurrentDir returns path" {

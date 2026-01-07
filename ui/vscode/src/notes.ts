@@ -88,7 +88,7 @@ export async function listNotesByNode(
 
 export async function indexProject(projectRoot: string): Promise<{ indexed: number }> {
   const client = getRpcClient();
-  return client.request<{ indexed: number }>('hemis/index-project', { projectRoot });
+  return client.request<{ indexed: number }>('mnemos/index-project', { projectRoot });
 }
 
 export interface SearchHit {
@@ -105,7 +105,7 @@ export interface SearchHit {
 
 export async function search(query: string, projectRoot?: string, includeNotes = true): Promise<SearchHit[]> {
   const client = getRpcClient();
-  return client.request<SearchHit[]>('hemis/search', { query, projectRoot, includeNotes });
+  return client.request<SearchHit[]>('mnemos/search', { query, projectRoot, includeNotes });
 }
 
 export interface Status {
@@ -122,7 +122,7 @@ export interface Status {
 
 export async function getStatus(): Promise<Status> {
   const client = getRpcClient();
-  return client.request<Status>('hemis/status', {});
+  return client.request<Status>('mnemos/status', {});
 }
 
 export async function getBacklinks(id: string): Promise<Note[]> {
@@ -168,7 +168,7 @@ export async function explainRegion(
   if (projectRoot) {
     params.projectRoot = projectRoot;
   }
-  return client.request<ExplainResult>('hemis/explain-region', params);
+  return client.request<ExplainResult>('mnemos/explain-region', params);
 }
 
 export interface IndexProjectResult {
@@ -190,7 +190,7 @@ export async function indexProjectWithAI(projectRoot: string, includeAI = false)
   if (includeAI) {
     params.includeAI = true;
   }
-  return client.request<IndexProjectResult>('hemis/index-project', params);
+  return client.request<IndexProjectResult>('mnemos/index-project', params);
 }
 
 export interface ProjectMeta {
@@ -213,7 +213,7 @@ export interface ProjectMeta {
 
 export async function getProjectMeta(projectRoot: string): Promise<ProjectMeta> {
   const client = getRpcClient();
-  return client.request<ProjectMeta>('hemis/project-meta', { projectRoot });
+  return client.request<ProjectMeta>('mnemos/project-meta', { projectRoot });
 }
 
 // Send buffer update for real-time position tracking

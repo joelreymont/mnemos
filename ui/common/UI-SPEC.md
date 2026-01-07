@@ -1,10 +1,10 @@
-# Hemis UI Specification
+# Mnemos UI Specification
 
-Cross-editor abstraction layer for Hemis UI implementations.
+Cross-editor abstraction layer for Mnemos UI implementations.
 
 ## Overview
 
-This document defines the common patterns and contracts that all Hemis UI implementations (Neovim, Emacs, VS Code, etc.) must follow. It serves as:
+This document defines the common patterns and contracts that all Mnemos UI implementations (Neovim, Emacs, VS Code, etc.) must follow. It serves as:
 1. A guide for implementing new UIs
 2. A consistency reference for existing UIs
 3. Documentation of the RPC contract
@@ -79,11 +79,11 @@ function getProjectRoot(): string {
 
 | Method | Required Params | Optional Params | Returns |
 |--------|-----------------|-----------------|---------|
-| `hemis/index-project` | projectRoot | includeAI | {indexed, ai?} |
-| `hemis/search` | query, projectRoot | includeNotes, limit | SearchResult[] |
-| `hemis/status` | - | projectRoot | {ok, counts} |
-| `hemis/project-meta` | projectRoot | - | ProjectMeta |
-| `hemis/explain-region` | file, startLine, endLine, projectRoot | content, useAI, detailed | ExplainResult |
+| `mnemos/index-project` | projectRoot | includeAI | {indexed, ai?} |
+| `mnemos/search` | query, projectRoot | includeNotes, limit | SearchResult[] |
+| `mnemos/status` | - | projectRoot | {ok, counts} |
+| `mnemos/project-meta` | projectRoot | - | ProjectMeta |
+| `mnemos/explain-region` | file, startLine, endLine, projectRoot | content, useAI, detailed | ExplainResult |
 
 ## Display Patterns
 
@@ -134,8 +134,8 @@ Command Flow:
 | search | Search notes | Query | notes/search |
 | backlinks | Show backlinks | - | notes/backlinks |
 | reattach | Reattach stale note | Confirmation | notes/reattach |
-| index-project | Index project files | - | hemis/index-project |
-| status | Show backend status | - | hemis/status |
+| index-project | Index project files | - | mnemos/index-project |
+| status | Show backend status | - | mnemos/status |
 
 ## Keybinding Conventions
 

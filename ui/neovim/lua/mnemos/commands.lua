@@ -1,9 +1,9 @@
--- Commands and keybindings for Hemis
-local notes = require("hemis.notes")
-local display = require("hemis.display")
-local rpc = require("hemis.rpc")
-local config = require("hemis.config")
-local events = require("hemis.events")
+-- Commands and keybindings for Mnemos
+local notes = require("mnemos.notes")
+local display = require("mnemos.display")
+local rpc = require("mnemos.rpc")
+local config = require("mnemos.config")
+local events = require("mnemos.events")
 
 local M = {}
 
@@ -40,7 +40,7 @@ local function signal_picker_ready(event_name, max_attempts)
       local is_floating = win_config.relative ~= nil and win_config.relative ~= ""
 
       -- Debug: log state on each attempt
-      if os.getenv("HEMIS_DEBUG") then
+      if os.getenv("MNEMOS_DEBUG") then
         vim.notify(string.format("[picker-ready] attempt=%d mode=%s floating=%s win=%d",
           attempts, mode, tostring(is_floating), win), vim.log.levels.DEBUG)
       end
@@ -317,7 +317,7 @@ function M.edit_note()
   vim.bo[buf].buftype = "nofile"
   vim.bo[buf].filetype = "markdown"
   -- Store source file for insert_link to use
-  vim.b[buf].hemis_source_file = file
+  vim.b[buf].mnemos_source_file = file
 
   local function save()
     local new_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -350,7 +350,7 @@ function M.edit_note()
   local prefix = config.get("keymap_prefix") or "<leader>h"
   vim.keymap.set({ "n", "i" }, prefix .. "k", function()
     M.insert_link({ file = file })
-  end, { buffer = buf, desc = "Hemis: Insert link" })
+  end, { buffer = buf, desc = "Mnemos: Insert link" })
 end
 
 -- Edit note at cursor in a full split buffer (for longer notes like AI explanations)
@@ -375,7 +375,7 @@ function M.edit_note_buffer()
   vim.bo[buf].buftype = "acwrite"
   vim.bo[buf].filetype = "markdown"
   vim.bo[buf].swapfile = false
-  vim.api.nvim_buf_set_name(buf, "hemis://note/" .. note_id)
+  vim.api.nvim_buf_set_name(buf, "mnemos://note/" .. note_id)
 
   -- Insert note content
   local lines = vim.split(note.text or "", "\n")
@@ -432,7 +432,7 @@ function M.edit_note_buffer()
   local prefix = config.get("keymap_prefix") or "<leader>h"
   vim.keymap.set({ "n", "i" }, prefix .. "k", function()
     M.insert_link({ file = file })
-  end, { buffer = buf, desc = "Hemis: Insert link" })
+  end, { buffer = buf, desc = "Mnemos: Insert link" })
 
   vim.notify("Editing note in buffer. :w to save, q to close.", vim.log.levels.INFO)
 end
@@ -495,7 +495,7 @@ function M.list_notes()
       end)
 
       -- Verify picker is ready (insert mode + floating window) before signaling
-      signal_picker_ready("HemisListNotesPickerReady")
+      signal_picker_ready("MnemosListNotesPickerReady")
     end)
   end)
 end
@@ -549,7 +549,7 @@ function M.search_file()
       end
     end)
 
-    signal_picker_ready("HemisSearchFilePickerReady")
+    signal_picker_ready("MnemosSearchFilePickerReady")
   end, 50)
 end
 
@@ -606,7 +606,7 @@ function M.search_project()
         end
       end)
 
-      signal_picker_ready("HemisSearchProjectPickerReady")
+      signal_picker_ready("MnemosSearchProjectPickerReady")
     end, 50)
   end)
 end
@@ -621,7 +621,7 @@ function M.insert_link()
   end
 
   -- Get file for projectRoot - use source file if in edit buffer
-  local file = vim.b.hemis_source_file or vim.fn.expand("%:p")
+  local file = vim.b.mnemos_source_file or vim.fn.expand("%:p")
 
   -- Search notes in project (pass file explicitly)
   notes.search_project(query, { include_notes = true, file = file }, function(err, result)
@@ -677,7 +677,7 @@ function M.insert_link()
         end
       end)
 
-      signal_picker_ready("HemisInsertLinkPickerReady")
+      signal_picker_ready("MnemosInsertLinkPickerReady")
     end)
   end)
 end
@@ -865,7 +865,7 @@ function M.show_backlinks()
         end
       end)
 
-      signal_picker_ready("HemisBacklinksPickerReady")
+      signal_picker_ready("MnemosBacklinksPickerReady")
     end)
   end)
 end
@@ -916,7 +916,7 @@ function M.help()
   }
 
   -- Build lines for display
-  local lines = { "Hemis Keybindings", "" }
+  local lines = { "Mnemos Keybindings", "" }
   for _, b in ipairs(bindings) do
     table.insert(lines, string.format("  %s%s  %s", prefix, b[1], b[2]))
   end
@@ -951,7 +951,7 @@ function M.help()
     col = col,
     style = "minimal",
     border = "rounded",
-    title = " Hemis ",
+    title = " Mnemos ",
     title_pos = "center",
   })
 
@@ -983,7 +983,7 @@ end
 -- Shutdown backend
 function M.shutdown()
   rpc.stop()
-  vim.notify("Hemis backend stopped", vim.log.levels.INFO)
+  vim.notify("Mnemos backend stopped", vim.log.levels.INFO)
 end
 
 -- Get selected note
@@ -1228,30 +1228,30 @@ end
 
 -- Setup user commands
 function M.setup_commands()
-  vim.api.nvim_create_user_command("HemisAddNote", M.add_note, {})
-  vim.api.nvim_create_user_command("HemisAddNoteMultiline", M.add_note_multiline, {})
-  vim.api.nvim_create_user_command("HemisListNotes", M.list_notes, {})
-  vim.api.nvim_create_user_command("HemisRefresh", M.refresh, {})
-  vim.api.nvim_create_user_command("HemisDeleteNote", M.delete_note, {})
-  vim.api.nvim_create_user_command("HemisEditNote", M.edit_note, {})
-  vim.api.nvim_create_user_command("HemisEditNoteBuffer", M.edit_note_buffer, {})
-  vim.api.nvim_create_user_command("HemisSearchFile", M.search_file, {})
-  vim.api.nvim_create_user_command("HemisSearchProject", M.search_project, {})
-  vim.api.nvim_create_user_command("HemisIndexFile", M.index_file, {})
-  vim.api.nvim_create_user_command("HemisIndexProject", M.index_project, {})
-  vim.api.nvim_create_user_command("HemisInsertLink", M.insert_link, {})
-  vim.api.nvim_create_user_command("HemisFollowLink", M.follow_link, {})
-  vim.api.nvim_create_user_command("HemisNavigateBack", M.navigate_back, {})
-  vim.api.nvim_create_user_command("HemisBacklinks", M.show_backlinks, {})
-  vim.api.nvim_create_user_command("HemisReattachNote", M.reattach_note, {})
-  vim.api.nvim_create_user_command("HemisStatus", M.status, {})
-  vim.api.nvim_create_user_command("HemisHelp", M.help, {})
-  vim.api.nvim_create_user_command("HemisShutdown", M.shutdown, {})
-  vim.api.nvim_create_user_command("HemisAskAI", M.ask_ai, { range = true })
-  vim.api.nvim_create_user_command("HemisIndexProjectAI", M.index_project_ai, {})
-  vim.api.nvim_create_user_command("HemisProjectMeta", M.project_meta, {})
-  vim.api.nvim_create_user_command("HemisSelectNote", M.select_note, {})
-  vim.api.nvim_create_user_command("HemisClearSelection", M.clear_selection, {})
+  vim.api.nvim_create_user_command("MnemosAddNote", M.add_note, {})
+  vim.api.nvim_create_user_command("MnemosAddNoteMultiline", M.add_note_multiline, {})
+  vim.api.nvim_create_user_command("MnemosListNotes", M.list_notes, {})
+  vim.api.nvim_create_user_command("MnemosRefresh", M.refresh, {})
+  vim.api.nvim_create_user_command("MnemosDeleteNote", M.delete_note, {})
+  vim.api.nvim_create_user_command("MnemosEditNote", M.edit_note, {})
+  vim.api.nvim_create_user_command("MnemosEditNoteBuffer", M.edit_note_buffer, {})
+  vim.api.nvim_create_user_command("MnemosSearchFile", M.search_file, {})
+  vim.api.nvim_create_user_command("MnemosSearchProject", M.search_project, {})
+  vim.api.nvim_create_user_command("MnemosIndexFile", M.index_file, {})
+  vim.api.nvim_create_user_command("MnemosIndexProject", M.index_project, {})
+  vim.api.nvim_create_user_command("MnemosInsertLink", M.insert_link, {})
+  vim.api.nvim_create_user_command("MnemosFollowLink", M.follow_link, {})
+  vim.api.nvim_create_user_command("MnemosNavigateBack", M.navigate_back, {})
+  vim.api.nvim_create_user_command("MnemosBacklinks", M.show_backlinks, {})
+  vim.api.nvim_create_user_command("MnemosReattachNote", M.reattach_note, {})
+  vim.api.nvim_create_user_command("MnemosStatus", M.status, {})
+  vim.api.nvim_create_user_command("MnemosHelp", M.help, {})
+  vim.api.nvim_create_user_command("MnemosShutdown", M.shutdown, {})
+  vim.api.nvim_create_user_command("MnemosAskAI", M.ask_ai, { range = true })
+  vim.api.nvim_create_user_command("MnemosIndexProjectAI", M.index_project_ai, {})
+  vim.api.nvim_create_user_command("MnemosProjectMeta", M.project_meta, {})
+  vim.api.nvim_create_user_command("MnemosSelectNote", M.select_note, {})
+  vim.api.nvim_create_user_command("MnemosClearSelection", M.clear_selection, {})
 end
 
 -- Setup keymaps
@@ -1286,14 +1286,14 @@ function M.setup_keymaps()
   }
 
   for _, m in ipairs(mappings) do
-    vim.keymap.set("n", prefix .. m[1], m[2], { desc = "Hemis: " .. m[3] })
+    vim.keymap.set("n", prefix .. m[1], m[2], { desc = "Mnemos: " .. m[3] })
   end
 
   -- Visual mode mapping for Ask AI
-  vim.keymap.set("v", prefix .. "a", M.ask_ai, { desc = "Hemis: Ask AI" })
+  vim.keymap.set("v", prefix .. "a", M.ask_ai, { desc = "Mnemos: Ask AI" })
 
   -- Clear selection with prefix + Escape
-  vim.keymap.set("n", prefix .. "<Esc>", M.clear_selection, { desc = "Hemis: Clear selection" })
+  vim.keymap.set("n", prefix .. "<Esc>", M.clear_selection, { desc = "Mnemos: Clear selection" })
 end
 
 -- Debounce timer for buffer updates
@@ -1339,7 +1339,7 @@ end
 
 -- Setup autocommands
 function M.setup_autocommands()
-  local group = vim.api.nvim_create_augroup("hemis", { clear = true })
+  local group = vim.api.nvim_create_augroup("mnemos", { clear = true })
 
   if config.get("auto_refresh") then
     vim.api.nvim_create_autocmd("BufEnter", {

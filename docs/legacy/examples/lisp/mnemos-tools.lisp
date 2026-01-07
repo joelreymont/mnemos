@@ -1,9 +1,9 @@
-(defpackage :hemis.tools
+(defpackage :mnemos.tools
   (:use :cl)
-  (:import-from :hemis.index :find-usages :find-definition)
+  (:import-from :mnemos.index :find-usages :find-definition)
   (:export :dispatch-tool))
 
-(in-package :hemis.tools)
+(in-package :mnemos.tools)
 
 (defun tool-find-usages (args)
   (let* ((symbol (gethash "symbol" args))

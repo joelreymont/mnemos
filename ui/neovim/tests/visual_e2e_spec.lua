@@ -1,4 +1,4 @@
--- Visual E2E tests for Hemis Neovim plugin
+-- Visual E2E tests for Mnemos Neovim plugin
 -- These tests verify that notes ACTUALLY APPEAR VISUALLY (extmarks exist)
 -- Run with: nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedFile tests/visual_e2e_spec.lua"
 --
@@ -55,14 +55,14 @@ impl Default for Config {
   end
 
   -- Stop any existing RPC connection
-  local rpc = require("hemis.rpc")
+  local rpc = require("mnemos.rpc")
   rpc.stop()
 
-  -- Configure hemis
-  local config = require("hemis.config")
+  -- Configure mnemos
+  local config = require("mnemos.config")
   config.setup({
-    backend = vim.g.hemis_test_backend,
-    hemis_dir = test_dir,
+    backend = vim.g.mnemos_test_backend,
+    mnemos_dir = test_dir,
     auto_refresh = false,
     keymaps = false,
   })
@@ -89,7 +89,7 @@ end
 
 -- Helper to verify extmarks exist with content
 local function verify_extmarks_visible(buf, expected_text)
-  local display = require("hemis.display")
+  local display = require("mnemos.display")
   local ns = display.ns_id
   local marks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })
 
@@ -129,7 +129,7 @@ describe("visual e2e: notes appear as extmarks", function()
 
   it("VISUAL: create note and verify extmark appears", function()
     local env = setup_e2e_env()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
 
     local connected = false
     local create_done = false
@@ -199,7 +199,7 @@ describe("visual e2e: notes appear as extmarks", function()
     -- This test verifies extmarks are placed at the line position returned by backend
     -- Position tracking logic is tested in Rust unit tests (treesitter/src/position.rs)
     local env = setup_e2e_env()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
 
     local connected = false
     local create_done = false
@@ -267,10 +267,10 @@ describe("visual e2e: notes appear as extmarks", function()
   end)
 
   it("VISUAL: stale note shows with stale highlight", function()
-    -- This test verifies that notes with stale=true render with HemisNoteStale highlight
+    -- This test verifies that notes with stale=true render with MnemosNoteStale highlight
     -- We directly test the display module with a mock stale note
     local env = setup_e2e_env()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
 
     -- Create a mock note that is stale (simulates what backend would return)
     local stale_note = {
@@ -304,7 +304,7 @@ describe("visual e2e: notes appear as extmarks", function()
     local marks = vim.api.nvim_buf_get_extmarks(env.buf, ns, 0, -1, { details = true })
     assert.truthy(#marks > 0, "VISUAL VERIFICATION FAILED: No extmarks found")
 
-    -- Check for HemisNoteStale highlight
+    -- Check for MnemosNoteStale highlight
     local has_stale_hl = false
     local details = marks[1][4] or {}
     if details.virt_lines then
@@ -324,7 +324,7 @@ describe("visual e2e: notes appear as extmarks", function()
 
   it("VISUAL: delete note removes extmark", function()
     local env = setup_e2e_env()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
 
     local connected = false
     local create_done = false
@@ -414,7 +414,7 @@ describe("visual e2e: notes appear as extmarks", function()
 
   it("VISUAL: multiline note renders multiple virt_lines", function()
     local env = setup_e2e_env()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
 
     local connected = false
     local create_done = false
@@ -496,7 +496,7 @@ describe("visual e2e: notes appear as extmarks", function()
     -- This test verifies that formattedLines have correct indentation
     -- based on the note's column (matching tree-sitter node alignment)
     local env = setup_e2e_env()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
 
     local connected = false
     local create_done = false
@@ -584,7 +584,7 @@ describe("visual e2e: notes appear as extmarks", function()
   it("VISUAL: note at column 0 has no indentation", function()
     -- This test verifies notes at column 0 have no leading spaces
     local env = setup_e2e_env()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
 
     local connected = false
     local create_done = false
@@ -652,7 +652,7 @@ describe("visual e2e: notes appear as extmarks", function()
   it("VISUAL: nested note has deeper indentation", function()
     -- This test verifies notes at column 8 (nested block) have 8-space indent
     local env = setup_e2e_env()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
 
     local connected = false
     local create_done = false
@@ -887,8 +887,8 @@ describe("visual e2e: wait_for_extmarks sync", function()
 
   it("wait_for_extmarks returns true when extmarks exist", function()
     local env = setup_e2e_env()
-    local display = require("hemis.display")
-    local commands = require("hemis.commands")
+    local display = require("mnemos.display")
+    local commands = require("mnemos.commands")
 
     -- Create and render a note (via mock data, not RPC)
     local mock_note = {
@@ -926,8 +926,8 @@ describe("visual e2e: wait_for_extmarks sync", function()
 
   it("wait_for_extmarks returns false on timeout when no extmarks", function()
     local env = setup_e2e_env()
-    local display = require("hemis.display")
-    local commands = require("hemis.commands")
+    local display = require("mnemos.display")
+    local commands = require("mnemos.commands")
 
     -- Clear any existing extmarks
     local ns = display.ns_id
@@ -946,8 +946,8 @@ describe("visual e2e: wait_for_extmarks sync", function()
 
   it("wait_for_extmarks detects extmarks created during wait", function()
     local env = setup_e2e_env()
-    local display = require("hemis.display")
-    local commands = require("hemis.commands")
+    local display = require("mnemos.display")
+    local commands = require("mnemos.commands")
 
     -- Clear any existing extmarks
     local ns = display.ns_id
@@ -1006,7 +1006,7 @@ describe("visual e2e: goto-symbol (demo driver flow)", function()
     local search_result = nil
     local search_err = nil
 
-    -- Step 1: Index the file (like hemis plugin does on BufEnter)
+    -- Step 1: Index the file (like mnemos plugin does on BufEnter)
     env.rpc.request("index/add-file", {
       file = env.file,
       projectRoot = env.dir,
@@ -1115,7 +1115,7 @@ describe("visual e2e: goto-symbol (demo driver flow)", function()
   it("GOTO-SYMBOL E2E: handles symlink path canonicalization", function()
     -- Use /tmp which is symlinked to /private/tmp on macOS
     -- This simulates the demo driver scenario exactly
-    local test_dir = "/tmp/hemis_goto_symbol_e2e_" .. math.random(100000)
+    local test_dir = "/tmp/mnemos_goto_symbol_e2e_" .. math.random(100000)
     local test_file = test_dir .. "/app.rs"
     vim.fn.mkdir(test_dir, "p")
 
@@ -1161,13 +1161,13 @@ impl Default for Config {
     end
 
     -- Configure with /tmp path (non-canonical)
-    local rpc = require("hemis.rpc")
+    local rpc = require("mnemos.rpc")
     rpc.stop()
 
-    local config = require("hemis.config")
+    local config = require("mnemos.config")
     config.setup({
-      backend = vim.g.hemis_test_backend,
-      hemis_dir = test_dir,
+      backend = vim.g.mnemos_test_backend,
+      mnemos_dir = test_dir,
       auto_refresh = false,
       keymaps = false,
     })
@@ -1227,22 +1227,22 @@ impl Default for Config {
   end)
 end)
 
--- AI tests (require HEMIS_AI_PROVIDER)
+-- AI tests (require MNEMOS_AI_PROVIDER)
 -- These are TRUE e2e tests that use the actual commands and event system
 describe("visual e2e: AI features", function()
-  local ai_available = vim.env.HEMIS_AI_PROVIDER ~= nil
+  local ai_available = vim.env.MNEMOS_AI_PROVIDER ~= nil
 
   if not ai_available then
-    it("requires AI provider (HEMIS_AI_PROVIDER)", function()
-      pending("Set HEMIS_AI_PROVIDER=claude to run AI tests")
+    it("requires AI provider (MNEMOS_AI_PROVIDER)", function()
+      pending("Set MNEMOS_AI_PROVIDER=claude to run AI tests")
     end)
     return
   end
 
-  -- Full e2e setup: initializes hemis with events, uses real user flow
+  -- Full e2e setup: initializes mnemos with events, uses real user flow
   local function setup_ai_e2e_env()
     -- Use /tmp to test path canonicalization (macOS: /tmp -> /private/tmp)
-    local test_dir = "/tmp/hemis_ai_e2e_" .. math.random(100000)
+    local test_dir = "/tmp/mnemos_ai_e2e_" .. math.random(100000)
     local test_file = test_dir .. "/app.rs"
     vim.fn.mkdir(test_dir, "p")
 
@@ -1270,16 +1270,16 @@ impl Server {
     end
 
     -- Stop any existing connections
-    local rpc = require("hemis.rpc")
-    local events = require("hemis.events")
+    local rpc = require("mnemos.rpc")
+    local events = require("mnemos.events")
     rpc.stop()
     events.stop()
 
-    -- Configure hemis first (but don't call full setup yet - backend not running)
-    local config = require("hemis.config")
+    -- Configure mnemos first (but don't call full setup yet - backend not running)
+    local config = require("mnemos.config")
     config.setup({
-      backend = vim.g.hemis_test_backend,
-      hemis_dir = test_dir,
+      backend = vim.g.mnemos_test_backend,
+      mnemos_dir = test_dir,
       auto_refresh = false,
       keymaps = false,
     })
@@ -1296,12 +1296,12 @@ impl Server {
     end)
     helpers.wait_for(function() return rpc_connected end, 10000)
 
-    -- Now do full hemis setup which starts events and registers handlers
+    -- Now do full mnemos setup which starts events and registers handlers
     -- Backend is running so events socket should exist
-    local hemis = require("hemis")
-    hemis.setup({
-      backend = vim.g.hemis_test_backend,
-      hemis_dir = test_dir,
+    local mnemos = require("mnemos")
+    mnemos.setup({
+      backend = vim.g.mnemos_test_backend,
+      mnemos_dir = test_dir,
       auto_refresh = false,
       keymaps = false,
     })
@@ -1325,7 +1325,7 @@ impl Server {
       buf = buf,
       rpc = rpc,
       events = events,
-      hemis = hemis,
+      mnemos = mnemos,
       cleanup = function()
         events.stop()
         rpc.stop()
@@ -1343,8 +1343,8 @@ impl Server {
 
   it("TRUE E2E: explain_region command creates note via event system", function()
     local env = setup_ai_e2e_env()
-    local display = require("hemis.display")
-    local commands = require("hemis.commands")
+    local display = require("mnemos.display")
+    local commands = require("mnemos.commands")
 
     -- Note: events may not connect in headless mode, but the fallback refresh will work
 
@@ -1392,8 +1392,8 @@ impl Server {
 
   it("TRUE E2E: explain_region_full command creates detailed note via event system", function()
     local env = setup_ai_e2e_env()
-    local display = require("hemis.display")
-    local commands = require("hemis.commands")
+    local display = require("mnemos.display")
+    local commands = require("mnemos.commands")
 
     -- Note: events may not connect in headless mode, but the fallback refresh will work
 
@@ -1433,8 +1433,8 @@ impl Server {
     -- On macOS, /tmp is a symlink to /private/tmp
     -- The backend canonicalizes paths, but buffers use the original path
     local env = setup_ai_e2e_env()
-    local display = require("hemis.display")
-    local commands = require("hemis.commands")
+    local display = require("mnemos.display")
+    local commands = require("mnemos.commands")
 
     -- Verify we're testing with a symlinked path
     local resolved = vim.fn.resolve(env.file)
@@ -1469,14 +1469,14 @@ end)
 
 -- Selected note highlighting E2E tests
 describe("visual e2e: selected note highlighting", function()
-  it("VISUAL: selected note shows with HemisNoteSelected highlight", function()
-    if not vim.g.hemis_test_backend then
+  it("VISUAL: selected note shows with MnemosNoteSelected highlight", function()
+    if not vim.g.mnemos_test_backend then
       pending("Requires backend")
       return
     end
     local env = setup_e2e_env()
-    local display = require("hemis.display")
-    local commands = require("hemis.commands")
+    local display = require("mnemos.display")
+    local commands = require("mnemos.commands")
 
     local connected = false
     local create_done = false
@@ -1531,37 +1531,37 @@ describe("visual e2e: selected note highlighting", function()
     display.render_notes(env.buf, notes, nil)
     helpers.wait(100)
 
-    -- Verify note renders with HemisNote (not selected)
+    -- Verify note renders with MnemosNote (not selected)
     local ns = display.ns_id
     local marks = vim.api.nvim_buf_get_extmarks(env.buf, ns, 0, -1, { details = true })
     assert.truthy(#marks > 0, "Should have at least one extmark")
     local details = marks[1][4] or {}
     local virt_lines = details.virt_lines or {}
     local hl_before = virt_lines[1] and virt_lines[1][1] and virt_lines[1][1][2]
-    assert.equals("HemisNote", hl_before, "Before selection should use HemisNote")
+    assert.equals("MnemosNote", hl_before, "Before selection should use MnemosNote")
 
     -- Now set the note as selected and re-render
     commands.set_selected_note(notes[1])
     helpers.wait(100)
 
-    -- Verify note now renders with HemisNoteSelected
+    -- Verify note now renders with MnemosNoteSelected
     marks = vim.api.nvim_buf_get_extmarks(env.buf, ns, 0, -1, { details = true })
     assert.truthy(#marks > 0, "Should still have extmark after selection")
     details = marks[1][4] or {}
     virt_lines = details.virt_lines or {}
     local hl_after = virt_lines[1] and virt_lines[1][1] and virt_lines[1][1][2]
-    assert.equals("HemisNoteSelected", hl_after, "VISUAL VERIFICATION FAILED: After selection should use HemisNoteSelected")
+    assert.equals("MnemosNoteSelected", hl_after, "VISUAL VERIFICATION FAILED: After selection should use MnemosNoteSelected")
 
     -- Clear selection
     commands.set_selected_note(nil)
     helpers.wait(100)
 
-    -- Verify back to HemisNote
+    -- Verify back to MnemosNote
     marks = vim.api.nvim_buf_get_extmarks(env.buf, ns, 0, -1, { details = true })
     details = marks[1][4] or {}
     virt_lines = details.virt_lines or {}
     local hl_cleared = virt_lines[1] and virt_lines[1][1] and virt_lines[1][1][2]
-    assert.equals("HemisNote", hl_cleared, "After clear selection should use HemisNote again")
+    assert.equals("MnemosNote", hl_cleared, "After clear selection should use MnemosNote again")
 
     env.cleanup()
   end)

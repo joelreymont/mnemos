@@ -3,7 +3,7 @@
 Guide for adding a new JSON-RPC method across backend and all editor UIs.
 
 ## Arguments
-- `$ARGUMENTS` - The method name (e.g., "notes/archive" or "hemis/export")
+- `$ARGUMENTS` - The method name (e.g., "notes/archive" or "mnemos/export")
 
 ## Instructions
 
@@ -21,12 +21,12 @@ Guide for adding a new JSON-RPC method across backend and all editor UIs.
 
 ### Step 2: Implement in Emacs
 
-1. **Add function** in `ui/emacs/hemis.el`:
+1. **Add function** in `ui/emacs/mnemos.el`:
    ```elisp
-   (defun hemis-METHOD-NAME ()
+   (defun mnemos-METHOD-NAME ()
      "Description."
      (interactive)
-     (hemis--request "METHOD/NAME"
+     (mnemos--request "METHOD/NAME"
        `(:param1 ,value1)
        (lambda (result)
          ;; Handle result
@@ -35,14 +35,14 @@ Guide for adding a new JSON-RPC method across backend and all editor UIs.
 
 2. **Add keybinding** if user-facing:
    ```elisp
-   (define-key hemis-mode-map (kbd "C-c h X") #'hemis-METHOD-NAME)
+   (define-key mnemos-mode-map (kbd "C-c h X") #'mnemos-METHOD-NAME)
    ```
 
-3. **Add test** in `ui/emacs/tests/hemis-test.el`
+3. **Add test** in `ui/emacs/tests/mnemos-test.el`
 
 ### Step 3: Implement in Neovim
 
-1. **Add function** in `ui/neovim/lua/hemis/commands.lua`:
+1. **Add function** in `ui/neovim/lua/mnemos/commands.lua`:
    ```lua
    function M.method_name()
      rpc.request("METHOD/NAME", { param1 = value1 }, function(err, result)
@@ -51,9 +51,9 @@ Guide for adding a new JSON-RPC method across backend and all editor UIs.
    end
    ```
 
-2. **Add command** in `ui/neovim/lua/hemis/init.lua`:
+2. **Add command** in `ui/neovim/lua/mnemos/init.lua`:
    ```lua
-   vim.api.nvim_create_user_command("HemisMethodName", commands.method_name, {})
+   vim.api.nvim_create_user_command("MnemosMethodName", commands.method_name, {})
    ```
 
 3. **Add keybinding** in setup if user-facing
@@ -74,5 +74,5 @@ Add method to `docs/ARCHITECTURE.md` RPC methods section if it's a core feature.
 
 ## RPC Method Naming Convention
 - `notes/*` - Note CRUD operations
-- `hemis/*` - System/project operations
+- `mnemos/*` - System/project operations
 - Use lowercase with hyphens: `notes/list-for-file`

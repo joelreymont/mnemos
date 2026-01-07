@@ -27,7 +27,7 @@ expression: responses
       },
       "ok": true,
       "projectRoot": "/tmp",
-      "statusDisplay": "Hemis Status: OK\nProject: /tmp\nNotes: 0\nFiles: 0\nEmbeddings: 0"
+      "statusDisplay": "Mnemos Status: OK\nProject: /tmp\nNotes: 0\nFiles: 0\nEmbeddings: 0"
     }
   }
 ]

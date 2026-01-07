@@ -70,8 +70,8 @@ fn handles_multiple_framed_requests() -> anyhow::Result<()> {
         req_list.len(),
         req_list
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -117,13 +117,13 @@ fn display_config_returns_colors_and_icons() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/display-config",
+        "method": "mnemos/display-config",
         "params": {}
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -155,13 +155,13 @@ fn note_templates_returns_templates() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/note-templates",
+        "method": "mnemos/note-templates",
         "params": {}
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let out = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let out = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -188,7 +188,7 @@ fn suggest_tags_from_rust_function() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/suggest-tags",
+        "method": "mnemos/suggest-tags",
         "params": {
             "file": "/tmp/test.rs",
             "content": content,
@@ -198,8 +198,8 @@ fn suggest_tags_from_rust_function() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -222,15 +222,15 @@ fn suggest_tags_for_test_file() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/suggest-tags",
+        "method": "mnemos/suggest-tags",
         "params": {
             "file": "/tmp/my_test.py"
         }
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -269,8 +269,8 @@ fn graph_returns_nodes_and_edges() -> anyhow::Result<()> {
     })
     .to_string();
     let input1 = format!("Content-Length: {}\r\n\r\n{}", req1.len(), req1);
-    let out1 = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let out1 = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input1)
         .assert()
         .success();
@@ -294,8 +294,8 @@ fn graph_returns_nodes_and_edges() -> anyhow::Result<()> {
     })
     .to_string();
     let input2 = format!("Content-Length: {}\r\n\r\n{}", req2.len(), req2);
-    cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input2)
         .assert()
         .success();
@@ -304,15 +304,15 @@ fn graph_returns_nodes_and_edges() -> anyhow::Result<()> {
     let req_graph = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 3,
-        "method": "hemis/graph",
+        "method": "mnemos/graph",
         "params": {
             "projectRoot": &root
         }
     })
     .to_string();
     let input_graph = format!("Content-Length: {}\r\n\r\n{}", req_graph.len(), req_graph);
-    let out_graph = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let out_graph = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input_graph)
         .assert()
         .success();
@@ -360,8 +360,8 @@ fn tasks_detects_todo_fixme() -> anyhow::Result<()> {
     })
     .to_string();
     let input_index = format!("Content-Length: {}\r\n\r\n{}", req_index.len(), req_index);
-    cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input_index)
         .assert()
         .success();
@@ -370,15 +370,15 @@ fn tasks_detects_todo_fixme() -> anyhow::Result<()> {
     let req_tasks = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 2,
-        "method": "hemis/tasks",
+        "method": "mnemos/tasks",
         "params": {
             "projectRoot": &root
         }
     })
     .to_string();
     let input_tasks = format!("Content-Length: {}\r\n\r\n{}", req_tasks.len(), req_tasks);
-    let out = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let out = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input_tasks)
         .assert()
         .success();
@@ -408,7 +408,7 @@ fn file_context_returns_suggestions() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/file-context",
+        "method": "mnemos/file-context",
         "params": {
             "file": &file,
             "projectRoot": &root
@@ -416,8 +416,8 @@ fn file_context_returns_suggestions() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let out = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let out = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -443,7 +443,7 @@ fn code_references_returns_node_path() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/code-references",
+        "method": "mnemos/code-references",
         "params": {
             "file": "/tmp/test.rs",
             "content": content,
@@ -453,8 +453,8 @@ fn code_references_returns_node_path() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let out = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let out = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -494,8 +494,8 @@ fn handles_large_framed_body() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -515,8 +515,8 @@ fn handles_large_framed_body() -> anyhow::Result<()> {
 fn handles_line_delimited_shutdown() -> anyhow::Result<()> {
     let db = NamedTempFile::new()?;
     let req = r#"{"jsonrpc":"2.0","id":7,"method":"shutdown","params":{}}"#;
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(format!("{req}\n"))
         .assert()
         .success();
@@ -588,8 +588,8 @@ fn filters_stale_notes_by_commit() -> anyhow::Result<()> {
         req_stale_included.len(),
         req_stale_included
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -703,8 +703,8 @@ fn filters_stale_notes_by_blob() -> anyhow::Result<()> {
         req_stale_included.len(),
         req_stale_included
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -835,8 +835,8 @@ fn only_stale_filter() -> anyhow::Result<()> {
         req_all
     );
 
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -899,14 +899,14 @@ fn indexes_project_and_searches() -> anyhow::Result<()> {
     let req_index = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/index-project",
+        "method": "mnemos/index-project",
         "params": { "projectRoot": root.path().to_string_lossy() }
     })
     .to_string();
     let req_search = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 2,
-        "method": "hemis/search",
+        "method": "mnemos/search",
         "params": {
             "query": "alpha",
             "projectRoot": root.path().to_string_lossy()
@@ -920,8 +920,8 @@ fn indexes_project_and_searches() -> anyhow::Result<()> {
         req_search.len(),
         req_search
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -974,8 +974,8 @@ fn backlinks_returns_linking_notes() -> anyhow::Result<()> {
         req_create_a.len(),
         req_create_a
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1023,8 +1023,8 @@ fn backlinks_returns_linking_notes() -> anyhow::Result<()> {
         req_backlinks.len(),
         req_backlinks
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1102,8 +1102,8 @@ fn backlinks_found_after_update_adds_link() -> anyhow::Result<()> {
         req_create_a.len(),
         req_create_a
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1139,8 +1139,8 @@ fn backlinks_found_after_update_adds_link() -> anyhow::Result<()> {
         req_create_b.len(),
         req_create_b
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1184,8 +1184,8 @@ fn backlinks_found_after_update_adds_link() -> anyhow::Result<()> {
         req_backlinks.len(),
         req_backlinks
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1254,8 +1254,8 @@ fn delete_note_removes_edges() -> anyhow::Result<()> {
         req_create_a.len(),
         req_create_a
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1292,8 +1292,8 @@ fn delete_note_removes_edges() -> anyhow::Result<()> {
         req_create_b.len(),
         req_create_b
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1321,8 +1321,8 @@ fn delete_note_removes_edges() -> anyhow::Result<()> {
         req_backlinks.len(),
         req_backlinks
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1346,8 +1346,8 @@ fn delete_note_removes_edges() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req_delete.len(), req_delete);
-    cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1365,8 +1365,8 @@ fn delete_note_removes_edges() -> anyhow::Result<()> {
         req_backlinks.len(),
         req_backlinks
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1411,8 +1411,8 @@ fn handles_utf8_in_summary() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1472,8 +1472,8 @@ fn update_note_updates_edges() -> anyhow::Result<()> {
         req_create_a.len(),
         req_create_a
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1509,8 +1509,8 @@ fn update_note_updates_edges() -> anyhow::Result<()> {
         req_create_b.len(),
         req_create_b
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1547,8 +1547,8 @@ fn update_note_updates_edges() -> anyhow::Result<()> {
         req_create_c.len(),
         req_create_c
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1576,8 +1576,8 @@ fn update_note_updates_edges() -> anyhow::Result<()> {
         req_backlinks_a.len(),
         req_backlinks_a
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1605,8 +1605,8 @@ fn update_note_updates_edges() -> anyhow::Result<()> {
         req_backlinks_b.len(),
         req_backlinks_b
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1634,8 +1634,8 @@ fn update_note_updates_edges() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req_update.len(), req_update);
-    cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1653,8 +1653,8 @@ fn update_note_updates_edges() -> anyhow::Result<()> {
         req_backlinks_a.len(),
         req_backlinks_a
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1686,8 +1686,8 @@ fn update_note_updates_edges() -> anyhow::Result<()> {
         req_backlinks_b.len(),
         req_backlinks_b
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1744,8 +1744,8 @@ fn reattach_updates_note_position() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1787,8 +1787,8 @@ fn reattach_updates_note_position() -> anyhow::Result<()> {
         req_reattach.len(),
         req_reattach
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1854,8 +1854,8 @@ fn reattach_fails_for_missing_note() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1896,8 +1896,8 @@ fn pagination_works_for_list_project() -> anyhow::Result<()> {
         })
         .to_string();
         let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-        cargo_bin_cmd!("hemis")
-            .env("HEMIS_DB_PATH", db.path())
+        cargo_bin_cmd!("mnemos")
+            .env("MNEMOS_DB_PATH", db.path())
             .write_stdin(input)
             .assert()
             .success();
@@ -1916,8 +1916,8 @@ fn pagination_works_for_list_project() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1945,8 +1945,8 @@ fn pagination_works_for_list_project() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -1974,8 +1974,8 @@ fn pagination_works_for_list_project() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -2024,8 +2024,8 @@ fn create_with_content_computes_hash() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -2088,8 +2088,8 @@ fn list_with_content_computes_positions() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -2121,8 +2121,8 @@ fn list_with_content_computes_positions() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_list.len(), req_list);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -2179,8 +2179,8 @@ fn buffer_update_recomputes_positions() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -2201,8 +2201,8 @@ fn buffer_update_recomputes_positions() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_update.len(), req_update);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -2304,8 +2304,8 @@ container-nodes = ["document", "object", "array"]
     assert!(sources_dir.exists(), "Grammar source should exist");
 
     // Build the test_json grammar
-    let build_output = cargo_bin_cmd!("hemis")
-        .env("HEMIS_CONFIG_DIR", &config_path)
+    let build_output = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_CONFIG_DIR", &config_path)
         .args(["grammar", "build", "test_json"])
         .output()?;
 
@@ -2360,9 +2360,9 @@ container-nodes = ["document", "object", "array"]
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
-        .env("HEMIS_CONFIG_DIR", &config_path)
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
+        .env("MNEMOS_CONFIG_DIR", &config_path)
         .write_stdin(input)
         .assert()
         .success();
@@ -2397,9 +2397,9 @@ container-nodes = ["document", "object", "array"]
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_list.len(), req_list);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
-        .env("HEMIS_CONFIG_DIR", &config_path)
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
+        .env("MNEMOS_CONFIG_DIR", &config_path)
         .write_stdin(input)
         .assert()
         .success();
@@ -2451,7 +2451,7 @@ fn project_meta_returns_unindexed_state() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/project-meta",
+        "method": "mnemos/project-meta",
         "params": {
             "projectRoot": project_root
         }
@@ -2460,8 +2460,8 @@ fn project_meta_returns_unindexed_state() -> anyhow::Result<()> {
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
 
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -2500,7 +2500,7 @@ fn index_project_updates_project_meta() -> anyhow::Result<()> {
     let req_index = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/index-project",
+        "method": "mnemos/index-project",
         "params": {
             "projectRoot": project_root,
             "includeAI": false
@@ -2511,7 +2511,7 @@ fn index_project_updates_project_meta() -> anyhow::Result<()> {
     let req_meta = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 2,
-        "method": "hemis/project-meta",
+        "method": "mnemos/project-meta",
         "params": {
             "projectRoot": project_root
         }
@@ -2523,8 +2523,8 @@ fn index_project_updates_project_meta() -> anyhow::Result<()> {
         req_index.len(), req_index, req_meta.len(), req_meta
     );
 
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -2572,7 +2572,7 @@ fn explain_region_no_ai_snippet() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/explain-region",
+        "method": "mnemos/explain-region",
         "params": {
             "file": file_path.to_string_lossy(),
             "startLine": 2,
@@ -2584,8 +2584,8 @@ fn explain_region_no_ai_snippet() -> anyhow::Result<()> {
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
 
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -2622,7 +2622,7 @@ fn explain_region_ai_disabled() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/explain-region",
+        "method": "mnemos/explain-region",
         "params": {
             "file": file_path.to_string_lossy(),
             "startLine": 1,
@@ -2634,10 +2634,10 @@ fn explain_region_ai_disabled() -> anyhow::Result<()> {
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
 
-    // Run with HEMIS_AI_PROVIDER=none to disable AI
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
-        .env("HEMIS_AI_PROVIDER", "none")
+    // Run with MNEMOS_AI_PROVIDER=none to disable AI
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
+        .env("MNEMOS_AI_PROVIDER", "none")
         .write_stdin(input)
         .assert()
         .success();
@@ -2678,7 +2678,7 @@ fn index_project_with_ai_disabled_env() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/index-project",
+        "method": "mnemos/index-project",
         "params": {
             "projectRoot": project_root,
             "includeAI": true
@@ -2688,10 +2688,10 @@ fn index_project_with_ai_disabled_env() -> anyhow::Result<()> {
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
 
-    // Run with HEMIS_AI_PROVIDER=none to disable AI
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
-        .env("HEMIS_AI_PROVIDER", "none")
+    // Run with MNEMOS_AI_PROVIDER=none to disable AI
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
+        .env("MNEMOS_AI_PROVIDER", "none")
         .write_stdin(input)
         .assert()
         .success();
@@ -2731,7 +2731,7 @@ fn explain_region_uses_content_param() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/explain-region",
+        "method": "mnemos/explain-region",
         "params": {
             "file": file_path.to_string_lossy(),
             "startLine": 1,
@@ -2744,8 +2744,8 @@ fn explain_region_uses_content_param() -> anyhow::Result<()> {
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
 
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -2782,13 +2782,13 @@ fn meta_detects_stale_after_commit() -> anyhow::Result<()> {
     let req_index = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/index-project",
+        "method": "mnemos/index-project",
         "params": { "projectRoot": project_root }
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req_index.len(), req_index);
-    cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -2797,13 +2797,13 @@ fn meta_detects_stale_after_commit() -> anyhow::Result<()> {
     let req_meta = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 2,
-        "method": "hemis/project-meta",
+        "method": "mnemos/project-meta",
         "params": { "projectRoot": project_root }
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req_meta.len(), req_meta);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -2821,8 +2821,8 @@ fn meta_detects_stale_after_commit() -> anyhow::Result<()> {
 
     // Check project-meta again - currentCommit should differ from indexedCommit
     let input = format!("Content-Length: {}\r\n\r\n{}", req_meta.len(), req_meta);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -2862,8 +2862,8 @@ fn get_note_by_id() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -2888,8 +2888,8 @@ fn get_note_by_id() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_get.len(), req_get);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -2920,8 +2920,8 @@ fn get_note_not_found() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -2957,8 +2957,8 @@ fn create_and_update_trim_text() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -2987,8 +2987,8 @@ fn create_and_update_trim_text() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_update.len(), req_update);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3030,8 +3030,8 @@ fn search_notes_by_text() -> anyhow::Result<()> {
         })
         .to_string();
         let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-        cargo_bin_cmd!("hemis")
-            .env("HEMIS_DB_PATH", db.path())
+        cargo_bin_cmd!("mnemos")
+            .env("MNEMOS_DB_PATH", db.path())
             .write_stdin(input)
             .assert()
             .success();
@@ -3050,8 +3050,8 @@ fn search_notes_by_text() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_search.len(), req_search);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3073,7 +3073,7 @@ fn search_notes_by_text() -> anyhow::Result<()> {
     Ok(())
 }
 
-// Test hemis/status returns correct counts
+// Test mnemos/status returns correct counts
 #[test]
 fn status_returns_counts() -> anyhow::Result<()> {
     let db = NamedTempFile::new()?;
@@ -3096,8 +3096,8 @@ fn status_returns_counts() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3106,14 +3106,14 @@ fn status_returns_counts() -> anyhow::Result<()> {
     let req_status = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 2,
-        "method": "hemis/status",
+        "method": "mnemos/status",
         "params": {}
     })
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_status.len(), req_status);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3154,8 +3154,8 @@ fn index_add_file() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3178,8 +3178,8 @@ fn index_add_file() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_search.len(), req_search);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3201,7 +3201,7 @@ fn index_search_demo_file_symbols() -> anyhow::Result<()> {
     let file_path = tmpdir.path().join("app.rs");
     let project_root = tmpdir.path().to_string_lossy().to_string();
 
-    // This is the EXACT content from hemis-demo/scripts/config.demo
+    // This is the EXACT content from mnemos-demo/scripts/config.demo
     let content = r#"fn main() {
     let config = load_config();
     let server = Server::new(config);
@@ -3252,8 +3252,8 @@ impl Default for Config {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3284,8 +3284,8 @@ impl Default for Config {
         .to_string();
 
         let input = format!("Content-Length: {}\r\n\r\n{}", req_search.len(), req_search);
-        let assert = cargo_bin_cmd!("hemis")
-            .env("HEMIS_DB_PATH", db.path())
+        let assert = cargo_bin_cmd!("mnemos")
+            .env("MNEMOS_DB_PATH", db.path())
             .write_stdin(input)
             .assert()
             .success();
@@ -3320,7 +3320,7 @@ impl Default for Config {
     Ok(())
 }
 
-// Test hemis/open-project initializes project root
+// Test mnemos/open-project initializes project root
 #[test]
 fn open_project_succeeds() -> anyhow::Result<()> {
     let db = NamedTempFile::new()?;
@@ -3333,7 +3333,7 @@ fn open_project_succeeds() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/open-project",
+        "method": "mnemos/open-project",
         "params": {
             "projectRoot": project_root
         }
@@ -3341,8 +3341,8 @@ fn open_project_succeeds() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3356,7 +3356,7 @@ fn open_project_succeeds() -> anyhow::Result<()> {
     Ok(())
 }
 
-// Test hemis/open-project fails without projectRoot param
+// Test mnemos/open-project fails without projectRoot param
 #[test]
 fn open_project_requires_root() -> anyhow::Result<()> {
     let db = NamedTempFile::new()?;
@@ -3364,14 +3364,14 @@ fn open_project_requires_root() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/open-project",
+        "method": "mnemos/open-project",
         "params": {}
     })
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3447,8 +3447,8 @@ impl Server {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3513,8 +3513,8 @@ impl Server {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_list.len(), req_list);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3569,8 +3569,8 @@ impl Server {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_list_stale.len(), req_list_stale);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3598,8 +3598,8 @@ impl Server {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_reattach.len(), req_reattach);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3631,8 +3631,8 @@ impl Server {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_list_fresh.len(), req_list_fresh);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3704,8 +3704,8 @@ impl Server {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_ai_note.len(), req_ai_note);
-    cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3728,8 +3728,8 @@ impl Server {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_factory.len(), req_factory);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3786,8 +3786,8 @@ impl Server {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_list.len(), req_list);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3852,8 +3852,8 @@ impl Server {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_list_stale.len(), req_list_stale);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3887,8 +3887,8 @@ impl Server {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_reattach.len(), req_reattach);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -3911,8 +3911,8 @@ impl Server {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_list_fresh.len(), req_list_fresh);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -4009,8 +4009,8 @@ pub fn validate_port(port: u16) -> bool {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create1.len(), req_create1);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -4044,8 +4044,8 @@ pub fn validate_port(port: u16) -> bool {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create2.len(), req_create2);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -4073,8 +4073,8 @@ pub fn validate_port(port: u16) -> bool {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_list.len(), req_list);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -4088,7 +4088,7 @@ pub fn validate_port(port: u16) -> bool {
     let req_index = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 4,
-        "method": "hemis/index-project",
+        "method": "mnemos/index-project",
         "params": {
             "projectRoot": root_str
         }
@@ -4096,9 +4096,9 @@ pub fn validate_port(port: u16) -> bool {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_index.len(), req_index);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
-        .env("HEMIS_AI_PROVIDER", "none")
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
+        .env("MNEMOS_AI_PROVIDER", "none")
         .write_stdin(input)
         .assert()
         .success();
@@ -4113,7 +4113,7 @@ pub fn validate_port(port: u16) -> bool {
     let req_search = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 5,
-        "method": "hemis/search",
+        "method": "mnemos/search",
         "params": {
             "query": "start",
             "projectRoot": root_str
@@ -4122,8 +4122,8 @@ pub fn validate_port(port: u16) -> bool {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_search.len(), req_search);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -4147,8 +4147,8 @@ pub fn validate_port(port: u16) -> bool {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_update.len(), req_update);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -4169,8 +4169,8 @@ pub fn validate_port(port: u16) -> bool {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_backlinks.len(), req_backlinks);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -4195,8 +4195,8 @@ pub fn validate_port(port: u16) -> bool {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_delete.len(), req_delete);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -4219,8 +4219,8 @@ pub fn validate_port(port: u16) -> bool {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_list2.len(), req_list2);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -4234,7 +4234,7 @@ pub fn validate_port(port: u16) -> bool {
     let req_status = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 10,
-        "method": "hemis/status",
+        "method": "mnemos/status",
         "params": {
             "projectRoot": root_str
         }
@@ -4242,8 +4242,8 @@ pub fn validate_port(port: u16) -> bool {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_status.len(), req_status);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -4305,7 +4305,7 @@ fn explain_region_with_real_ai() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/explain-region",
+        "method": "mnemos/explain-region",
         "params": {
             "file": file_path.to_string_lossy(),
             "projectRoot": tmpdir.path().to_string_lossy(),
@@ -4319,9 +4319,9 @@ fn explain_region_with_real_ai() -> anyhow::Result<()> {
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
 
     // Run with the detected AI provider
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
-        .env("HEMIS_AI_PROVIDER", provider)
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
+        .env("MNEMOS_AI_PROVIDER", provider)
         .timeout(std::time::Duration::from_secs(120))
         .write_stdin(input)
         .assert()
@@ -4402,7 +4402,7 @@ fn explain_region_creates_note() -> anyhow::Result<()> {
     let req_explain = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/explain-region",
+        "method": "mnemos/explain-region",
         "params": {
             "file": file_str,
             "projectRoot": root_str,
@@ -4414,9 +4414,9 @@ fn explain_region_creates_note() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_explain.len(), req_explain);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
-        .env("HEMIS_AI_PROVIDER", provider)
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
+        .env("MNEMOS_AI_PROVIDER", provider)
         .timeout(std::time::Duration::from_secs(120))
         .write_stdin(input)
         .assert()
@@ -4458,8 +4458,8 @@ fn explain_region_creates_note() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -4492,8 +4492,8 @@ fn explain_region_creates_note() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_list.len(), req_list);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -4554,13 +4554,13 @@ fn persistent_claude_speedup() -> anyhow::Result<()> {
 "#;
     std::fs::write(&file_path, content)?;
 
-    // Use a long-running hemis process (server mode via pipe)
+    // Use a long-running mnemos process (server mode via pipe)
     use std::io::{BufRead, BufReader, Write};
     use std::process::{Command, Stdio};
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_hemis"))
-        .env("HEMIS_DB_PATH", db.path())
-        .env("HEMIS_AI_PROVIDER", "claude")
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mnemos"))
+        .env("MNEMOS_DB_PATH", db.path())
+        .env("MNEMOS_AI_PROVIDER", "claude")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -4597,7 +4597,7 @@ fn persistent_claude_speedup() -> anyhow::Result<()> {
     let index_req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/index-project",
+        "method": "mnemos/index-project",
         "params": {
             "projectRoot": tmpdir.path().to_string_lossy(),
             "includeAI": false
@@ -4615,7 +4615,7 @@ fn persistent_claude_speedup() -> anyhow::Result<()> {
     let explain_req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 2,
-        "method": "hemis/explain-region",
+        "method": "mnemos/explain-region",
         "params": {
             "file": file_path.to_string_lossy(),
             "projectRoot": tmpdir.path().to_string_lossy(),
@@ -4636,7 +4636,7 @@ fn persistent_claude_speedup() -> anyhow::Result<()> {
     let explain_req2 = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 3,
-        "method": "hemis/explain-region",
+        "method": "mnemos/explain-region",
         "params": {
             "file": file_path.to_string_lossy(),
             "projectRoot": tmpdir.path().to_string_lossy(),
@@ -4698,7 +4698,7 @@ fn codex_explain_region() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/explain-region",
+        "method": "mnemos/explain-region",
         "params": {
             "file": file_path.to_string_lossy(),
             "projectRoot": tmpdir.path().to_string_lossy(),
@@ -4712,9 +4712,9 @@ fn codex_explain_region() -> anyhow::Result<()> {
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
 
     let start = std::time::Instant::now();
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
-        .env("HEMIS_AI_PROVIDER", "codex")
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
+        .env("MNEMOS_AI_PROVIDER", "codex")
         .timeout(std::time::Duration::from_secs(120))
         .write_stdin(input)
         .assert()
@@ -4758,17 +4758,17 @@ fn event_socket_receives_note_created() -> anyhow::Result<()> {
     use std::process::{Command, Stdio};
     use std::time::Duration;
 
-    // Create a temp directory for hemis data (sockets, db)
-    let hemis_dir = tempfile::tempdir()?;
-    let db_path = hemis_dir.path().join("hemis.db");
-    let rpc_socket = hemis_dir.path().join("hemis.sock");
-    let events_socket = hemis_dir.path().join("events.sock");
+    // Create a temp directory for mnemos data (sockets, db)
+    let mnemos_dir = tempfile::tempdir()?;
+    let db_path = mnemos_dir.path().join("mnemos.db");
+    let rpc_socket = mnemos_dir.path().join("mnemos.sock");
+    let events_socket = mnemos_dir.path().join("events.sock");
 
-    // Start hemis server
-    let mut child = Command::new(env!("CARGO_BIN_EXE_hemis"))
+    // Start mnemos server
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mnemos"))
         .arg("--serve")
-        .env("HEMIS_DIR", hemis_dir.path())
-        .env("HEMIS_DB_PATH", &db_path)
+        .env("MNEMOS_DIR", mnemos_dir.path())
+        .env("MNEMOS_DB_PATH", &db_path)
         .stderr(Stdio::piped())
         .spawn()?;
 
@@ -4798,10 +4798,10 @@ fn event_socket_receives_note_created() -> anyhow::Result<()> {
     rpc_stream.set_read_timeout(Some(Duration::from_secs(5)))?;
 
     // Use canonical paths to avoid /tmp vs /private/tmp issues on macOS
-    let test_file = hemis_dir.path().join("test.rs");
+    let test_file = mnemos_dir.path().join("test.rs");
     std::fs::write(&test_file, "fn main() {}")?;
     let canonical_file = test_file.canonicalize()?;
-    let canonical_project = hemis_dir.path().canonicalize()?;
+    let canonical_project = mnemos_dir.path().canonicalize()?;
 
     let create_req = serde_json::json!({
         "jsonrpc": "2.0",
@@ -4890,17 +4890,17 @@ fn socket_receives_updates_and_deletes() -> anyhow::Result<()> {
     use std::process::{Command, Stdio};
     use std::time::Duration;
 
-    // Create a temp directory for hemis data
-    let hemis_dir = tempfile::tempdir()?;
-    let db_path = hemis_dir.path().join("hemis.db");
-    let rpc_socket = hemis_dir.path().join("hemis.sock");
-    let events_socket = hemis_dir.path().join("events.sock");
+    // Create a temp directory for mnemos data
+    let mnemos_dir = tempfile::tempdir()?;
+    let db_path = mnemos_dir.path().join("mnemos.db");
+    let rpc_socket = mnemos_dir.path().join("mnemos.sock");
+    let events_socket = mnemos_dir.path().join("events.sock");
 
-    // Start hemis server
-    let mut child = Command::new(env!("CARGO_BIN_EXE_hemis"))
+    // Start mnemos server
+    let mut child = Command::new(env!("CARGO_BIN_EXE_mnemos"))
         .arg("--serve")
-        .env("HEMIS_DIR", hemis_dir.path())
-        .env("HEMIS_DB_PATH", &db_path)
+        .env("MNEMOS_DIR", mnemos_dir.path())
+        .env("MNEMOS_DB_PATH", &db_path)
         .stderr(Stdio::piped())
         .spawn()?;
 
@@ -5092,8 +5092,8 @@ fn notes_get_at_position_returns_note() -> anyhow::Result<()> {
         req_get_none
     );
 
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5190,8 +5190,8 @@ fn link_suggestions_formatted() -> anyhow::Result<()> {
         req_suggestions
     );
 
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5260,8 +5260,8 @@ fn notes_anchor_computes_position() -> anyhow::Result<()> {
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
 
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5297,7 +5297,7 @@ fn buffer_context_returns_git_and_language() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/buffer-context",
+        "method": "mnemos/buffer-context",
         "params": {
             "file": file.to_str().unwrap()
         }
@@ -5306,8 +5306,8 @@ fn buffer_context_returns_git_and_language() -> anyhow::Result<()> {
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
 
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5336,7 +5336,7 @@ fn task_status_returns_not_found() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/task-status",
+        "method": "mnemos/task-status",
         "params": {
             "taskId": "nonexistent-task-id"
         }
@@ -5345,8 +5345,8 @@ fn task_status_returns_not_found() -> anyhow::Result<()> {
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
 
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5368,15 +5368,15 @@ fn task_list_returns_empty() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/task-list",
+        "method": "mnemos/task-list",
         "params": {}
     })
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
 
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5401,7 +5401,7 @@ fn index_project_async_returns_task_id() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/index-project",
+        "method": "mnemos/index-project",
         "params": {
             "projectRoot": dir.path().to_str().unwrap(),
             "async": true
@@ -5411,8 +5411,8 @@ fn index_project_async_returns_task_id() -> anyhow::Result<()> {
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
 
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5453,8 +5453,8 @@ fn note_history_tracks_versions() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5477,8 +5477,8 @@ fn note_history_tracks_versions() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_update.len(), req_update);
-    cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5495,8 +5495,8 @@ fn note_history_tracks_versions() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_history.len(), req_history);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5547,8 +5547,8 @@ fn summarize_file_returns_sections() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5557,7 +5557,7 @@ fn summarize_file_returns_sections() -> anyhow::Result<()> {
     let req_summarize = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 2,
-        "method": "hemis/summarize-file",
+        "method": "mnemos/summarize-file",
         "params": {
             "file": canonical_file.to_string_lossy(),
             "projectRoot": canonical_project.to_string_lossy(),
@@ -5567,8 +5567,8 @@ fn summarize_file_returns_sections() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_summarize.len(), req_summarize);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5617,8 +5617,8 @@ fn get_version_retrieves_specific_version() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5641,8 +5641,8 @@ fn get_version_retrieves_specific_version() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_update.len(), req_update);
-    cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5660,8 +5660,8 @@ fn get_version_retrieves_specific_version() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_get.len(), req_get);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5699,8 +5699,8 @@ fn get_version_not_found() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5723,8 +5723,8 @@ fn get_version_not_found() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_get.len(), req_get);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5760,8 +5760,8 @@ fn restore_version_restores_previous_state() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5784,8 +5784,8 @@ fn restore_version_restores_previous_state() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_update.len(), req_update);
-    cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5800,8 +5800,8 @@ fn restore_version_restores_previous_state() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_get.len(), req_get);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5827,8 +5827,8 @@ fn restore_version_restores_previous_state() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_restore.len(), req_restore);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5843,8 +5843,8 @@ fn restore_version_restores_previous_state() -> anyhow::Result<()> {
 
     // Verify by fetching the note again
     let input = format!("Content-Length: {}\r\n\r\n{}", req_get.len(), req_get);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5882,8 +5882,8 @@ fn restore_version_not_found() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5906,8 +5906,8 @@ fn restore_version_not_found() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_restore.len(), req_restore);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -5969,8 +5969,8 @@ fn path_canonicalization_handles_symlinks() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -6000,8 +6000,8 @@ fn path_canonicalization_handles_symlinks() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_list.len(), req_list);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -6033,8 +6033,8 @@ fn path_canonicalization_handles_symlinks() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_list2.len(), req_list2);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -6117,8 +6117,8 @@ struct Server {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_index.len(), req_index);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -6141,8 +6141,8 @@ struct Server {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req_search.len(), req_search);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();

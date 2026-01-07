@@ -1,5 +1,5 @@
 .{
-    .name = .hemis,
+    .name = .mnemos,
     .version = "0.0.0",
     .fingerprint = 0x5ea464bbf64d507c,
     .minimum_zig_version = "0.14.0",

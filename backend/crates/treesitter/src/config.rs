@@ -1,6 +1,6 @@
 //! Configuration for tree-sitter languages
 //!
-//! Loads from ~/.config/hemis/languages.toml
+//! Loads from ~/.config/mnemos/languages.toml
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -69,12 +69,12 @@ pub struct GrammarSourceLocation {
 }
 
 impl LanguageConfig {
-    /// Get runtime directory, defaulting to ~/.config/hemis
+    /// Get runtime directory, defaulting to ~/.config/mnemos
     pub fn runtime_dir(&self) -> PathBuf {
         self.runtime_dir.clone().unwrap_or_else(|| {
             dirs::config_dir()
                 .unwrap_or_else(|| PathBuf::from("~/.config"))
-                .join("hemis")
+                .join("mnemos")
         })
     }
 
@@ -109,15 +109,15 @@ impl LanguageConfig {
 }
 
 
-/// Get the hemis config directory.
-/// Uses HEMIS_CONFIG_DIR env var if set, otherwise ~/.config/hemis
+/// Get the mnemos config directory.
+/// Uses MNEMOS_CONFIG_DIR env var if set, otherwise ~/.config/mnemos
 pub fn config_dir() -> PathBuf {
-    std::env::var("HEMIS_CONFIG_DIR")
+    std::env::var("MNEMOS_CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
             dirs::config_dir()
                 .unwrap_or_else(|| PathBuf::from("~/.config"))
-                .join("hemis")
+                .join("mnemos")
         })
 }
 

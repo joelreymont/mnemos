@@ -1,9 +1,9 @@
--- Display tests for Hemis Neovim plugin
+-- Display tests for Mnemos Neovim plugin
 -- Tests verify that what user sees matches expected state
 
 local helpers = require("tests.helpers")
 
-describe("hemis display", function()
+describe("mnemos display", function()
   local buf
 
   before_each(function()
@@ -16,7 +16,7 @@ describe("hemis display", function()
 
   describe("render_notes", function()
     it("creates extmark at correct line for single note", function()
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
       local notes = {
         { id = "1", line = 1, column = 0, text = "Test note content" },
       }
@@ -30,7 +30,7 @@ describe("hemis display", function()
     end)
 
     it("shows note text in virtual lines", function()
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
       local notes = {
         { id = "1", line = 2, column = 0, text = "Important: check this" },
       }
@@ -43,7 +43,7 @@ describe("hemis display", function()
     end)
 
     it("renders multiple notes at different lines", function()
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
       local notes = {
         { id = "1", line = 1, column = 0, text = "First note" },
         { id = "2", line = 3, column = 0, text = "Second note" },
@@ -56,8 +56,8 @@ describe("hemis display", function()
       assert.equals(2, #state.extmarks)
     end)
 
-    it("marks stale notes with HemisNoteStale highlight", function()
-      local display = require("hemis.display")
+    it("marks stale notes with MnemosNoteStale highlight", function()
+      local display = require("mnemos.display")
       local notes = {
         { id = "1", line = 1, column = 0, text = "Stale note", iconHint = "stale" },
       }
@@ -68,18 +68,18 @@ describe("hemis display", function()
       local state = helpers.capture_display_state(buf)
       assert.equals(1, #state.extmarks)
       local mark = state.extmarks[1]
-      -- Stale notes use HemisNoteStale highlight group
+      -- Stale notes use MnemosNoteStale highlight group
       local has_stale_hl = false
       for _, hl in ipairs(mark.hl_groups) do
-        if hl == "HemisNoteStale" then
+        if hl == "MnemosNoteStale" then
           has_stale_hl = true
         end
       end
-      assert.truthy(has_stale_hl, "Should use HemisNoteStale highlight")
+      assert.truthy(has_stale_hl, "Should use MnemosNoteStale highlight")
     end)
 
     it("clears previous notes before rendering new ones", function()
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
 
       -- Render first set
       display.render_notes(buf, {
@@ -101,7 +101,7 @@ describe("hemis display", function()
 
   describe("get_note_at_cursor", function()
     it("returns note when cursor is on note line", function()
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
       local notes = {
         { id = "note-123", line = 2, column = 0, text = "Target note" },
       }
@@ -115,7 +115,7 @@ describe("hemis display", function()
     end)
 
     it("returns nil when cursor is not on note line", function()
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
       local notes = {
         { id = "note-123", line = 2, column = 0, text = "Target note" },
       }
@@ -129,7 +129,7 @@ describe("hemis display", function()
   end)
 end)
 
-describe("hemis display virt_lines details", function()
+describe("mnemos display virt_lines details", function()
   -- Tests verify the exact virt_lines payload structure users see
 
   local buf
@@ -144,7 +144,7 @@ describe("hemis display virt_lines details", function()
   end)
 
   it("virt_lines has comment prefix from commentstring", function()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
     vim.bo[buf].commentstring = "// %s"
     local notes = {
       { id = "1", line = 1, column = 0, text = "Test note" },
@@ -162,8 +162,8 @@ describe("hemis display virt_lines details", function()
     assert.truthy(string.find(first_line.text, "^// "), "Should have // prefix")
   end)
 
-  it("virt_lines uses HemisNote highlight for fresh notes", function()
-    local display = require("hemis.display")
+  it("virt_lines uses MnemosNote highlight for fresh notes", function()
+    local display = require("mnemos.display")
     local notes = {
       { id = "1", line = 1, column = 0, text = "Fresh note", stale = false },
     }
@@ -174,17 +174,17 @@ describe("hemis display virt_lines details", function()
     local state = helpers.capture_display_state(buf)
     local mark = state.extmarks[1]
     -- Check highlight group
-    local has_hemis_note = false
+    local has_mnemos_note = false
     for _, hl in ipairs(mark.hl_groups) do
-      if hl == "HemisNote" then
-        has_hemis_note = true
+      if hl == "MnemosNote" then
+        has_mnemos_note = true
       end
     end
-    assert.truthy(has_hemis_note, "Should use HemisNote highlight")
+    assert.truthy(has_mnemos_note, "Should use MnemosNote highlight")
   end)
 
-  it("virt_lines uses HemisNoteStale highlight for stale notes", function()
-    local display = require("hemis.display")
+  it("virt_lines uses MnemosNoteStale highlight for stale notes", function()
+    local display = require("mnemos.display")
     local notes = {
       { id = "1", line = 1, column = 0, text = "Stale note", iconHint = "stale" },
     }
@@ -197,18 +197,18 @@ describe("hemis display virt_lines details", function()
     -- Check highlight group
     local has_stale = false
     for _, hl in ipairs(mark.hl_groups) do
-      if hl == "HemisNoteStale" then
+      if hl == "MnemosNoteStale" then
         has_stale = true
       end
     end
-    assert.truthy(has_stale, "Should use HemisNoteStale highlight")
+    assert.truthy(has_stale, "Should use MnemosNoteStale highlight")
   end)
 
   it("virt_lines_above is true for full display style", function()
-    local config = require("hemis.config")
+    local config = require("mnemos.config")
     -- Use config.setup to properly initialize config state
     config.setup({ display_style = "full" })
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
     local notes = {
       { id = "1", line = 2, column = 0, text = "Above note" },
     }
@@ -222,11 +222,11 @@ describe("hemis display virt_lines details", function()
   end)
 
   it("minimal style uses virt_text at eol with displayMarker", function()
-    local config = require("hemis.config")
+    local config = require("mnemos.config")
     -- Use config.setup to properly initialize, then restore at end
     local original_style = config.get("display_style")
     config.setup({ display_style = "minimal" })
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
     -- Backend provides displayMarker for minimal display
     local notes = {
       { id = "abcd1234-5678", line = 1, column = 0, text = "Minimal note", displayMarker = "[n:abcd1234]" },
@@ -246,7 +246,7 @@ describe("hemis display virt_lines details", function()
   end)
 
   it("multiple notes on same line render as separate extmarks", function()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
     -- Backend provides formattedLines for each note
     local notes = {
       { id = "1", line = 1, column = 0, text = "First note", formattedLines = { "// First note" } },
@@ -266,7 +266,7 @@ describe("hemis display virt_lines details", function()
   end)
 
   it("multiline note renders each line as separate virt_line", function()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
     -- Backend provides formattedLines with each line pre-formatted
     local notes = {
       {
@@ -292,7 +292,7 @@ describe("hemis display virt_lines details", function()
   end)
 end)
 
-describe("hemis display snapshots", function()
+describe("mnemos display snapshots", function()
   local buf
 
   before_each(function()
@@ -304,7 +304,7 @@ describe("hemis display snapshots", function()
   end)
 
   it("snapshot: single note display", function()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
     -- Backend provides formattedLines with proper indentation
     local notes = {
       {
@@ -324,7 +324,7 @@ describe("hemis display snapshots", function()
   end)
 
   it("snapshot: multiple notes display", function()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
     -- Backend provides formattedLines for each note
     local notes = {
       { id = "test-001", line = 1, column = 0, text = "Entry point", formattedLines = { "// Entry point" } },
@@ -340,7 +340,7 @@ describe("hemis display snapshots", function()
   end)
 
   it("snapshot: stale note indicator", function()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
     -- Backend marks stale notes with iconHint
     local notes = {
       { id = "stale-001", line = 1, column = 0, text = "This note is stale", iconHint = "stale", formattedLines = { "// This note is stale" } },
@@ -354,7 +354,7 @@ describe("hemis display snapshots", function()
   end)
 
   it("snapshot: multiline note text", function()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
     -- Backend provides formattedLines with each line pre-wrapped
     local notes = {
       {
@@ -379,7 +379,7 @@ describe("hemis display snapshots", function()
   end)
 end)
 
-describe("hemis commands", function()
+describe("mnemos commands", function()
   local buf
 
   before_each(function()
@@ -392,7 +392,7 @@ describe("hemis commands", function()
 
   describe("list_notes", function()
     it("shows picker with notes", function()
-      local commands = require("hemis.commands")
+      local commands = require("mnemos.commands")
       local restore = helpers.mock_rpc({
         ["notes/list-for-file"] = {
           { id = "1", shortId = "note1", line = 1, column = 0, text = "Listed note one" },
@@ -426,19 +426,19 @@ describe("hemis commands", function()
 
   describe("help", function()
     it("shows keybinding information", function()
-      local commands = require("hemis.commands")
+      local commands = require("mnemos.commands")
 
       commands.help()
       helpers.wait()
 
       -- Help creates a floating window with a buffer containing keybindings
-      -- Find the help buffer by checking for "Hemis Keybindings" header
+      -- Find the help buffer by checking for "Mnemos Keybindings" header
       local found = false
       for _, b in ipairs(vim.api.nvim_list_bufs()) do
         if vim.api.nvim_buf_is_valid(b) then
           local lines = vim.api.nvim_buf_get_lines(b, 0, -1, false)
           local content = table.concat(lines, "\n")
-          if string.find(content, "Hemis Keybindings") and string.find(content, "Add note") then
+          if string.find(content, "Mnemos Keybindings") and string.find(content, "Add note") then
             found = true
             break
           end
@@ -450,12 +450,12 @@ describe("hemis commands", function()
 
   describe("status", function()
     it("shows note and file counts", function()
-      local commands = require("hemis.commands")
+      local commands = require("mnemos.commands")
       -- Backend provides statusDisplay for formatted output
       local restore = helpers.mock_rpc({
-        ["hemis/status"] = {
+        ["mnemos/status"] = {
           counts = { notes = 5, files = 10, embeddings = 0 },
-          statusDisplay = "Hemis: 5 notes across 10 files",
+          statusDisplay = "Mnemos: 5 notes across 10 files",
         },
       })
 
@@ -484,8 +484,8 @@ describe("hemis commands", function()
 
   describe("edit_note_buffer", function()
     it("opens note in a new split buffer", function()
-      local commands = require("hemis.commands")
-      local display = require("hemis.display")
+      local commands = require("mnemos.commands")
+      local display = require("mnemos.display")
 
       -- Mock RPC for update
       local update_called = false
@@ -518,11 +518,11 @@ describe("hemis commands", function()
       local win_count_after = #vim.api.nvim_list_wins()
       assert.truthy(win_count_after > win_count_before, "Should open new window")
 
-      -- Find the hemis note buffer
+      -- Find the mnemos note buffer
       local note_buf = nil
       for _, b in ipairs(vim.api.nvim_list_bufs()) do
         local name = vim.api.nvim_buf_get_name(b)
-        if string.find(name, "hemis://note/") then
+        if string.find(name, "mnemos://note/") then
           note_buf = b
           break
         end
@@ -546,7 +546,7 @@ describe("hemis commands", function()
       for _, w in ipairs(vim.api.nvim_list_wins()) do
         local b = vim.api.nvim_win_get_buf(w)
         local name = vim.api.nvim_buf_get_name(b)
-        if string.find(name, "hemis://note/") then
+        if string.find(name, "mnemos://note/") then
           vim.api.nvim_win_close(w, true)
         end
       end
@@ -556,7 +556,7 @@ end)
 
 -- Tests using the demo sample source code
 -- These tests verify note position tracking and stale detection
-describe("hemis display with demo source", function()
+describe("mnemos display with demo source", function()
   -- Demo source code from demo.json
   local DEMO_SOURCE = [[
 fn main() {
@@ -617,7 +617,7 @@ impl Default for Config {
   describe("note position tracking", function()
     it("displays note at stored line when no hash available", function()
       -- Notes without nodeTextHash display at their stored line
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
       local notes = {
         { id = "note-1", line = 16, column = 4, text = "Factory method for Server" },
       }
@@ -632,7 +632,7 @@ impl Default for Config {
 
     it("displays note as fresh when server marks it fresh", function()
       -- Note with computedStale = false should be displayed as fresh
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
 
       -- Server computed staleness (hash matches at stored position)
       local notes = {
@@ -644,10 +644,10 @@ impl Default for Config {
 
       local state = helpers.capture_display_state(buf)
       assert.equals(1, #state.extmarks)
-      -- Should NOT use HemisNoteStale since server says not stale
+      -- Should NOT use MnemosNoteStale since server says not stale
       local has_stale = false
       for _, hl in ipairs(state.extmarks[1].hl_groups) do
-        if hl == "HemisNoteStale" then
+        if hl == "MnemosNoteStale" then
           has_stale = true
         end
       end
@@ -657,7 +657,7 @@ impl Default for Config {
     it("finds note at new position when server provides displayLine", function()
       -- Server computes displayLine when code moves
       -- Note stored at line 16, but server computed displayLine = 18
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
 
       -- Server has computed that code moved to line 18
       local notes = {
@@ -674,7 +674,7 @@ impl Default for Config {
       -- Should be fresh since server didn't set computedStale
       local has_stale = false
       for _, hl in ipairs(state.extmarks[1].hl_groups) do
-        if hl == "HemisNoteStale" then
+        if hl == "MnemosNoteStale" then
           has_stale = true
         end
       end
@@ -683,7 +683,7 @@ impl Default for Config {
 
     it("marks note as stale when server sets computedStale", function()
       -- Server detects code was modified and sets computedStale = true
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
 
       -- Server has computed that code was modified
       local notes = {
@@ -698,7 +698,7 @@ impl Default for Config {
       -- Note should be stale - server says so
       local has_stale = false
       for _, hl in ipairs(state.extmarks[1].hl_groups) do
-        if hl == "HemisNoteStale" then
+        if hl == "MnemosNoteStale" then
           has_stale = true
         end
       end
@@ -707,7 +707,7 @@ impl Default for Config {
 
     it("falls back to stored stale flag when server doesn't compute", function()
       -- When server doesn't provide displayLine/computedStale, use stored stale flag
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
 
       -- Note without server-computed displayLine, using stored stale flag
       local notes = {
@@ -722,7 +722,7 @@ impl Default for Config {
       -- Should use the stored stale flag
       local has_stale = false
       for _, hl in ipairs(state.extmarks[1].hl_groups) do
-        if hl == "HemisNoteStale" then
+        if hl == "MnemosNoteStale" then
           has_stale = true
         end
       end
@@ -731,7 +731,7 @@ impl Default for Config {
 
     it("prefers computedStale over stored stale flag", function()
       -- Server-computed staleness takes precedence over stored flag
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
 
       -- Note has stored stale=true but server says computedStale=false
       local notes = {
@@ -746,7 +746,7 @@ impl Default for Config {
       -- Should use computedStale (false), not stored stale (true)
       local has_stale = false
       for _, hl in ipairs(state.extmarks[1].hl_groups) do
-        if hl == "HemisNoteStale" then
+        if hl == "MnemosNoteStale" then
           has_stale = true
         end
       end
@@ -757,7 +757,7 @@ impl Default for Config {
   describe("get_note_at_cursor with position tracking", function()
     it("finds note at server-computed displayLine, not stored position", function()
       -- get_note_at_cursor should use server-provided displayLine
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
 
       -- Note stored at line 16, but server computed displayLine = 18
       local notes = {
@@ -782,7 +782,7 @@ impl Default for Config {
   end)
 end)
 
-describe("hemis selected note highlighting", function()
+describe("mnemos selected note highlighting", function()
   local buf
 
   before_each(function()
@@ -794,8 +794,8 @@ describe("hemis selected note highlighting", function()
     helpers.cleanup()
   end)
 
-  it("uses HemisNoteSelected highlight for selected note", function()
-    local display = require("hemis.display")
+  it("uses MnemosNoteSelected highlight for selected note", function()
+    local display = require("mnemos.display")
     local notes = {
       { id = "note-1", line = 1, column = 0, text = "First note" },
       { id = "note-2", line = 2, column = 0, text = "Second note" },
@@ -819,27 +819,27 @@ describe("hemis selected note highlighting", function()
       end
     end
 
-    -- Selected note should use HemisNoteSelected
+    -- Selected note should use MnemosNoteSelected
     local has_selected_hl = false
     for _, hl in ipairs(selected_mark.hl_groups) do
-      if hl == "HemisNoteSelected" then
+      if hl == "MnemosNoteSelected" then
         has_selected_hl = true
       end
     end
-    assert.truthy(has_selected_hl, "Selected note should use HemisNoteSelected highlight")
+    assert.truthy(has_selected_hl, "Selected note should use MnemosNoteSelected highlight")
 
-    -- Unselected note should use HemisNote
+    -- Unselected note should use MnemosNote
     local has_normal_hl = false
     for _, hl in ipairs(unselected_mark.hl_groups) do
-      if hl == "HemisNote" then
+      if hl == "MnemosNote" then
         has_normal_hl = true
       end
     end
-    assert.truthy(has_normal_hl, "Unselected note should use HemisNote highlight")
+    assert.truthy(has_normal_hl, "Unselected note should use MnemosNote highlight")
   end)
 
   it("selected highlight takes precedence over stale", function()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
     local notes = {
       { id = "note-1", line = 1, column = 0, text = "Stale but selected", iconHint = "stale" },
     }
@@ -851,23 +851,23 @@ describe("hemis selected note highlighting", function()
     local state = helpers.capture_display_state(buf)
     assert.equals(1, #state.extmarks)
 
-    -- Should use HemisNoteSelected, not HemisNoteStale
+    -- Should use MnemosNoteSelected, not MnemosNoteStale
     local has_selected_hl = false
     local has_stale_hl = false
     for _, hl in ipairs(state.extmarks[1].hl_groups) do
-      if hl == "HemisNoteSelected" then
+      if hl == "MnemosNoteSelected" then
         has_selected_hl = true
       end
-      if hl == "HemisNoteStale" then
+      if hl == "MnemosNoteStale" then
         has_stale_hl = true
       end
     end
-    assert.truthy(has_selected_hl, "Selected takes precedence - should use HemisNoteSelected")
-    assert.is_false(has_stale_hl, "Selected takes precedence - should not use HemisNoteStale")
+    assert.truthy(has_selected_hl, "Selected takes precedence - should use MnemosNoteSelected")
+    assert.is_false(has_stale_hl, "Selected takes precedence - should not use MnemosNoteStale")
   end)
 
   it("no selected highlight when selected_note_id is nil", function()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
     local notes = {
       { id = "note-1", line = 1, column = 0, text = "Normal note" },
     }
@@ -879,24 +879,24 @@ describe("hemis selected note highlighting", function()
     local state = helpers.capture_display_state(buf)
     assert.equals(1, #state.extmarks)
 
-    -- Should use HemisNote, not HemisNoteSelected
+    -- Should use MnemosNote, not MnemosNoteSelected
     local has_selected_hl = false
     local has_normal_hl = false
     for _, hl in ipairs(state.extmarks[1].hl_groups) do
-      if hl == "HemisNoteSelected" then
+      if hl == "MnemosNoteSelected" then
         has_selected_hl = true
       end
-      if hl == "HemisNote" then
+      if hl == "MnemosNote" then
         has_normal_hl = true
       end
     end
-    assert.is_false(has_selected_hl, "Should not use HemisNoteSelected when no selection")
-    assert.truthy(has_normal_hl, "Should use HemisNote when no selection")
+    assert.is_false(has_selected_hl, "Should not use MnemosNoteSelected when no selection")
+    assert.truthy(has_normal_hl, "Should use MnemosNote when no selection")
   end)
 end)
 
 -- Tests for follow_link link pattern parsing
-describe("hemis follow_link", function()
+describe("mnemos follow_link", function()
   it("link pattern matches [[desc][uuid]] format", function()
     local link_pattern = "%[%[.-%]%[([%x%-]+)%]%]"
     local test_uuid = "12345678-1234-1234-1234-123456789abc"

@@ -1,8 +1,8 @@
-(defpackage :hemis.config
+(defpackage :mnemos.config
   (:use :cl)
   (:export :*config* :load-config))
 
-(in-package :hemis.config)
+(in-package :mnemos.config)
 
 (defparameter *config* (make-hash-table :test 'equal))
 

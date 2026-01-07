@@ -42,7 +42,7 @@ export function setSelectedNote(note: Note | null): void {
 function updateStatusBar(): void {
   if (!statusBarItem) {
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-    statusBarItem.command = 'hemis.clearSelection';
+    statusBarItem.command = 'mnemos.clearSelection';
   }
   if (selectedNote) {
     // Backend guarantees shortId is always present
@@ -632,7 +632,7 @@ export async function viewNoteCommand(): Promise<void> {
 
 export async function helpCommand(): Promise<void> {
   const commands = [
-    '**Hemis Commands**',
+    '**Mnemos Commands**',
     '',
     '| Command | Keybinding | Description |',
     '|---------|------------|-------------|',
@@ -661,7 +661,7 @@ export async function helpCommand(): Promise<void> {
 export async function shutdownCommand(): Promise<void> {
   try {
     await shutdown();
-    vscode.window.showInformationMessage('Hemis backend shutdown');
+    vscode.window.showInformationMessage('Mnemos backend shutdown');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     vscode.window.showErrorMessage(`Failed to shutdown: ${message}`);
@@ -898,29 +898,29 @@ export function clearSelectionCommand(): void {
 
 export function registerCommands(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
-    vscode.commands.registerCommand('hemis.addNote', addNoteCommand),
-    vscode.commands.registerCommand('hemis.deleteNote', deleteNoteCommand),
-    vscode.commands.registerCommand('hemis.reattachNote', reattachNoteCommand),
-    vscode.commands.registerCommand('hemis.editNote', editNoteCommand),
-    vscode.commands.registerCommand('hemis.refreshNotes', refreshNotesCommand),
-    vscode.commands.registerCommand('hemis.listNotes', listNotesCommand),
-    vscode.commands.registerCommand('hemis.indexProject', indexProjectCommand),
-    vscode.commands.registerCommand('hemis.indexProjectAI', indexProjectAICommand),
-    vscode.commands.registerCommand('hemis.search', searchCommand),
-    vscode.commands.registerCommand('hemis.insertLink', insertLinkCommand),
-    vscode.commands.registerCommand('hemis.followLink', followLinkCommand),
-    vscode.commands.registerCommand('hemis.navigateBack', navigateBackCommand),
-    vscode.commands.registerCommand('hemis.status', statusCommand),
-    vscode.commands.registerCommand('hemis.projectMeta', projectMetaCommand),
-    vscode.commands.registerCommand('hemis.backlinks', backlinksCommand),
-    vscode.commands.registerCommand('hemis.viewNote', viewNoteCommand),
-    vscode.commands.registerCommand('hemis.editNoteBuffer', editNoteBufferCommand),
-    vscode.commands.registerCommand('hemis.help', helpCommand),
-    vscode.commands.registerCommand('hemis.shutdown', shutdownCommand),
-    vscode.commands.registerCommand('hemis.explainRegion', explainRegionCommand),
-    vscode.commands.registerCommand('hemis.explainRegionAI', explainRegionAICommand),
-    vscode.commands.registerCommand('hemis.jumpToNote', jumpToNoteCommand),
-    vscode.commands.registerCommand('hemis.selectNote', selectNoteCommand),
-    vscode.commands.registerCommand('hemis.clearSelection', clearSelectionCommand)
+    vscode.commands.registerCommand('mnemos.addNote', addNoteCommand),
+    vscode.commands.registerCommand('mnemos.deleteNote', deleteNoteCommand),
+    vscode.commands.registerCommand('mnemos.reattachNote', reattachNoteCommand),
+    vscode.commands.registerCommand('mnemos.editNote', editNoteCommand),
+    vscode.commands.registerCommand('mnemos.refreshNotes', refreshNotesCommand),
+    vscode.commands.registerCommand('mnemos.listNotes', listNotesCommand),
+    vscode.commands.registerCommand('mnemos.indexProject', indexProjectCommand),
+    vscode.commands.registerCommand('mnemos.indexProjectAI', indexProjectAICommand),
+    vscode.commands.registerCommand('mnemos.search', searchCommand),
+    vscode.commands.registerCommand('mnemos.insertLink', insertLinkCommand),
+    vscode.commands.registerCommand('mnemos.followLink', followLinkCommand),
+    vscode.commands.registerCommand('mnemos.navigateBack', navigateBackCommand),
+    vscode.commands.registerCommand('mnemos.status', statusCommand),
+    vscode.commands.registerCommand('mnemos.projectMeta', projectMetaCommand),
+    vscode.commands.registerCommand('mnemos.backlinks', backlinksCommand),
+    vscode.commands.registerCommand('mnemos.viewNote', viewNoteCommand),
+    vscode.commands.registerCommand('mnemos.editNoteBuffer', editNoteBufferCommand),
+    vscode.commands.registerCommand('mnemos.help', helpCommand),
+    vscode.commands.registerCommand('mnemos.shutdown', shutdownCommand),
+    vscode.commands.registerCommand('mnemos.explainRegion', explainRegionCommand),
+    vscode.commands.registerCommand('mnemos.explainRegionAI', explainRegionAICommand),
+    vscode.commands.registerCommand('mnemos.jumpToNote', jumpToNoteCommand),
+    vscode.commands.registerCommand('mnemos.selectNote', selectNoteCommand),
+    vscode.commands.registerCommand('mnemos.clearSelection', clearSelectionCommand)
   );
 }

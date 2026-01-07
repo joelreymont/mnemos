@@ -5,7 +5,7 @@
 
 ## Summary
 
-Hemis UI cannot currently be implemented for the Zed editor due to fundamental limitations in Zed's extension API.
+Mnemos UI cannot currently be implemented for the Zed editor due to fundamental limitations in Zed's extension API.
 
 ## Zed Extension Capabilities (Current)
 
@@ -31,9 +31,9 @@ Zed's UI framework (GPUI) is Rust-based with heavy trait/closure usage, making i
 From [GPUI2 discussion](https://github.com/zed-industries/zed/discussions/6679):
 > "If GPUI uses too many Rust features like traits/closures, it will be hard to bind to for extensions... unless scriptability is considered in the GPUI design, extensions will need a new custom UI framework."
 
-## Hemis Requirements vs Zed Support
+## Mnemos Requirements vs Zed Support
 
-| Feature | Hemis Needs | Zed Support |
+| Feature | Mnemos Needs | Zed Support |
 |---------|-------------|-------------|
 | Inline note markers (virtual text) | ✓ | ✗ |
 | Picker/menu UI | ✓ | ✗ |
@@ -52,9 +52,9 @@ From [GPUI2 discussion](https://github.com/zed-industries/zed/discussions/6679):
 
 ## Possible Workaround: LSP-Based Implementation
 
-An LSP-based hemis could provide limited functionality:
+An LSP-based mnemos could provide limited functionality:
 
-| LSP Feature | Hemis Use |
+| LSP Feature | Mnemos Use |
 |-------------|-----------|
 | `textDocument/inlayHint` | Show note markers at positions |
 | `textDocument/hover` | Display note content on hover |

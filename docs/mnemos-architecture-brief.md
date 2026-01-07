@@ -1,10 +1,10 @@
-# Hemis Architecture Brief
+# Mnemos Architecture Brief
 
-This document explains how Hemis works for AI assistants or developers who have no prior knowledge of the project and cannot access the repository.
+This document explains how Mnemos works for AI assistants or developers who have no prior knowledge of the project and cannot access the repository.
 
-## What is Hemis?
+## What is Mnemos?
 
-Hemis is a **"second brain for your code"** - a system that lets developers attach persistent, searchable notes to specific locations in source code. The key innovation is that notes survive refactoring because they're anchored to **AST nodes** (via Tree-sitter) rather than fragile line numbers.
+Mnemos is a **"second brain for your code"** - a system that lets developers attach persistent, searchable notes to specific locations in source code. The key innovation is that notes survive refactoring because they're anchored to **AST nodes** (via Tree-sitter) rather than fragile line numbers.
 
 **Core value proposition:**
 - Notes attached to functions, classes, or blocks persist when code moves
@@ -17,9 +17,9 @@ Hemis is a **"second brain for your code"** - a system that lets developers atta
 ```
 ┌─────────────┐                           ┌──────────────────────────┐
 │   Emacs     │──────┐                    │                          │
-│ (hemis.el)  │      │   Unix Socket      │    Backend Server        │
-└─────────────┘      │   ~/.hemis/        │    (Single Rust Process) │
-                     │   hemis.sock       │                          │
+│ (mnemos.el) │      │   Unix Socket      │    Backend Server        │
+└─────────────┘      │   ~/.mnemos/       │    (Single Rust Process) │
+                     │   mnemos.sock      │                          │
 ┌─────────────┐      │                    │  ┌────────────────────┐  │
 │  Neovim     │──────┼───────────────────►│  │  JSON-RPC 2.0      │  │
 │ (Lua plugin)│      │                    │  │  Request Handler   │  │
@@ -32,7 +32,7 @@ Hemis is a **"second brain for your code"** - a system that lets developers atta
        ▲                                  │            │             │
        │                                  │  ┌─────────▼──────────┐  │
        │  Events Socket                   │  │  SQLite Storage    │  │
-       │  ~/.hemis/events.sock            │  │  ~/.hemis/hemis.db │  │
+       │  ~/.mnemos/events.sock           │  │  ~/.mnemos/mnemos.db│  │
        │                                  │  └────────────────────┘  │
        │                                  │                          │
        └──────────────────────────────────┤  ┌────────────────────┐  │
@@ -114,11 +114,11 @@ Response format:
 **Project operations:**
 | Method | Purpose |
 |--------|---------|
-| `hemis/search` | Unified search (text + semantic if embeddings exist) |
-| `hemis/index-project` | Index all files in project (async supported) |
-| `hemis/status` | Get counts (notes, files, embeddings) |
-| `hemis/explain-region` | Get AI explanation for code region |
-| `hemis/project-meta` | Get project indexing state |
+| `mnemos/search` | Unified search (text + semantic if embeddings exist) |
+| `mnemos/index-project` | Index all files in project (async supported) |
+| `mnemos/status` | Get counts (notes, files, embeddings) |
+| `mnemos/explain-region` | Get AI explanation for code region |
+| `mnemos/project-meta` | Get project indexing state |
 
 ## Note Anchoring (Tree-sitter Integration)
 
@@ -148,7 +148,7 @@ Stale notes are displayed differently (grayed out) and can be manually re-anchor
 
 ## Storage (SQLite)
 
-All data stored in `~/.hemis/hemis.db`.
+All data stored in `~/.mnemos/mnemos.db`.
 
 **Notes table:**
 ```sql
@@ -199,7 +199,7 @@ CREATE TABLE note_versions (
 
 ## Event System
 
-The backend broadcasts events to all connected clients via a separate socket (`~/.hemis/events.sock`).
+The backend broadcasts events to all connected clients via a separate socket (`~/.mnemos/events.sock`).
 
 Event types:
 ```
@@ -249,7 +249,7 @@ Uses Neovim's extmarks with `virt_lines` (virtual lines above actual line):
 ```lua
 vim.api.nvim_buf_set_extmark(buf, ns_id, line - 1, 0, {
   virt_lines = {
-    {{ "    // Note text here", "HemisNote" }}
+    {{ "    // Note text here", "MnemosNote" }}
   },
   virt_lines_above = true
 })
@@ -262,7 +262,7 @@ Uses overlays positioned at the anchor line:
 ```elisp
 (let ((ov (make-overlay start end)))
   (overlay-put ov 'before-string
-    (propertize "// Note text\n" 'face 'hemis-note-face)))
+    (propertize "// Note text\n" 'face 'mnemos-note-face)))
 ```
 
 ### VS Code Rendering
@@ -275,7 +275,7 @@ The backend can call local AI CLI tools (Codex or Claude) to generate note conte
 
 **Flow:**
 1. User selects code region and triggers "explain"
-2. UI sends `hemis/explain-region` with file path and line range
+2. UI sends `mnemos/explain-region` with file path and line range
 3. Backend extracts code snippet with context (±20 lines)
 4. Backend spawns AI CLI subprocess with the snippet
 5. AI returns explanation
@@ -286,8 +286,8 @@ The backend can call local AI CLI tools (Codex or Claude) to generate note conte
 
 **Provider selection:**
 - Default: `codex` CLI on PATH
-- Override: `HEMIS_AI_PROVIDER=claude` environment variable
-- Disable: `HEMIS_AI_PROVIDER=none`
+- Override: `MNEMOS_AI_PROVIDER=claude` environment variable
+- Disable: `MNEMOS_AI_PROVIDER=none`
 
 ## Path Handling
 
@@ -300,9 +300,9 @@ UIs must either:
 ## Lifecycle Management
 
 **Starting the backend:**
-1. Check for existing socket at `~/.hemis/hemis.sock`
+1. Check for existing socket at `~/.mnemos/mnemos.sock`
 2. If socket exists, try to connect (backend already running)
-3. If connection fails, check lock file `~/.hemis/hemis.lock` for stale PID
+3. If connection fails, check lock file `~/.mnemos/mnemos.lock` for stale PID
 4. Kill stale process if needed
 5. Spawn new backend process
 
@@ -314,7 +314,7 @@ UIs must either:
 
 ## Summary
 
-Hemis is a client-server system where:
+Mnemos is a client-server system where:
 
 - **Backend** (Rust): Single process handling JSON-RPC, SQLite storage, Tree-sitter parsing, AI integration
 - **UI plugins** (Emacs/Neovim/VS Code): Thin clients that render notes and send commands

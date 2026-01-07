@@ -1,4 +1,4 @@
-// Decoration display tests for Hemis VS Code extension
+// Decoration display tests for Mnemos VS Code extension
 // Tests verify the exact content users see in decorations
 
 import * as assert from 'assert';
@@ -31,7 +31,7 @@ function createTestNote(overrides: Partial<Note> = {}): Note {
   };
 }
 
-suite('Hemis Decorations', () => {
+suite('Mnemos Decorations', () => {
   suite('formatNoteText', () => {
     const baseNote: Note = {
       id: 'abcd1234-5678-9012',

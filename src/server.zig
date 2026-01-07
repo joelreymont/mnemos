@@ -214,39 +214,39 @@ const Server = struct {
             }
         }
 
-        std.debug.print("hemis shutting down cleanly\n", .{});
+        std.debug.print("mnemos shutting down cleanly\n", .{});
     }
 };
 
-/// Get socket path (prefer HEMIS_DIR, then XDG_RUNTIME_DIR, fallback to ~/.hemis)
+/// Get socket path (prefer MNEMOS_DIR, then XDG_RUNTIME_DIR, fallback to ~/.mnemos)
 fn getSocketPath(alloc: Allocator) ![]const u8 {
-    // Try HEMIS_DIR first (for tests and custom setups)
-    if (std.process.getEnvVarOwned(alloc, "HEMIS_DIR")) |hemis_dir| {
-        defer alloc.free(hemis_dir);
-        return try std.fmt.allocPrint(alloc, "{s}/hemis.sock", .{hemis_dir});
+    // Try MNEMOS_DIR first (for tests and custom setups)
+    if (std.process.getEnvVarOwned(alloc, "MNEMOS_DIR")) |mnemos_dir| {
+        defer alloc.free(mnemos_dir);
+        return try std.fmt.allocPrint(alloc, "{s}/mnemos.sock", .{mnemos_dir});
     } else |_| {}
 
     // Try XDG_RUNTIME_DIR
     if (std.process.getEnvVarOwned(alloc, "XDG_RUNTIME_DIR")) |runtime_dir| {
         defer alloc.free(runtime_dir);
-        return try std.fmt.allocPrint(alloc, "{s}/hemis.sock", .{runtime_dir});
+        return try std.fmt.allocPrint(alloc, "{s}/mnemos.sock", .{runtime_dir});
     } else |_| {}
 
-    // Fallback to ~/.hemis/hemis.sock
-    const hemis_dir = try getHemisDir(alloc);
-    defer alloc.free(hemis_dir);
-    return try std.fmt.allocPrint(alloc, "{s}/hemis.sock", .{hemis_dir});
+    // Fallback to ~/.mnemos/mnemos.sock
+    const mnemos_dir = try getMnemosDir(alloc);
+    defer alloc.free(mnemos_dir);
+    return try std.fmt.allocPrint(alloc, "{s}/mnemos.sock", .{mnemos_dir});
 }
 
-/// Get hemis directory, creating if needed
-fn getHemisDir(alloc: Allocator) ![]const u8 {
-    if (std.process.getEnvVarOwned(alloc, "HEMIS_DIR")) |dir| {
+/// Get mnemos directory, creating if needed
+fn getMnemosDir(alloc: Allocator) ![]const u8 {
+    if (std.process.getEnvVarOwned(alloc, "MNEMOS_DIR")) |dir| {
         return dir;
     } else |_| {}
 
     if (std.process.getEnvVarOwned(alloc, "HOME")) |home| {
         defer alloc.free(home);
-        const path = try std.fmt.allocPrint(alloc, "{s}/.hemis", .{home});
+        const path = try std.fmt.allocPrint(alloc, "{s}/.mnemos", .{home});
         fs.makeDirAbsolute(path) catch |err| {
             if (err != error.PathAlreadyExists) return err;
         };
@@ -266,13 +266,13 @@ fn handleShutdown(_: c_int) callconv(.c) void {
 
 /// Run the server with default paths
 pub fn run(alloc: Allocator) !void {
-    const hemis_dir = try getHemisDir(alloc);
-    defer alloc.free(hemis_dir);
+    const mnemos_dir = try getMnemosDir(alloc);
+    defer alloc.free(mnemos_dir);
 
     const socket_path = try getSocketPath(alloc);
     defer alloc.free(socket_path);
 
-    const db_path = try std.fmt.allocPrint(alloc, "{s}/hemis.db", .{hemis_dir});
+    const db_path = try std.fmt.allocPrint(alloc, "{s}/mnemos.db", .{mnemos_dir});
     defer alloc.free(db_path);
 
     try runWithPaths(alloc, socket_path, db_path);
@@ -293,7 +293,7 @@ pub fn runWithPaths(alloc: Allocator, socket_path: []const u8, db_path: []const 
     var srv = try Server.init(alloc, socket_path, db_path);
     defer srv.deinit();
 
-    std.debug.print("hemis listening on {s}\n", .{socket_path});
+    std.debug.print("mnemos listening on {s}\n", .{socket_path});
 
     try srv.runLoop();
 }
@@ -321,12 +321,12 @@ test "max clients constant" {
     try testing.expect(MAX_CLIENTS <= 1024);
 }
 
-test "getHemisDir with env" {
+test "getMnemosDir with env" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    // Test getHemisDir returns a path
-    const dir = getHemisDir(alloc) catch |err| {
+    // Test getMnemosDir returns a path
+    const dir = getMnemosDir(alloc) catch |err| {
         // HOME might not be set in test environment
         if (err == error.NoHomeDir) return;
         return err;
@@ -353,7 +353,7 @@ test "getSocketPath returns path" {
     defer alloc.free(path);
 
     try testing.expect(path.len > 0);
-    try testing.expect(mem.endsWith(u8, path, "hemis.sock"));
+    try testing.expect(mem.endsWith(u8, path, "mnemos.sock"));
 }
 
 test "shutdown_requested initial value" {
@@ -406,17 +406,17 @@ test "getSocketPath contains sock extension" {
     try testing.expect(mem.indexOf(u8, path, ".sock") != null);
 }
 
-test "getHemisDir creates directory" {
+test "getMnemosDir creates directory" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    const dir = getHemisDir(alloc) catch |err| {
+    const dir = getMnemosDir(alloc) catch |err| {
         if (err == error.NoHomeDir) return;
         return err;
     };
     defer alloc.free(dir);
 
-    try testing.expect(mem.indexOf(u8, dir, ".hemis") != null or mem.indexOf(u8, dir, "HEMIS") != null);
+    try testing.expect(mem.indexOf(u8, dir, ".mnemos") != null or mem.indexOf(u8, dir, "MNEMOS") != null);
 }
 
 test "handleShutdown sets flag" {
@@ -482,11 +482,11 @@ test "getSocketPath path format" {
     try testing.expect(path[0] == '/');
 }
 
-test "getHemisDir path format" {
+test "getMnemosDir path format" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    const dir = getHemisDir(alloc) catch |err| {
+    const dir = getMnemosDir(alloc) catch |err| {
         if (err == error.NoHomeDir) return;
         return err;
     };

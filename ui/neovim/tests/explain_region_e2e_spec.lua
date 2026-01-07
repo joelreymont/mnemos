@@ -4,13 +4,13 @@
 --
 -- REQUIRES:
 -- - Backend built: cargo build --release -p backend
--- - AI provider configured: HEMIS_AI_PROVIDER=claude or config.toml
+-- - AI provider configured: MNEMOS_AI_PROVIDER=claude or config.toml
 
 local helpers = require("tests.helpers")
 
 -- Helper to set up test environment with AI enabled
 local function get_ai_test_env()
-  local test_dir = vim.fn.tempname() .. "_hemis_e2e_" .. math.random(10000)
+  local test_dir = vim.fn.tempname() .. "_mnemos_e2e_" .. math.random(10000)
   local test_file = test_dir .. "/server.rs"
   vim.fn.mkdir(test_dir, "p")
 
@@ -32,14 +32,14 @@ fn load_config() -> Config {
   end
 
   -- Stop any existing RPC connection
-  local rpc = require("hemis.rpc")
+  local rpc = require("mnemos.rpc")
   rpc.stop()
 
-  -- Configure hemis
-  local config = require("hemis.config")
+  -- Configure mnemos
+  local config = require("mnemos.config")
   config.setup({
-    backend = vim.g.hemis_test_backend,
-    hemis_dir = test_dir,
+    backend = vim.g.mnemos_test_backend,
+    mnemos_dir = test_dir,
     auto_refresh = false,
     keymaps = false,
   })
@@ -56,7 +56,7 @@ fn load_config() -> Config {
     cleanup = function()
       rpc.stop()
       vim.cmd("bdelete! " .. buf)
-      os.remove(test_dir .. "/hemis.lock")
+      os.remove(test_dir .. "/mnemos.lock")
       vim.fn.delete(test_dir, "rf")
     end,
   }
@@ -71,12 +71,12 @@ end
 
 describe("explain_region end-to-end", function()
   -- Check if AI provider is available
-  local ai_available = vim.env.HEMIS_AI_PROVIDER ~= nil
-    or vim.fn.filereadable(vim.fn.expand("~/.config/hemis/config.toml")) == 1
+  local ai_available = vim.env.MNEMOS_AI_PROVIDER ~= nil
+    or vim.fn.filereadable(vim.fn.expand("~/.config/mnemos/config.toml")) == 1
 
   if not ai_available then
-    it("requires AI provider (HEMIS_AI_PROVIDER or config.toml)", function()
-      pending("Set HEMIS_AI_PROVIDER=claude to run AI tests")
+    it("requires AI provider (MNEMOS_AI_PROVIDER or config.toml)", function()
+      pending("Set MNEMOS_AI_PROVIDER=claude to run AI tests")
     end)
     return
   end
@@ -87,8 +87,8 @@ describe("explain_region end-to-end", function()
 
   it("creates note from AI explanation and displays it", function()
     local env = get_ai_test_env()
-    local commands = require("hemis.commands")
-    local display = require("hemis.display")
+    local commands = require("mnemos.commands")
+    local display = require("mnemos.display")
 
     -- Set up visual selection for lines 2-4 (the interesting code)
     set_visual_selection(2, 4)
@@ -191,7 +191,7 @@ describe("explain_region end-to-end", function()
       local lines = vim.api.nvim_buf_get_lines(env.buf, 0, -1, false)
       local content = table.concat(lines, "\n")
 
-      env.rpc.request("hemis/explain-region", {
+      env.rpc.request("mnemos/explain-region", {
         file = env.file,
         startLine = 2,
         endLine = 4,
@@ -234,7 +234,7 @@ describe("explain_region end-to-end", function()
       end
 
       -- Step 1: Get AI explanation
-      env.rpc.request("hemis/explain-region", {
+      env.rpc.request("mnemos/explain-region", {
         file = env.file,
         startLine = 2,
         endLine = 4,

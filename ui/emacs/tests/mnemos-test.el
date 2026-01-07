@@ -1,25 +1,25 @@
-;;; hemis-test.el --- Tests for Hemis  -*- lexical-binding: t; -*-
+;;; mnemos-test.el --- Tests for Mnemos  -*- lexical-binding: t; -*-
 
 (require 'ert)
-(require 'hemis)
+(require 'mnemos)
 
-(defmacro hemis-test-with-mocked-backend (&rest body)
+(defmacro mnemos-test-with-mocked-backend (&rest body)
   "Run BODY with a mocked backend (no real connections)."
   (declare (indent 0))
-  `(let (hemis-test-last-method hemis-test-last-params
+  `(let (mnemos-test-last-method mnemos-test-last-params
          ;; Isolate from any real backend state
-         (hemis--process nil)
-         (hemis--conn nil)
-         (hemis-dir (make-temp-file "hemis-mock-" t)))
+         (mnemos--process nil)
+         (mnemos--conn nil)
+         (mnemos-dir (make-temp-file "mnemos-mock-" t)))
      ;; Disable global mode to prevent auto-connections
-     (hemis-notes-global-mode -1)
+     (mnemos-notes-global-mode -1)
      (unwind-protect
-         (cl-letf (((symbol-function 'hemis--request)
+         (cl-letf (((symbol-function 'mnemos--request)
                     (lambda (method &optional params)
-                      (setq hemis-test-last-method method
-                            hemis-test-last-params params)
+                      (setq mnemos-test-last-method method
+                            mnemos-test-last-params params)
                       (pcase method
-                        ("hemis/version"
+                        ("mnemos/version"
                          (list 'protocolVersion 1
                                'gitHash "mock"
                                'uptimeSecs 0
@@ -47,53 +47,53 @@
                                'nodePath (cdr (assoc 'nodePath params))))
                         (_ (error "Unexpected method in mock: %s" method)))))
                    ;; Also mock ensure-connection to prevent any real connections
-                   ((symbol-function 'hemis--ensure-connection)
+                   ((symbol-function 'mnemos--ensure-connection)
                     (lambda () nil)))
            ,@body)
        ;; Cleanup
-       (ignore-errors (delete-directory hemis-dir t)))))
+       (ignore-errors (delete-directory mnemos-dir t)))))
 
-(defmacro hemis-test-with-backend (&rest body)
+(defmacro mnemos-test-with-backend (&rest body)
   "Run BODY with a real backend using isolated temp directory."
   (declare (indent 0))
-  `(let* ((test-dir (make-temp-file "hemis-test-" t))
-          (hemis-dir test-dir)
-          (hemis--process nil)
-          (hemis--conn nil)
-          (hemis--server-process nil)
+  `(let* ((test-dir (make-temp-file "mnemos-test-" t))
+          (mnemos-dir test-dir)
+          (mnemos--process nil)
+          (mnemos--conn nil)
+          (mnemos--server-process nil)
           ;; Include AI provider if set, so AI tests can work
-          (hemis-backend-env (append
-                              (list (concat "HEMIS_DIR=" test-dir)
-                                    (concat "HEMIS_DB_PATH=" test-dir "/hemis.db"))
-                              (when (getenv "HEMIS_AI_PROVIDER")
-                                (list (concat "HEMIS_AI_PROVIDER=" (getenv "HEMIS_AI_PROVIDER"))))))
+          (mnemos-backend-env (append
+                              (list (concat "MNEMOS_DIR=" test-dir)
+                                    (concat "MNEMOS_DB_PATH=" test-dir "/mnemos.db"))
+                              (when (getenv "MNEMOS_AI_PROVIDER")
+                                (list (concat "MNEMOS_AI_PROVIDER=" (getenv "MNEMOS_AI_PROVIDER"))))))
           ;; Expand backend path NOW before test changes default-directory
-          (hemis-backend (expand-file-name
-                          (or (getenv "HEMIS_BACKEND")
-                              hemis-backend
-                              hemis--default-backend
-                              (error "Set HEMIS_BACKEND to the Rust backend binary")))))
+          (mnemos-backend (expand-file-name
+                          (or (getenv "MNEMOS_BACKEND")
+                              mnemos-backend
+                              mnemos--default-backend
+                              (error "Set MNEMOS_BACKEND to the Rust backend binary")))))
      ;; Disable global mode to prevent auto-connections to wrong socket
-     (hemis-notes-global-mode -1)
+     (mnemos-notes-global-mode -1)
      (unwind-protect
          (progn
            ;; Clean up any stale connections (not shutdown, just disconnect local state)
-           (setq hemis--process nil hemis--conn nil hemis--server-process nil)
+           (setq mnemos--process nil mnemos--conn nil mnemos--server-process nil)
            ,@body)
        ;; Shutdown the isolated server
-       (ignore-errors (hemis-shutdown))
+       (ignore-errors (mnemos-shutdown))
        ;; Wait for socket to be removed (server shutdown)
        (let ((deadline (+ (float-time) 2)))
-         (while (and (file-exists-p (expand-file-name "hemis.sock" test-dir))
+         (while (and (file-exists-p (expand-file-name "mnemos.sock" test-dir))
                      (< (float-time) deadline))
            (sleep-for 0.1)))
        ;; Force remove socket/lock files
-       (ignore-errors (delete-file (expand-file-name "hemis.sock" test-dir)))
-       (ignore-errors (delete-file (expand-file-name "hemis.lock" test-dir)))
+       (ignore-errors (delete-file (expand-file-name "mnemos.sock" test-dir)))
+       (ignore-errors (delete-file (expand-file-name "mnemos.lock" test-dir)))
        ;; Clean up test directory
        (ignore-errors (delete-directory test-dir t)))))
 
-(defun hemis-test--note-id (note)
+(defun mnemos-test--note-id (note)
   "Extract note id from NOTE (alist/plist/hash-table)."
   (cond
    ((hash-table-p note) (gethash "id" note))
@@ -102,110 +102,110 @@
                      (alist-get "id" note nil nil #'equal)))
    (t nil)))
 
-(ert-deftest hemis-refresh-notes-creates-overlay ()
-  (hemis-test-with-mocked-backend
+(ert-deftest mnemos-refresh-notes-creates-overlay ()
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
       (insert "fn main() {}\n")
       (set-visited-file-name "/tmp/main.rs" t t)
       (when (fboundp 'rust-ts-mode)
         (rust-ts-mode))
-      (hemis-notes-mode 1)
-      (hemis-refresh-notes)
-      (should (consp hemis--overlays))
-      (let ((ov (car hemis--overlays)))
+      (mnemos-notes-mode 1)
+      (mnemos-refresh-notes)
+      (should (consp mnemos--overlays))
+      (let ((ov (car mnemos--overlays)))
         (goto-char (overlay-start ov))
         (should (= (line-number-at-pos) 1))
         (should (= (current-column) 0))))))
 
-(ert-deftest hemis-add-note-sends-content ()
+(ert-deftest mnemos-add-note-sends-content ()
   ;; Server-side tree-sitter: add-note now sends buffer content
   ;; so server can compute nodeTextHash and nodePath
-  (hemis-test-with-mocked-backend
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
       (insert "fn add(x: i32, y: i32) -> i32 {\n    x + y\n}\n")
       (set-visited-file-name "/tmp/add.rs" t t)
       (goto-char (point-min))
       (search-forward "add")
-      (hemis-add-note "test note")
-      (should (equal hemis-test-last-method "notes/create"))
-      (let ((content (cdr (assoc 'content hemis-test-last-params))))
+      (mnemos-add-note "test note")
+      (should (equal mnemos-test-last-method "notes/create"))
+      (let ((content (cdr (assoc 'content mnemos-test-last-params))))
         (should (stringp content))
         (should (string-match-p "fn add" content))))))
 
-(ert-deftest hemis-add-note-allows-multiline ()
-  (hemis-test-with-mocked-backend
+(ert-deftest mnemos-add-note-allows-multiline ()
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
       (insert "fn main() {}\n")
       (set-visited-file-name "/tmp/main.rs" t t)
-      (hemis-add-note "line1\nline2")
-      (should (equal (cdr (assoc 'text hemis-test-last-params))
+      (mnemos-add-note "line1\nline2")
+      (should (equal (cdr (assoc 'text mnemos-test-last-params))
                      "line1\nline2")))))
 
-(ert-deftest hemis-add-note-interactive-multiline ()
-  (hemis-test-with-mocked-backend
+(ert-deftest mnemos-add-note-interactive-multiline ()
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
       (insert "fn main() {}\n")
       (set-visited-file-name "/tmp/main.rs" t t)
-      (cl-letf (((symbol-function 'hemis--read-note-text)
+      (cl-letf (((symbol-function 'mnemos--read-note-text)
                  (lambda () "line1\nline2\nline3")))
-        (hemis-add-note (hemis--read-note-text))
-        (should (equal (cdr (assoc 'text hemis-test-last-params))
+        (mnemos-add-note (mnemos--read-note-text))
+        (should (equal (cdr (assoc 'text mnemos-test-last-params))
                        "line1\nline2\nline3"))))))
 
-(ert-deftest hemis-apply-notes-reanchors-to-line-start ()
+(ert-deftest mnemos-apply-notes-reanchors-to-line-start ()
   "Stickies move to the token start."
   (with-temp-buffer
     (insert "fn main() {\n    let SCHEMA = 1;\n}\n")
     (set-visited-file-name "/tmp/schema.rs" t t)
     ;; Simulate backend returning a note placed mid-identifier.
-    (hemis--apply-notes
+    (mnemos--apply-notes
      (list '((id . "1") (file . "/tmp/schema.rs") (line . 2) (column . 11) (summary . "mid"))))
-    (should hemis--overlays)
-    (let* ((marker (seq-find (lambda (ov) (overlay-get ov 'hemis-note-marker))
-                             hemis--overlays)))
+    (should mnemos--overlays)
+    (let* ((marker (seq-find (lambda (ov) (overlay-get ov 'mnemos-note-marker))
+                             mnemos--overlays)))
       (should marker)
       (goto-char (overlay-start marker))
       (should (= (line-number-at-pos) 2))
       (should (= (current-column) 0)))))
 
-(ert-deftest hemis-view-note-uses-markdown-mode-when-available ()
-  (hemis-test-with-mocked-backend
+(ert-deftest mnemos-view-note-uses-markdown-mode-when-available ()
+  (mnemos-test-with-mocked-backend
     ;; Build a notes buffer with a note property, then view it.
     (let ((note '((id . "1") (file . "/tmp/mock.rs") (line . 1) (column . 0)
                   (text . "Heading\n\n- bullet"))))
-      (with-current-buffer (get-buffer-create "*Hemis Notes*")
+      (with-current-buffer (get-buffer-create "*Mnemos Notes*")
         (setq buffer-read-only nil)
         (erase-buffer)
         (insert "mock\n")
         (add-text-properties (point-min) (point-max)
-                             (list 'hemis-note note)))
-      (with-current-buffer "*Hemis Notes*"
+                             (list 'mnemos-note note)))
+      (with-current-buffer "*Mnemos Notes*"
         (goto-char (point-min)))
-      (with-current-buffer "*Hemis Notes*"
-        (hemis-view-note))
-      (with-current-buffer "*Hemis Note*"
+      (with-current-buffer "*Mnemos Notes*"
+        (mnemos-view-note))
+      (with-current-buffer "*Mnemos Note*"
         (should (string-match-p "- bullet" (buffer-string)))
         (when (fboundp 'markdown-mode)
           (should (eq major-mode 'markdown-mode)))))))
 
-(ert-deftest hemis-overlay-begins-on-newline ()
+(ert-deftest mnemos-overlay-begins-on-newline ()
   (with-temp-buffer
     (insert "fn main() {}\n    let X = 1;\n")
     (set-visited-file-name "/tmp/newline.rs" t t)
     (let* ((note '((id . "1") (file . "/tmp/newline.rs") (line . 2) (column . 11) (summary . "line"))))
-      (hemis--apply-notes (list note))
-      (let* ((ov (seq-find (lambda (o) (overlay-get o 'hemis-note-marker))
-                           hemis--overlays))
+      (mnemos--apply-notes (list note))
+      (let* ((ov (seq-find (lambda (o) (overlay-get o 'mnemos-note-marker))
+                           mnemos--overlays))
              (before (and ov (overlay-get ov 'before-string))))
         (should ov)
         (should (stringp before))
         (should (string-match-p "^\\s-*\\(\n\\|//\\|;\\|--\\|#\\)" before))
         (should (string-match-p "line" before))))))
 
-(ert-deftest hemis-index-rust-integration ()
+(ert-deftest mnemos-index-rust-integration ()
   "Test note CRUD and overlays."
   (let ((rust-content "fn main() {\n    println!(\"hello\");\n}\n\nfn helper() {\n    let x = 1;\n}\n"))
-    (hemis-test-with-backend
+    (mnemos-test-with-backend
       (let ((test-file (expand-file-name "test.rs" test-dir)))
         (with-temp-file test-file
           (insert rust-content))
@@ -213,24 +213,24 @@
           (insert rust-content)
           (set-visited-file-name test-file t t)
           (setq comment-start "// ")
-          (let ((hemis--project-root-override test-dir))
+          (let ((mnemos--project-root-override test-dir))
             ;; Basic note CRUD
             (goto-char (point-min))
             (search-forward "println")
-            (let* ((created (hemis-add-note "integration note"))
-                   (created2 (hemis-add-note "second note"))
-                   (cid (hemis-test--note-id created))
-                   (fetched (hemis-get-note cid)))
+            (let* ((created (mnemos-add-note "integration note"))
+                   (created2 (mnemos-add-note "second note"))
+                   (cid (mnemos-test--note-id created))
+                   (fetched (mnemos-get-note cid)))
               (should (stringp cid))
-              (should (string= cid (hemis-test--note-id fetched)))
+              (should (string= cid (mnemos-test--note-id fetched)))
               ;; Verify overlays with comment prefix and note text
-              (hemis-refresh-notes)
-              (should (>= (length hemis--overlays) 2))
+              (mnemos-refresh-notes)
+              (should (>= (length mnemos--overlays) 2))
               ;; Collect all texts from all marker overlays
-              (let* ((markers (seq-filter (lambda (o) (overlay-get o 'hemis-note-marker))
-                                          hemis--overlays))
+              (let* ((markers (seq-filter (lambda (o) (overlay-get o 'mnemos-note-marker))
+                                          mnemos--overlays))
                      (all-texts (apply #'append
-                                       (mapcar (lambda (o) (overlay-get o 'hemis-note-texts))
+                                       (mapcar (lambda (o) (overlay-get o 'mnemos-note-texts))
                                                markers)))
                      (first-marker (car markers))
                      (before (and first-marker (overlay-get first-marker 'before-string))))
@@ -244,10 +244,10 @@
                 ;; Face is applied to overlay text
                 (should (get-text-property 0 'face before))))))))))
 
-(ert-deftest hemis-list-notes-integration ()
-  "Test hemis-list-notes with real backend returns notes in buffer."
+(ert-deftest mnemos-list-notes-integration ()
+  "Test mnemos-list-notes with real backend returns notes in buffer."
   (let ((rust-content "fn main() {\n    println!(\"hello\");\n}\n"))
-    (hemis-test-with-backend
+    (mnemos-test-with-backend
       ;; Create test file inside the macro's test-dir
       (let ((test-file (expand-file-name "test.rs" test-dir)))
         (with-temp-file test-file
@@ -256,45 +256,45 @@
           (insert rust-content)
           (set-visited-file-name test-file t t)
           (setq comment-start "// ")
-          (let ((hemis--project-root-override test-dir))
+          (let ((mnemos--project-root-override test-dir))
             (goto-char (point-min))
             ;; Create a note so list-notes has something to show
-            (hemis-add-note "integration list test")
+            (mnemos-add-note "integration list test")
             ;; Now list notes
-            (hemis-list-notes)
-            (with-current-buffer "*Hemis Notes*"
+            (mnemos-list-notes)
+            (with-current-buffer "*Mnemos Notes*"
               (goto-char (point-min))
               ;; Should find our note text in the buffer
               (should (search-forward "integration list test" nil t))
-              ;; Should have hemis-note property on that line
+              ;; Should have mnemos-note property on that line
               (goto-char (point-min))
               (let ((found nil))
                 (while (and (not found) (not (eobp)))
-                  (setq found (get-text-property (line-beginning-position) 'hemis-note))
+                  (setq found (get-text-property (line-beginning-position) 'mnemos-note))
                   (forward-line 1))
                 (should found)))))))))
 
-(ert-deftest hemis-explain-region-calls-backend ()
-  (hemis-test-with-mocked-backend
+(ert-deftest mnemos-explain-region-calls-backend ()
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
       (insert "line1\nline2\n")
       (set-visited-file-name "/tmp/foo.rs" t t)
-      (cl-letf (((symbol-function 'hemis--request)
+      (cl-letf (((symbol-function 'mnemos--request)
                  (lambda (method &optional _params)
-                   (setq hemis-test-last-method method)
+                   (setq mnemos-test-last-method method)
                    '((content . "stub")))))
-        (hemis-explain-region (point-min) (point-max))
-        (should (equal hemis-test-last-method "hemis/explain-region"))
-        (with-current-buffer "*Hemis Explain*"
+        (mnemos-explain-region (point-min) (point-max))
+        (should (equal mnemos-test-last-method "mnemos/explain-region"))
+        (with-current-buffer "*Mnemos Explain*"
           (goto-char (point-min))
           (should (search-forward "stub" nil t)))))))
 
 ;;; Explain Region AI E2E Tests
 ;;; Tests that explain-region-ai creates notes like Neovim does
 
-(ert-deftest hemis-explain-region-ai-shows-timer-message ()
+(ert-deftest mnemos-explain-region-ai-shows-timer-message ()
   "Test that explain-region-ai shows 'AI thinking... 0s' message."
-  (hemis-test-with-mocked-backend
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
       (insert "fn main() {}\n")
       (set-visited-file-name "/tmp/timer-test.rs" t t)
@@ -302,27 +302,27 @@
       (let ((messages-shown nil))
         (cl-letf (((symbol-function 'jsonrpc-async-request)
                    (lambda (_conn method _params &rest args)
-                     (when (string= method "hemis/explain-region")
+                     (when (string= method "mnemos/explain-region")
                        (let ((success-fn (plist-get args :success-fn)))
                          (when success-fn
                            (funcall success-fn '(:explanation "test" :ai (:statusDisplay "[AI]"))))))))
-                  ((symbol-function 'hemis--request)
+                  ((symbol-function 'mnemos--request)
                    (lambda (method &optional _params)
                      (pcase method
                        ("notes/create" '(:id "test-id"))
                        (_ nil))))
-                  ((symbol-function 'hemis--make-note-overlay) #'ignore)
+                  ((symbol-function 'mnemos--make-note-overlay) #'ignore)
                   ((symbol-function 'message)
                    (lambda (fmt &rest args)
                      (push (apply #'format fmt args) messages-shown))))
-          (hemis-explain-region-ai (point-min) (point-max))
+          (mnemos-explain-region-ai (point-min) (point-max))
           ;; Should have shown "AI thinking... 0s"
           (should (cl-some (lambda (m) (string-match-p "AI thinking\\.\\.\\. 0s" m))
                            messages-shown)))))))
 
-(ert-deftest hemis-explain-region-ai-detailed-shows-timer-message ()
+(ert-deftest mnemos-explain-region-ai-detailed-shows-timer-message ()
   "Test that explain-region-ai-detailed shows 'AI thinking deeply... 0s' message."
-  (hemis-test-with-mocked-backend
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
       (insert "fn main() {}\n")
       (set-visited-file-name "/tmp/timer-test2.rs" t t)
@@ -330,28 +330,28 @@
       (let ((messages-shown nil))
         (cl-letf (((symbol-function 'jsonrpc-async-request)
                    (lambda (_conn method _params &rest args)
-                     (when (string= method "hemis/explain-region")
+                     (when (string= method "mnemos/explain-region")
                        (let ((success-fn (plist-get args :success-fn)))
                          (when success-fn
                            (funcall success-fn '(:explanation "test" :ai (:statusDisplay "[AI]"))))))))
-                  ((symbol-function 'hemis--request)
+                  ((symbol-function 'mnemos--request)
                    (lambda (method &optional _params)
                      (pcase method
                        ("notes/create" '(:id "test-id"))
                        (_ nil))))
-                  ((symbol-function 'hemis--make-note-overlay) #'ignore)
+                  ((symbol-function 'mnemos--make-note-overlay) #'ignore)
                   ((symbol-function 'message)
                    (lambda (fmt &rest args)
                      (push (apply #'format fmt args) messages-shown))))
-          (hemis-explain-region-ai-detailed (point-min) (point-max))
+          (mnemos-explain-region-ai-detailed (point-min) (point-max))
           ;; Should have shown "AI thinking deeply... 0s"
           (should (cl-some (lambda (m) (string-match-p "AI thinking deeply\\.\\.\\. 0s" m))
                            messages-shown)))))))
 
-(ert-deftest hemis-explain-region-ai-creates-note ()
+(ert-deftest mnemos-explain-region-ai-creates-note ()
   "Test that explain-region-ai creates a note with AI explanation.
 This mirrors Neovim's explain_region_e2e_spec.lua behavior."
-  (hemis-test-with-mocked-backend
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
       (insert "fn main() {\n    let config = load_config();\n    server.start();\n}\n")
       (set-visited-file-name "/tmp/explain-ai.rs" t t)
@@ -363,7 +363,7 @@ This mirrors Neovim's explain_region_e2e_spec.lua behavior."
             (async-params-captured nil))
         (cl-letf (((symbol-function 'jsonrpc-async-request)
                    (lambda (_conn method params &rest args)
-                     (when (string= method "hemis/explain-region")
+                     (when (string= method "mnemos/explain-region")
                        (setq async-params-captured params)
                        (let ((success-fn (plist-get args :success-fn)))
                          (when success-fn
@@ -371,7 +371,7 @@ This mirrors Neovim's explain_region_e2e_spec.lua behavior."
                                     '(:content "let config = load_config();"
                                       :explanation "This code loads configuration from the default config loader."
                                       :ai (:statusDisplay "[AI]" :model "test-model"))))))))
-                  ((symbol-function 'hemis--request)
+                  ((symbol-function 'mnemos--request)
                    (lambda (method &optional params)
                      (pcase method
                        ("notes/create"
@@ -383,9 +383,9 @@ This mirrors Neovim's explain_region_e2e_spec.lua behavior."
                           :column 0
                           :text "mock"))
                        (_ nil))))
-                  ((symbol-function 'hemis--make-note-overlay)
+                  ((symbol-function 'mnemos--make-note-overlay)
                    (lambda (_note) nil)))
-          (hemis-explain-region-ai (line-beginning-position) (line-end-position))
+          (mnemos-explain-region-ai (line-beginning-position) (line-end-position))
           ;; Check async request was made with useAI
           (should async-params-captured)
           (should (eq t (cdr (assoc 'useAI async-params-captured))))
@@ -394,9 +394,9 @@ This mirrors Neovim's explain_region_e2e_spec.lua behavior."
           (should (string-match-p "\\[AI\\]" note-text-captured))
           (should (string-match-p "loads configuration" note-text-captured)))))))
 
-(ert-deftest hemis-explain-region-ai-no-explanation ()
+(ert-deftest mnemos-explain-region-ai-no-explanation ()
   "Test that explain-region-ai shows message when AI returns no explanation."
-  (hemis-test-with-mocked-backend
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
       (insert "fn main() {}\n")
       (set-visited-file-name "/tmp/no-explain.rs" t t)
@@ -404,7 +404,7 @@ This mirrors Neovim's explain_region_e2e_spec.lua behavior."
       (let ((message-shown nil))
         (cl-letf (((symbol-function 'jsonrpc-async-request)
                    (lambda (_conn method _params &rest args)
-                     (when (string= method "hemis/explain-region")
+                     (when (string= method "mnemos/explain-region")
                        (let ((success-fn (plist-get args :success-fn)))
                          (when success-fn
                            ;; Return plist without :explanation (AI unavailable)
@@ -413,12 +413,12 @@ This mirrors Neovim's explain_region_e2e_spec.lua behavior."
                    (lambda (fmt &rest _args)
                      (when (string-match-p "No AI explanation" fmt)
                        (setq message-shown t)))))
-          (hemis-explain-region-ai (point-min) (point-max))
+          (mnemos-explain-region-ai (point-min) (point-max))
           (should message-shown))))))
 
-(ert-deftest hemis-explain-region-ai-detailed ()
+(ert-deftest mnemos-explain-region-ai-detailed ()
   "Test that explain-region-ai-detailed passes detailed flag."
-  (hemis-test-with-mocked-backend
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
       (insert "fn main() {}\n")
       (set-visited-file-name "/tmp/detailed.rs" t t)
@@ -426,7 +426,7 @@ This mirrors Neovim's explain_region_e2e_spec.lua behavior."
       (let ((detailed-flag nil))
         (cl-letf (((symbol-function 'jsonrpc-async-request)
                    (lambda (_conn method params &rest args)
-                     (when (string= method "hemis/explain-region")
+                     (when (string= method "mnemos/explain-region")
                        (setq detailed-flag (cdr (assoc 'detailed params)))
                        (let ((success-fn (plist-get args :success-fn)))
                          (when success-fn
@@ -434,30 +434,30 @@ This mirrors Neovim's explain_region_e2e_spec.lua behavior."
                                     '(:content "fn main() {}"
                                       :explanation "Detailed explanation here"
                                       :ai (:statusDisplay "[AI]"))))))))
-                  ((symbol-function 'hemis--request)
+                  ((symbol-function 'mnemos--request)
                    (lambda (method &optional _params)
                      (pcase method
                        ("notes/create" '(:id "detailed-note"))
                        (_ nil))))
-                  ((symbol-function 'hemis--make-note-overlay)
+                  ((symbol-function 'mnemos--make-note-overlay)
                    (lambda (_note) nil)))
-          (hemis-explain-region-ai-detailed (point-min) (point-max))
+          (mnemos-explain-region-ai-detailed (point-min) (point-max))
           (should (eq t detailed-flag)))))))
 
-(ert-deftest hemis-explain-region-ai-integration ()
+(ert-deftest mnemos-explain-region-ai-integration ()
   "Integration test: explain-region-ai creates note with real backend.
 Tests the FULL flow that the demo uses - this would catch real bugs."
   :tags '(:integration)
-  (hemis-test-with-backend
+  (mnemos-test-with-backend
     (let ((test-file (expand-file-name "explain-ai-int.rs" test-dir)))
       (with-temp-file test-file
-        (insert hemis-test-demo-code))
+        (insert mnemos-test-demo-code))
       (with-temp-buffer
-        (insert hemis-test-demo-code)
+        (insert mnemos-test-demo-code)
         (set-visited-file-name test-file t t)
         (setq comment-start "// ")
-        (hemis-notes-mode 1)
-        (let ((hemis--project-root-override test-dir))
+        (mnemos-notes-mode 1)
+        (let ((mnemos--project-root-override test-dir))
           ;; Select lines 2-4 (the interesting code)
           (goto-char (point-min))
           (forward-line 1)
@@ -465,18 +465,18 @@ Tests the FULL flow that the demo uses - this would catch real bugs."
             (forward-line 3)
             (let ((end (line-end-position)))
               ;; Call explain-region-ai (async - need to wait for completion)
-              (hemis-explain-region-ai start end)
+              (mnemos-explain-region-ai start end)
               ;; Wait for async request to complete (check timer stopped)
               (let ((wait-count 0))
-                (while (and hemis--ai-timer (< wait-count 600))
+                (while (and mnemos--ai-timer (< wait-count 600))
                   (sleep-for 0.1)
                   (setq wait-count (1+ wait-count))))
               ;; Check if notes were created
-              (let* ((result (hemis--request "notes/list-for-file"
+              (let* ((result (mnemos--request "notes/list-for-file"
                                              `((file . ,test-file)
                                                (projectRoot . ,test-dir)
-                                               (content . ,hemis-test-demo-code))))
-                     (notes (hemis-test--unwrap-notes result)))
+                                               (content . ,mnemos-test-demo-code))))
+                     (notes (mnemos-test--unwrap-notes result)))
                 (if (>= (length notes) 1)
                     ;; Got notes - verify AI content
                     (let* ((note (car notes))
@@ -489,23 +489,23 @@ Tests the FULL flow that the demo uses - this would catch real bugs."
                   ;; No notes - AI not configured
                   (ert-skip "AI provider not configured or no notes created"))))))))))
 
-(ert-deftest hemis-explain-region-ai-creates-overlay ()
+(ert-deftest mnemos-explain-region-ai-creates-overlay ()
   "Integration test: explain-region-ai creates visible overlay.
 This tests what the demo visually expects to see."
   :tags '(:integration)
-  (hemis-test-with-backend
+  (mnemos-test-with-backend
     (let ((test-file (expand-file-name "explain-overlay.rs" test-dir)))
       (with-temp-file test-file
-        (insert hemis-test-demo-code))
+        (insert mnemos-test-demo-code))
       (with-temp-buffer
-        (insert hemis-test-demo-code)
+        (insert mnemos-test-demo-code)
         (set-visited-file-name test-file t t)
         (setq comment-start "// ")
-        (hemis-notes-mode 1)
-        (let ((hemis--project-root-override test-dir))
+        (mnemos-notes-mode 1)
+        (let ((mnemos--project-root-override test-dir))
           ;; Clear any existing overlays
-          (hemis--clear-note-overlays)
-          (should (= 0 (hemis-test--count-note-overlays)))
+          (mnemos--clear-note-overlays)
+          (should (= 0 (mnemos-test--count-note-overlays)))
           ;; Select region
           (goto-char (point-min))
           (forward-line 1)
@@ -513,45 +513,45 @@ This tests what the demo visually expects to see."
             (forward-line 2)
             (let ((end (line-end-position)))
               ;; Call explain-region-ai (async)
-              (hemis-explain-region-ai start end)
+              (mnemos-explain-region-ai start end)
               ;; Wait for async request to complete
               (let ((wait-count 0))
-                (while (and hemis--ai-timer (< wait-count 600))
+                (while (and mnemos--ai-timer (< wait-count 600))
                   (sleep-for 0.1)
                   (setq wait-count (1+ wait-count))))
               ;; Check overlay was created (if AI available)
-              (if (>= (hemis-test--count-note-overlays) 1)
+              (if (>= (mnemos-test--count-note-overlays) 1)
                   ;; Verify overlay is at the right location (line 2)
-                  (should (hemis-test--overlay-at-line 2))
+                  (should (mnemos-test--overlay-at-line 2))
                 ;; No overlay - AI not configured
                 (ert-skip "AI provider not configured or no overlay created")))))))))
 
-(ert-deftest hemis-list-notes-renders-buffer ()
-  (hemis-test-with-mocked-backend
+(ert-deftest mnemos-list-notes-renders-buffer ()
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
       (set-visited-file-name "/tmp/mock.rs" t t)
-      (let ((hemis-test-last-params nil))
-        (hemis-list-notes)
-        (with-current-buffer "*Hemis Notes*"
+      (let ((mnemos-test-last-params nil))
+        (mnemos-list-notes)
+        (with-current-buffer "*Mnemos Notes*"
           (goto-char (point-min))
           (let ((found nil))
             (while (and (not found) (not (eobp)))
-              (setq found (get-text-property (line-beginning-position) 'hemis-note))
+              (setq found (get-text-property (line-beginning-position) 'mnemos-note))
               (forward-line 1))
             (should found)))))))
 
-(defun hemis-test--note-id-at-point ()
+(defun mnemos-test--note-id-at-point ()
   "Get note id at point, handling both alist and plist formats."
-  (let ((note (get-text-property (point) 'hemis-note)))
+  (let ((note (get-text-property (point) 'mnemos-note)))
     (or (alist-get 'id note)
         (plist-get note :id)
-        (hemis--note-get note 'id))))
+        (mnemos--note-get note 'id))))
 
-(ert-deftest hemis-notes-list-navigation ()
+(ert-deftest mnemos-notes-list-navigation ()
   "Test next/prev navigation in notes list buffer."
-  (hemis-test-with-mocked-backend
+  (mnemos-test-with-mocked-backend
     ;; Mock to return multiple notes
-    (cl-letf (((symbol-function 'hemis--request)
+    (cl-letf (((symbol-function 'mnemos--request)
                (lambda (method &optional _params)
                  (pcase method
                    ("notes/list-for-file"
@@ -561,34 +561,34 @@ This tests what the demo visually expects to see."
                    (_ nil)))))
       (with-temp-buffer
         (set-visited-file-name "/tmp/a.rs" t t)
-        (hemis-list-notes)
-        (with-current-buffer "*Hemis Notes*"
+        (mnemos-list-notes)
+        (with-current-buffer "*Mnemos Notes*"
           ;; Start at beginning, find first note
           (goto-char (point-min))
-          (hemis-notes-list-next)
-          (should (get-text-property (point) 'hemis-note))
-          (should (equal (hemis-test--note-id-at-point) "1"))
+          (mnemos-notes-list-next)
+          (should (get-text-property (point) 'mnemos-note))
+          (should (equal (mnemos-test--note-id-at-point) "1"))
           ;; Move to next note
-          (hemis-notes-list-next)
-          (should (equal (hemis-test--note-id-at-point) "2"))
+          (mnemos-notes-list-next)
+          (should (equal (mnemos-test--note-id-at-point) "2"))
           ;; Move to third note
-          (hemis-notes-list-next)
-          (should (equal (hemis-test--note-id-at-point) "3"))
+          (mnemos-notes-list-next)
+          (should (equal (mnemos-test--note-id-at-point) "3"))
           ;; No more notes - should error
-          (should-error (hemis-notes-list-next) :type 'user-error)
+          (should-error (mnemos-notes-list-next) :type 'user-error)
           ;; Go back with prev
-          (hemis-notes-list-prev)
-          (should (equal (hemis-test--note-id-at-point) "2"))
+          (mnemos-notes-list-prev)
+          (should (equal (mnemos-test--note-id-at-point) "2"))
           ;; Back to first
-          (hemis-notes-list-prev)
-          (should (equal (hemis-test--note-id-at-point) "1"))
+          (mnemos-notes-list-prev)
+          (should (equal (mnemos-test--note-id-at-point) "1"))
           ;; No previous - should error
-          (should-error (hemis-notes-list-prev) :type 'user-error))))))
+          (should-error (mnemos-notes-list-prev) :type 'user-error))))))
 
-(ert-deftest hemis-notes-list-visit-opens-file ()
+(ert-deftest mnemos-notes-list-visit-opens-file ()
   "Test that RET on a note opens the file at the correct location."
-  (hemis-test-with-mocked-backend
-    (let ((test-file (make-temp-file "hemis-visit-test-" nil ".rs"))
+  (mnemos-test-with-mocked-backend
+    (let ((test-file (make-temp-file "mnemos-visit-test-" nil ".rs"))
           opened-file opened-line opened-col)
       (unwind-protect
           (progn
@@ -609,7 +609,7 @@ This tests what the demo visually expects to see."
                        (insert "    let y = 2;\n")
                        (insert "}\n")
                        (set-buffer (current-buffer))))))
-              (cl-letf (((symbol-function 'hemis--request)
+              (cl-letf (((symbol-function 'mnemos--request)
                          (lambda (method &optional _params)
                            (pcase method
                              ("notes/list-for-file"
@@ -629,11 +629,11 @@ This tests what the demo visually expects to see."
                            (setq opened-col (current-column)))))
                 (with-temp-buffer
                   (set-visited-file-name test-file t t)
-                  (hemis-list-notes)
-                  (with-current-buffer "*Hemis Notes*"
+                  (mnemos-list-notes)
+                  (with-current-buffer "*Mnemos Notes*"
                     (goto-char (point-min))
-                    (hemis-notes-list-next)
-                    (hemis-notes-list-visit)))
+                    (mnemos-notes-list-next)
+                    (mnemos-notes-list-visit)))
                 ;; Check that visit attempted to open the right file and position
                 (should (equal opened-file test-file))
                 (should (= opened-line 3))
@@ -641,10 +641,10 @@ This tests what the demo visually expects to see."
         (ignore-errors (kill-buffer "*test-visit*"))
         (delete-file test-file)))))
 
-(ert-deftest hemis-notes-list-visit-integration ()
+(ert-deftest mnemos-notes-list-visit-integration ()
   "Integration test: visit note from list opens correct location."
   (let ((rust-content "fn main() {\n    let x = 1;\n    let y = 2;\n}\n"))
-    (hemis-test-with-backend
+    (mnemos-test-with-backend
       ;; Create test file inside the macro's test-dir
       (let ((test-file (expand-file-name "test.rs" test-dir)))
         (with-temp-file test-file
@@ -653,26 +653,26 @@ This tests what the demo visually expects to see."
           (insert rust-content)
           (set-visited-file-name test-file t t)
           (setq comment-start "// ")
-          (let ((hemis--project-root-override test-dir))
+          (let ((mnemos--project-root-override test-dir))
             ;; Go to a specific line and create a note
             (goto-char (point-min))
             (forward-line 2)
             (let ((target-line (line-number-at-pos)))
-              (hemis-add-note "visit integration test")
+              (mnemos-add-note "visit integration test")
               ;; List notes and visit
-              (hemis-list-notes)
-              (with-current-buffer "*Hemis Notes*"
+              (mnemos-list-notes)
+              (with-current-buffer "*Mnemos Notes*"
                 (goto-char (point-min))
-                (hemis-notes-list-next)
-                (hemis-notes-list-visit))
+                (mnemos-notes-list-next)
+                (mnemos-notes-list-visit))
               ;; Should be in the file buffer at the note's line
               (with-current-buffer (find-buffer-visiting test-file)
                 (should (= (line-number-at-pos) target-line))))))))))
 
-(ert-deftest hemis-notes-list-visit-other-window ()
+(ert-deftest mnemos-notes-list-visit-other-window ()
   "Integration test: visit opens in other window when multiple windows exist."
   (let ((rust-content "fn main() {\n    let x = 1;\n}\n"))
-    (hemis-test-with-backend
+    (mnemos-test-with-backend
       ;; Create test file inside the macro's test-dir
       (let ((test-file (expand-file-name "test.rs" test-dir)))
         (with-temp-file test-file
@@ -688,21 +688,21 @@ This tests what the demo visually expects to see."
                 (insert rust-content)
                 (set-visited-file-name test-file t t)
                 (setq comment-start "// ")
-                (let ((hemis--project-root-override test-dir))
+                (let ((mnemos--project-root-override test-dir))
                   (goto-char (point-min))
-                  (hemis-add-note "window test note")
+                  (mnemos-add-note "window test note")
                   ;; Open notes list - it will appear in one window
-                  (hemis-list-notes)
-                  (let ((list-window (get-buffer-window "*Hemis Notes*")))
+                  (mnemos-list-notes)
+                  (let ((list-window (get-buffer-window "*Mnemos Notes*")))
                     (should list-window)
                     ;; Select the list window and visit
                     (select-window list-window)
-                    (with-current-buffer "*Hemis Notes*"
+                    (with-current-buffer "*Mnemos Notes*"
                       (goto-char (point-min))
-                      (hemis-notes-list-next)
-                      (hemis-notes-list-visit))
+                      (mnemos-notes-list-next)
+                      (mnemos-notes-list-visit))
                     ;; Notes list should still be visible
-                    (should (get-buffer-window "*Hemis Notes*"))
+                    (should (get-buffer-window "*Mnemos Notes*"))
                     ;; File should be open in a different window
                     (let ((file-window (get-buffer-window (find-buffer-visiting test-file))))
                       (should file-window)
@@ -710,12 +710,12 @@ This tests what the demo visually expects to see."
             ;; Cleanup window layout
             (delete-other-windows)))))))
 
-(ert-deftest hemis-insert-note-link-inserts-format ()
-  (hemis-test-with-mocked-backend
+(ert-deftest mnemos-insert-note-link-inserts-format ()
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
       (let* ((results (list '((id . "abc") (summary . "First") (file . "/tmp/f"))
                             '((id . "def") (summary . "Second") (file . "/tmp/g")))))
-        (cl-letf (((symbol-function 'hemis--request)
+        (cl-letf (((symbol-function 'mnemos--request)
                    (lambda (method &optional _params)
                      (should (equal method "notes/search"))
                      results))
@@ -723,18 +723,18 @@ This tests what the demo visually expects to see."
                    (lambda (&rest _) "First (abc)"))
                   ((symbol-function 'read-string)
                    (lambda (&rest _) "First")))
-          (hemis-insert-note-link "First")
+          (mnemos-insert-note-link "First")
           (goto-char (point-min))
           (should (search-forward "[[" nil t))
           (should (search-forward "][abc]]" nil t)))
-        (should (get-buffer hemis--link-search-buffer))))))
+        (should (get-buffer mnemos--link-search-buffer))))))
 
-(ert-deftest hemis-double-bracket-triggers-link ()
-  (hemis-test-with-mocked-backend
+(ert-deftest mnemos-double-bracket-triggers-link ()
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
-      (hemis-notes-mode 1)
+      (mnemos-notes-mode 1)
       (let* ((results (list '((id . "abc") (summary . "Note") (file . "/tmp/f")))))
-        (cl-letf (((symbol-function 'hemis--request)
+        (cl-letf (((symbol-function 'mnemos--request)
                    (lambda (&rest _) results))
                   ((symbol-function 'completing-read)
                    (lambda (&rest _) "Note (abc)"))
@@ -747,12 +747,12 @@ This tests what the demo visually expects to see."
           (goto-char (point-min))
           (should (search-forward "][abc]]" nil t)))))))
 
-(ert-deftest hemis-notes-mode-hook-triggers-link ()
-  (hemis-test-with-mocked-backend
+(ert-deftest mnemos-notes-mode-hook-triggers-link ()
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
-      (hemis-notes-mode 1)
+      (mnemos-notes-mode 1)
       (let ((req-calls 0))
-        (cl-letf (((symbol-function 'hemis--request)
+        (cl-letf (((symbol-function 'mnemos--request)
                    (lambda (&rest _)
                      (setq req-calls (1+ req-calls))
                      (list '((id . "xyz") (summary . "Desc") (file . "/tmp/file")))))
@@ -762,64 +762,64 @@ This tests what the demo visually expects to see."
                    (lambda (&rest _) "Desc")))
           (insert "[[")
           (let ((last-command-event ?\[))
-            (hemis--maybe-trigger-link))
+            (mnemos--maybe-trigger-link))
           (goto-char (point-min))
           (should (= req-calls 1))
           (should (search-forward "][xyz]]" nil t)))))))
 
-(ert-deftest hemis-kill-backend-processes-removes-duplicates ()
-  (let* ((p1 (start-process "hemis-backend" nil "cat"))
-         (p2 (start-process "hemis-backend" nil "cat")))
+(ert-deftest mnemos-kill-backend-processes-removes-duplicates ()
+  (let* ((p1 (start-process "mnemos-backend" nil "cat"))
+         (p2 (start-process "mnemos-backend" nil "cat")))
     (should (process-live-p p1))
     (should (process-live-p p2))
-    (hemis--kill-backend-processes)
+    (mnemos--kill-backend-processes)
     (sleep-for 0.05)
     (should-not (process-live-p p1))
     (should-not (process-live-p p2))))
 
-(ert-deftest hemis-notes-global-mode-enables-keymap ()
-  (hemis-test-with-mocked-backend
+(ert-deftest mnemos-notes-global-mode-enables-keymap ()
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
       (prog-mode)
       (set-visited-file-name "/tmp/test.rs" t t)
       ;; Ensure keymaps are set up (don't nil them - mode captures at definition)
-      (hemis--ensure-notes-mode-keymap)
-      (hemis-notes-mode 1)
-      (should (keymapp hemis-notes-mode-map))
-      (should (lookup-key hemis-notes-mode-map (kbd "C-c h a"))))))
+      (mnemos--ensure-notes-mode-keymap)
+      (mnemos-notes-mode 1)
+      (should (keymapp mnemos-notes-mode-map))
+      (should (lookup-key mnemos-notes-mode-map (kbd "C-c h a"))))))
 
-(ert-deftest hemis-notes-list-keymap-reloads ()
-  (let ((hemis-notes-list-mode-map nil))
-    (hemis--ensure-notes-list-keymap)
-    (should (keymapp hemis-notes-list-mode-map))
-    (should (lookup-key hemis-notes-list-mode-map (kbd "RET")))
-    (should (lookup-key hemis-notes-list-mode-map (kbd "v")))))
+(ert-deftest mnemos-notes-list-keymap-reloads ()
+  (let ((mnemos-notes-list-mode-map nil))
+    (mnemos--ensure-notes-list-keymap)
+    (should (keymapp mnemos-notes-list-mode-map))
+    (should (lookup-key mnemos-notes-list-mode-map (kbd "RET")))
+    (should (lookup-key mnemos-notes-list-mode-map (kbd "v")))))
 
-(ert-deftest hemis-reset-keymaps-and-enable-restores-bindings ()
-  (hemis-test-with-mocked-backend
+(ert-deftest mnemos-reset-keymaps-and-enable-restores-bindings ()
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
       (prog-mode)
       (set-visited-file-name "/tmp/test.rs" t t)
-      (setq hemis-notes-mode-map nil
-            hemis-notes-list-mode-map nil)
-      (hemis-reset-keymaps-and-enable)
-      (hemis-notes-mode 1)
+      (setq mnemos-notes-mode-map nil
+            mnemos-notes-list-mode-map nil)
+      (mnemos-reset-keymaps-and-enable)
+      (mnemos-notes-mode 1)
       (should (local-key-binding (kbd "C-c h a")))
-      (should (keymapp hemis-notes-list-mode-map)))))
+      (should (keymapp mnemos-notes-list-mode-map)))))
 
-(ert-deftest hemis-insert-note-link-no-results ()
-  (hemis-test-with-mocked-backend
+(ert-deftest mnemos-insert-note-link-no-results ()
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
-      (cl-letf (((symbol-function 'hemis--request)
+      (cl-letf (((symbol-function 'mnemos--request)
                  (lambda (&rest _) nil)))
-        (should-error (hemis-insert-note-link "missing")
+        (should-error (mnemos-insert-note-link "missing")
                       :type 'user-error)))))
 
-(ert-deftest hemis-show-backlinks-displays-linking-notes ()
-  "Test that hemis-show-backlinks shows notes that link to the target."
-  (hemis-test-with-mocked-backend
+(ert-deftest mnemos-show-backlinks-displays-linking-notes ()
+  "Test that mnemos-show-backlinks shows notes that link to the target."
+  (mnemos-test-with-mocked-backend
     ;; Mock notes/backlinks to return one linking note
-    (cl-letf (((symbol-function 'hemis--request)
+    (cl-letf (((symbol-function 'mnemos--request)
                (lambda (method &optional params)
                  (pcase method
                    ("notes/backlinks"
@@ -832,9 +832,9 @@ This tests what the demo visually expects to see."
                             (text . "This links to [[target][target-note]]"))))
                    (_ nil)))))
       ;; Call show-backlinks with a note id
-      (hemis-show-backlinks "target-note")
+      (mnemos-show-backlinks "target-note")
       ;; Check that the backlinks buffer was created with the linking note
-      (with-current-buffer "*Hemis Backlinks*"
+      (with-current-buffer "*Mnemos Backlinks*"
         (goto-char (point-min))
         (should (search-forward "Backlinks to note target-note" nil t))
         (should (search-forward "(1 notes link" nil t))
@@ -842,29 +842,29 @@ This tests what the demo visually expects to see."
         (should (search-forward "linking-" nil t))
         (should (search-forward "This links to" nil t))))))
 
-(ert-deftest hemis-show-backlinks-empty ()
-  "Test that hemis-show-backlinks shows message when no backlinks."
-  (hemis-test-with-mocked-backend
-    (cl-letf (((symbol-function 'hemis--request)
+(ert-deftest mnemos-show-backlinks-empty ()
+  "Test that mnemos-show-backlinks shows message when no backlinks."
+  (mnemos-test-with-mocked-backend
+    (cl-letf (((symbol-function 'mnemos--request)
                (lambda (method &optional _params)
                  (pcase method
                    ("notes/backlinks" nil)
                    (_ nil)))))
-      (hemis-show-backlinks "orphan-note")
-      (with-current-buffer "*Hemis Backlinks*"
+      (mnemos-show-backlinks "orphan-note")
+      (with-current-buffer "*Mnemos Backlinks*"
         (goto-char (point-min))
         (should (search-forward "(0 notes link" nil t))
         (should (search-forward "No backlinks found" nil t))))))
 
-(ert-deftest hemis-show-backlinks-from-notes-list ()
+(ert-deftest mnemos-show-backlinks-from-notes-list ()
   "Test backlinks command from notes list buffer uses note at point."
-  (hemis-test-with-mocked-backend
+  (mnemos-test-with-mocked-backend
     ;; First create a notes buffer with a note at point
     (let ((note '((id . "from-list") (file . "/tmp/test.rs") (line . 1) (column . 0)
                   (text . "Note text")))
           (backlinks-called nil)
           (backlinks-id nil))
-      (cl-letf (((symbol-function 'hemis--request)
+      (cl-letf (((symbol-function 'mnemos--request)
                  (lambda (method &optional params)
                    (pcase method
                      ("notes/backlinks"
@@ -872,51 +872,51 @@ This tests what the demo visually expects to see."
                       (setq backlinks-id (cdr (assoc 'id params)))
                       nil)
                      (_ nil)))))
-        ;; Set up a buffer with hemis-note property
-        (with-current-buffer (get-buffer-create "*Hemis Notes*")
+        ;; Set up a buffer with mnemos-note property
+        (with-current-buffer (get-buffer-create "*Mnemos Notes*")
           (setq buffer-read-only nil)
           (erase-buffer)
           (insert "Note entry\n")
           (add-text-properties (point-min) (point-max)
-                               (list 'hemis-note note))
+                               (list 'mnemos-note note))
           (goto-char (point-min))
-          (hemis-show-backlinks)
+          (mnemos-show-backlinks)
           (should backlinks-called)
           (should (equal backlinks-id "from-list")))))))
 
-(ert-deftest hemis-notes-list-keymap-has-backlinks ()
+(ert-deftest mnemos-notes-list-keymap-has-backlinks ()
   "Test that notes list keymap includes backlinks binding."
-  (hemis--ensure-notes-list-keymap)
-  (should (eq (lookup-key hemis-notes-list-mode-map (kbd "b"))
-              'hemis-show-backlinks)))
+  (mnemos--ensure-notes-list-keymap)
+  (should (eq (lookup-key mnemos-notes-list-mode-map (kbd "b"))
+              'mnemos-show-backlinks)))
 
 ;;; Overlay Display State Tests
 ;;; These tests verify the exact rendered content users see
 
-(defun hemis-test--capture-overlay-state ()
-  "Capture the display state of all hemis overlays in current buffer.
+(defun mnemos-test--capture-overlay-state ()
+  "Capture the display state of all mnemos overlays in current buffer.
 Returns list of plists with :line :before-string :face :count :texts."
   (let (result)
-    (dolist (ov hemis--overlays)
-      (when (overlay-get ov 'hemis-note-marker)
+    (dolist (ov mnemos--overlays)
+      (when (overlay-get ov 'mnemos-note-marker)
         (push (list :line (line-number-at-pos (overlay-start ov))
                     :before-string (overlay-get ov 'before-string)
                     :face (get-text-property 0 'face (or (overlay-get ov 'before-string) ""))
-                    :count (overlay-get ov 'hemis-note-count)
-                    :texts (overlay-get ov 'hemis-note-texts))
+                    :count (overlay-get ov 'mnemos-note-count)
+                    :texts (overlay-get ov 'mnemos-note-texts))
               result)))
     (nreverse result)))
 
-(ert-deftest hemis-overlay-renders-comment-block ()
+(ert-deftest mnemos-overlay-renders-comment-block ()
   "Verify overlay before-string contains formatted comment block."
   (with-temp-buffer
     (insert "fn main() {\n    let x = 1;\n}\n")
     (set-visited-file-name "/tmp/comment.rs" t t)
     (setq comment-start "// ")
-    (hemis--apply-notes
+    (mnemos--apply-notes
      (list '((id . "1") (file . "/tmp/comment.rs") (line . 2) (column . 4)
              (text . "Check this variable"))))
-    (let* ((state (hemis-test--capture-overlay-state))
+    (let* ((state (mnemos-test--capture-overlay-state))
            (ov-state (car state))
            (before-str (plist-get ov-state :before-string)))
       (should (= 1 (length state)))
@@ -927,31 +927,31 @@ Returns list of plists with :line :before-string :face :count :texts."
       ;; Should have indentation matching line 2
       (should (string-match-p "^    //" before-str)))))
 
-(ert-deftest hemis-overlay-has-steel-blue-face ()
+(ert-deftest mnemos-overlay-has-steel-blue-face ()
   "Verify overlay face is SteelBlue for visibility."
   (with-temp-buffer
     (insert "fn main() {}\n")
     (set-visited-file-name "/tmp/face.rs" t t)
-    (hemis--apply-notes
+    (mnemos--apply-notes
      (list '((id . "1") (file . "/tmp/face.rs") (line . 1) (column . 0)
              (text . "Note with face"))))
-    (let* ((state (hemis-test--capture-overlay-state))
+    (let* ((state (mnemos-test--capture-overlay-state))
            (ov-state (car state))
            (face (plist-get ov-state :face)))
       (should face)
       ;; Face should specify foreground color
       (should (plist-get face :foreground)))))
 
-(ert-deftest hemis-overlay-multiline-note ()
+(ert-deftest mnemos-overlay-multiline-note ()
   "Verify multiline notes render each line with comment prefix."
   (with-temp-buffer
     (insert "fn main() {}\n")
     (set-visited-file-name "/tmp/multi.rs" t t)
     (setq comment-start "// ")
-    (hemis--apply-notes
+    (mnemos--apply-notes
      (list '((id . "1") (file . "/tmp/multi.rs") (line . 1) (column . 0)
              (text . "Line one\nLine two\nLine three"))))
-    (let* ((state (hemis-test--capture-overlay-state))
+    (let* ((state (mnemos-test--capture-overlay-state))
            (ov-state (car state))
            (before-str (plist-get ov-state :before-string)))
       ;; Each line should have comment prefix
@@ -959,19 +959,19 @@ Returns list of plists with :line :before-string :face :count :texts."
       (should (string-match-p "// Line two" before-str))
       (should (string-match-p "// Line three" before-str)))))
 
-(ert-deftest hemis-overlay-multiple-notes-same-line ()
+(ert-deftest mnemos-overlay-multiple-notes-same-line ()
   "Verify multiple notes on same line at same column are combined."
   (with-temp-buffer
     (insert "fn main() {}\n")
     (set-visited-file-name "/tmp/combined.rs" t t)
     (setq comment-start "// ")
     ;; Both notes at same position (line 1, column 0) to ensure combining
-    (hemis--apply-notes
+    (mnemos--apply-notes
      (list '((id . "1") (file . "/tmp/combined.rs") (line . 1) (column . 0)
              (text . "First note"))
            '((id . "2") (file . "/tmp/combined.rs") (line . 1) (column . 0)
              (text . "Second note"))))
-    (let* ((state (hemis-test--capture-overlay-state))
+    (let* ((state (mnemos-test--capture-overlay-state))
            (ov-state (car state))
            (before-str (plist-get ov-state :before-string))
            (count (plist-get ov-state :count))
@@ -986,31 +986,31 @@ Returns list of plists with :line :before-string :face :count :texts."
       (should (string-match-p "First note" before-str))
       (should (string-match-p "Second note" before-str)))))
 
-(ert-deftest hemis-overlay-lisp-comment-style ()
+(ert-deftest mnemos-overlay-lisp-comment-style ()
   "Verify Lisp modes use ;; comment prefix."
   (with-temp-buffer
     (insert "(defun foo () nil)\n")
     (set-visited-file-name "/tmp/test.el" t t)
     (setq comment-start "; ")
-    (hemis--apply-notes
+    (mnemos--apply-notes
      (list '((id . "1") (file . "/tmp/test.el") (line . 1) (column . 0)
              (text . "Lisp note"))))
-    (let* ((state (hemis-test--capture-overlay-state))
+    (let* ((state (mnemos-test--capture-overlay-state))
            (ov-state (car state))
            (before-str (plist-get ov-state :before-string)))
       ;; Should use ;; for Lisp (not single ;)
       (should (string-match-p ";; Lisp note" before-str)))))
 
-(ert-deftest hemis-overlay-preserves-indentation ()
+(ert-deftest mnemos-overlay-preserves-indentation ()
   "Verify overlay indentation matches the code line."
   (with-temp-buffer
     (insert "fn main() {\n        let deeply_indented = 1;\n}\n")
     (set-visited-file-name "/tmp/indent.rs" t t)
     (setq comment-start "// ")
-    (hemis--apply-notes
+    (mnemos--apply-notes
      (list '((id . "1") (file . "/tmp/indent.rs") (line . 2) (column . 8)
              (text . "Indented note"))))
-    (let* ((state (hemis-test--capture-overlay-state))
+    (let* ((state (mnemos-test--capture-overlay-state))
            (ov-state (car state))
            (before-str (plist-get ov-state :before-string)))
       ;; Should start with 8-space indent
@@ -1019,10 +1019,10 @@ Returns list of plists with :line :before-string :face :count :texts."
 ;;; Demo Flow Tests
 ;;; These tests verify user-visible features from docs/DEMO.md
 
-(ert-deftest hemis-help-displays-keybindings ()
-  "Test that hemis-help shows expected keybindings."
-  (hemis-help)
-  (with-current-buffer "*Hemis Help*"
+(ert-deftest mnemos-help-displays-keybindings ()
+  "Test that mnemos-help shows expected keybindings."
+  (mnemos-help)
+  (with-current-buffer "*Mnemos Help*"
     (goto-char (point-min))
     ;; Should show main keybindings
     (should (search-forward "C-c h a" nil t))
@@ -1037,30 +1037,30 @@ Returns list of plists with :line :before-string :face :count :texts."
     (should (search-forward "C-c h S" nil t))
     (should (search-forward "status" nil t))))
 
-(ert-deftest hemis-status-shows-counts ()
-  "Test that hemis-status displays note/file/embedding counts."
-  (hemis-test-with-mocked-backend
-    (cl-letf (((symbol-function 'hemis--request)
+(ert-deftest mnemos-status-shows-counts ()
+  "Test that mnemos-status displays note/file/embedding counts."
+  (mnemos-test-with-mocked-backend
+    (cl-letf (((symbol-function 'mnemos--request)
                (lambda (method &optional _params)
                  (pcase method
-                   ("hemis/status"
+                   ("mnemos/status"
                     '((counts . ((notes . 5) (files . 10) (embeddings . 3)))))
                    (_ nil)))))
       (let ((messages nil))
         (cl-letf (((symbol-function 'message)
                    (lambda (fmt &rest args)
                      (push (apply #'format fmt args) messages))))
-          (hemis-status)
+          (mnemos-status)
           (should (cl-some (lambda (m) (string-match-p "5 notes" m)) messages))
           (should (cl-some (lambda (m) (string-match-p "10 files" m)) messages))
           (should (cl-some (lambda (m) (string-match-p "3 embeddings" m)) messages)))))))
 
-(ert-deftest hemis-edit-note-at-point-updates-note ()
-  "Test that hemis-edit-note-at-point calls notes/update."
-  (hemis-test-with-mocked-backend
+(ert-deftest mnemos-edit-note-at-point-updates-note ()
+  "Test that mnemos-edit-note-at-point calls notes/update."
+  (mnemos-test-with-mocked-backend
     (let ((updated-id nil)
           (updated-text nil))
-      (cl-letf (((symbol-function 'hemis--request)
+      (cl-letf (((symbol-function 'mnemos--request)
                  (lambda (method &optional params)
                    (pcase method
                      ("notes/update"
@@ -1069,98 +1069,98 @@ Returns list of plists with :line :before-string :face :count :texts."
                       '((id . "test-id")))
                      ("notes/list-for-file" nil)
                      (_ nil))))
-                ((symbol-function 'hemis--read-note-text)
+                ((symbol-function 'mnemos--read-note-text)
                  (lambda (&optional _default) "new text"))
-                ((symbol-function 'hemis-refresh-notes) #'ignore))
+                ((symbol-function 'mnemos-refresh-notes) #'ignore))
         ;; Set up buffer with note property
-        (with-current-buffer (get-buffer-create "*Hemis Notes*")
+        (with-current-buffer (get-buffer-create "*Mnemos Notes*")
           (setq buffer-read-only nil)
           (erase-buffer)
           (insert "test\n")
           (add-text-properties (point-min) (point-max)
-                               '(hemis-note ((id . "test-id") (text . "old text"))))
+                               '(mnemos-note ((id . "test-id") (text . "old text"))))
           (goto-char (point-min))
-          (hemis-edit-note-at-point)
+          (mnemos-edit-note-at-point)
           (should (equal updated-id "test-id"))
           (should (equal updated-text "new text")))))))
 
-(ert-deftest hemis-edit-note-buffer-opens-buffer ()
-  "Test that hemis-edit-note-buffer opens a dedicated edit buffer."
-  (hemis-test-with-mocked-backend
-    (cl-letf (((symbol-function 'hemis--request)
+(ert-deftest mnemos-edit-note-buffer-opens-buffer ()
+  "Test that mnemos-edit-note-buffer opens a dedicated edit buffer."
+  (mnemos-test-with-mocked-backend
+    (cl-letf (((symbol-function 'mnemos--request)
                (lambda (method &optional params)
                  (pcase method
                    ("notes/update" '((id . "test-id")))
                    ("notes/list-for-file" nil)
                    (_ nil))))
-              ((symbol-function 'hemis-refresh-notes) #'ignore)
+              ((symbol-function 'mnemos-refresh-notes) #'ignore)
               ;; Mock markdown-mode if not available
               ((symbol-function 'markdown-mode)
                (lambda () (setq major-mode 'markdown-mode))))
       ;; Set up buffer with note property
-      (with-current-buffer (get-buffer-create "*Hemis Test Source*")
+      (with-current-buffer (get-buffer-create "*Mnemos Test Source*")
         (setq buffer-read-only nil)
         (erase-buffer)
         (insert "test source\n")
         (add-text-properties (point-min) (point-max)
-                             '(hemis-note ((id . "test-note-id") (shortId . "test1234") (text . "Original note text\nLine two"))))
+                             '(mnemos-note ((id . "test-note-id") (shortId . "test1234") (text . "Original note text\nLine two"))))
         (goto-char (point-min))
-        (hemis-edit-note-buffer)
+        (mnemos-edit-note-buffer)
         ;; Should have opened an edit buffer
-        (let ((edit-buf (get-buffer "*Hemis Edit: test1234*")))
+        (let ((edit-buf (get-buffer "*Mnemos Edit: test1234*")))
           (should edit-buf)
           (with-current-buffer edit-buf
             ;; Buffer should contain the note text
             (should (string-match-p "Original note text" (buffer-string)))
             (should (string-match-p "Line two" (buffer-string)))
             ;; Should have note ID stored
-            (should (equal hemis--edit-buffer-note-id "test-note-id")))
+            (should (equal mnemos--edit-buffer-note-id "test-note-id")))
           ;; Clean up
           (kill-buffer edit-buf))
         (kill-buffer)))))
 
-(ert-deftest hemis-edit-note-buffer-uses-selected-note ()
-  "Test that hemis-edit-note-buffer uses hemis--selected-note if set."
-  (hemis-test-with-mocked-backend
-    (cl-letf (((symbol-function 'hemis--request)
+(ert-deftest mnemos-edit-note-buffer-uses-selected-note ()
+  "Test that mnemos-edit-note-buffer uses mnemos--selected-note if set."
+  (mnemos-test-with-mocked-backend
+    (cl-letf (((symbol-function 'mnemos--request)
                (lambda (method &optional _params)
                  (pcase method
                    ("notes/update" '((id . "selected-id")))
                    (_ nil))))
-              ((symbol-function 'hemis-refresh-notes) #'ignore)
+              ((symbol-function 'mnemos-refresh-notes) #'ignore)
               ;; Mock markdown-mode to avoid marker issues in batch
               ((symbol-function 'markdown-mode)
                (lambda () (setq major-mode 'markdown-mode)))
               ;; Mock pop-to-buffer to avoid window issues in batch
               ((symbol-function 'pop-to-buffer)
                (lambda (buf) (set-buffer buf))))
-      (with-current-buffer (get-buffer-create "*Hemis Test Source*")
+      (with-current-buffer (get-buffer-create "*Mnemos Test Source*")
         (setq buffer-read-only nil)
         (erase-buffer)
         (insert "test source\n")
         (goto-char (point-min))
         ;; Set selected note (simulating C-c h s)
-        (setq hemis--selected-note '((id . "selected-note-id")
+        (setq mnemos--selected-note '((id . "selected-note-id")
                                      (shortId . "sel12345")
                                      (text . "Selected note text")))
-        (hemis-edit-note-buffer)
+        (mnemos-edit-note-buffer)
         ;; Should use the selected note, not note at point
-        (let ((edit-buf (get-buffer "*Hemis Edit: sel12345*")))
+        (let ((edit-buf (get-buffer "*Mnemos Edit: sel12345*")))
           (should edit-buf)
           (with-current-buffer edit-buf
             (should (string-match-p "Selected note text" (buffer-string)))
-            (should (equal hemis--edit-buffer-note-id "selected-note-id")))
+            (should (equal mnemos--edit-buffer-note-id "selected-note-id")))
           (kill-buffer edit-buf))
         ;; Clean up
-        (setq hemis--selected-note nil)
+        (setq mnemos--selected-note nil)
         (kill-buffer)))))
 
-(ert-deftest hemis-edit-buffer-save-updates-note ()
+(ert-deftest mnemos-edit-buffer-save-updates-note ()
   "Test that saving from edit buffer calls notes/update."
-  (hemis-test-with-mocked-backend
+  (mnemos-test-with-mocked-backend
     (let ((updated-id nil)
           (updated-text nil))
-      (cl-letf (((symbol-function 'hemis--request)
+      (cl-letf (((symbol-function 'mnemos--request)
                  (lambda (method &optional params)
                    (pcase method
                      ("notes/update"
@@ -1169,23 +1169,23 @@ Returns list of plists with :line :before-string :face :count :texts."
                       '((id . "test-id")))
                      ("notes/list-for-file" nil)
                      (_ nil))))
-                ((symbol-function 'hemis-refresh-notes) #'ignore)
+                ((symbol-function 'mnemos-refresh-notes) #'ignore)
                 ;; Mock kill-buffer-and-window for batch mode (only one window)
                 ((symbol-function 'kill-buffer-and-window)
                  (lambda () (kill-buffer))))
-        (with-current-buffer (get-buffer-create "*Hemis Edit Test*")
+        (with-current-buffer (get-buffer-create "*Mnemos Edit Test*")
           (erase-buffer)
           (insert "New note content")
-          (setq-local hemis--edit-buffer-note-id "test-note-id")
-          (hemis--edit-buffer-save)
+          (setq-local mnemos--edit-buffer-note-id "test-note-id")
+          (mnemos--edit-buffer-save)
           (should (equal updated-id "test-note-id"))
           (should (equal updated-text "New note content")))))))
 
-(ert-deftest hemis-delete-note-at-point-removes-note ()
-  "Test that hemis-delete-note-at-point calls notes/delete."
-  (hemis-test-with-mocked-backend
+(ert-deftest mnemos-delete-note-at-point-removes-note ()
+  "Test that mnemos-delete-note-at-point calls notes/delete."
+  (mnemos-test-with-mocked-backend
     (let ((deleted-id nil))
-      (cl-letf (((symbol-function 'hemis--request)
+      (cl-letf (((symbol-function 'mnemos--request)
                  (lambda (method &optional params)
                    (pcase method
                      ("notes/delete"
@@ -1194,48 +1194,48 @@ Returns list of plists with :line :before-string :face :count :texts."
                      ("notes/list-for-file" nil)
                      (_ nil))))
                 ((symbol-function 'yes-or-no-p) (lambda (_) t))
-                ((symbol-function 'hemis-refresh-notes) #'ignore))
+                ((symbol-function 'mnemos-refresh-notes) #'ignore))
         ;; Set up buffer with note property
-        (with-current-buffer (get-buffer-create "*Hemis Notes*")
+        (with-current-buffer (get-buffer-create "*Mnemos Notes*")
           (setq buffer-read-only nil)
           (erase-buffer)
           (insert "test\n")
           (add-text-properties (point-min) (point-max)
-                               '(hemis-note ((id . "delete-me"))))
+                               '(mnemos-note ((id . "delete-me"))))
           (goto-char (point-min))
-          (hemis-delete-note-at-point)
+          (mnemos-delete-note-at-point)
           (should (equal deleted-id "delete-me")))))))
 
-(ert-deftest hemis-search-project-displays-results ()
-  "Test that hemis-search-project shows matching notes and files."
-  (hemis-test-with-mocked-backend
+(ert-deftest mnemos-search-project-displays-results ()
+  "Test that mnemos-search-project shows matching notes and files."
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
       (set-visited-file-name "/tmp/test.rs" t t)
-      (cl-letf (((symbol-function 'hemis--request)
+      (cl-letf (((symbol-function 'mnemos--request)
                  (lambda (method &optional params)
                    (pcase method
-                     ("hemis/search"
+                     ("mnemos/search"
                       (list '((kind . "file") (file . "/tmp/foo.rs") (line . 1) (text . "fn foo"))
                             '((kind . "note") (file . "/tmp/bar.rs") (line . 5) (text . "note text"))))
                      (_ nil)))))
-        (hemis-search-project "foo")
-        (with-current-buffer "*Hemis Search*"
+        (mnemos-search-project "foo")
+        (with-current-buffer "*Mnemos Search*"
           (goto-char (point-min))
           (should (search-forward "file" nil t))
           (should (search-forward "foo.rs" nil t)))))))
 
 
-(ert-deftest hemis-overlay-stale-note-indicator ()
+(ert-deftest mnemos-overlay-stale-note-indicator ()
   "Test that stale notes are visually distinguished."
   (with-temp-buffer
     (insert "fn main() {}\n")
     (set-visited-file-name "/tmp/stale.rs" t t)
     (setq comment-start "// ")
     ;; Apply a stale note
-    (hemis--apply-notes
+    (mnemos--apply-notes
      (list '((id . "1") (file . "/tmp/stale.rs") (line . 1) (column . 0)
              (text . "This note is stale") (stale . t))))
-    (let* ((state (hemis-test--capture-overlay-state))
+    (let* ((state (mnemos-test--capture-overlay-state))
            (ov-state (car state))
            (before-str (plist-get ov-state :before-string)))
       (should (= 1 (length state)))
@@ -1245,35 +1245,35 @@ Returns list of plists with :line :before-string :face :count :texts."
                   ;; Or check face property includes stale indication
                   (plist-get ov-state :face))))))
 
-(ert-deftest hemis-index-project-calls-backend ()
-  "Test that hemis-index-project calls hemis/index-project."
-  (hemis-test-with-mocked-backend
+(ert-deftest mnemos-index-project-calls-backend ()
+  "Test that mnemos-index-project calls mnemos/index-project."
+  (mnemos-test-with-mocked-backend
     (let ((indexed-root nil))
-      (cl-letf (((symbol-function 'hemis--request)
+      (cl-letf (((symbol-function 'mnemos--request)
                  (lambda (method &optional params)
                    (pcase method
-                     ("hemis/index-project"
+                     ("mnemos/index-project"
                       (setq indexed-root (cdr (assoc 'projectRoot params)))
                       '((indexed . 5)))
                      (_ nil)))))
         (with-temp-buffer
           (set-visited-file-name "/tmp/project/test.rs" t t)
-          (let ((hemis--project-root-override "/tmp/project"))
-            (hemis-index-project "/tmp/project")
+          (let ((mnemos--project-root-override "/tmp/project"))
+            (mnemos-index-project "/tmp/project")
             (should (equal indexed-root "/tmp/project"))))))))
 
-(ert-deftest hemis-notes-list-has-edit-delete-keybindings ()
+(ert-deftest mnemos-notes-list-has-edit-delete-keybindings ()
   "Test that notes list mode has edit and delete keybindings."
-  (hemis--ensure-notes-list-keymap)
-  (should (eq (lookup-key hemis-notes-list-mode-map (kbd "e"))
-              'hemis-edit-note-at-point))
-  (should (eq (lookup-key hemis-notes-list-mode-map (kbd "d"))
-              'hemis-delete-note-at-point)))
+  (mnemos--ensure-notes-list-keymap)
+  (should (eq (lookup-key mnemos-notes-list-mode-map (kbd "e"))
+              'mnemos-edit-note-at-point))
+  (should (eq (lookup-key mnemos-notes-list-mode-map (kbd "d"))
+              'mnemos-delete-note-at-point)))
 
 ;;; Demo Workflow Tests (mirrors neovim.demo)
 ;;; These test position tracking and stale detection with real backend
 
-(defconst hemis-test-demo-code
+(defconst mnemos-test-demo-code
   "fn main() {
     let config = load_config();
     let server = Server::new(config);
@@ -1292,7 +1292,7 @@ impl Server {
 "
   "Demo code for position/stale testing.")
 
-(defun hemis-test--unwrap-notes (result)
+(defun mnemos-test--unwrap-notes (result)
   "Unwrap notes from backend response RESULT.
 Backend returns plist with :notes key containing a vector."
   (let ((notes (or (plist-get result :notes)
@@ -1304,13 +1304,13 @@ Backend returns plist with :notes key containing a vector."
         (append notes nil)
       notes)))
 
-(defun hemis-test--note-line (note)
+(defun mnemos-test--note-line (note)
   "Get line from NOTE."
   (or (alist-get 'line note)
       (plist-get note :line)
       (cdr (assoc "line" note))))
 
-(defun hemis-test--note-stale (note)
+(defun mnemos-test--note-stale (note)
   "Get stale status from NOTE.
 Returns t if stale, nil if not stale.
 Handles :json-false which is truthy in Emacs."
@@ -1320,102 +1320,102 @@ Handles :json-false which is truthy in Emacs."
     ;; Convert :json-false to nil (JSON false is truthy in Emacs)
     (and stale (not (eq stale :json-false)))))
 
-(ert-deftest hemis-demo-position-tracking ()
+(ert-deftest mnemos-demo-position-tracking ()
   "Test that note line updates when lines inserted above."
-  (hemis-test-with-backend
+  (mnemos-test-with-backend
     (let ((test-file (expand-file-name "position-test.rs" test-dir)))
       (with-temp-file test-file
-        (insert hemis-test-demo-code))
+        (insert mnemos-test-demo-code))
       (with-temp-buffer
-        (insert hemis-test-demo-code)
+        (insert mnemos-test-demo-code)
         (set-visited-file-name test-file t t)
         (setq comment-start "// ")
-        (let ((hemis--project-root-override test-dir))
+        (let ((mnemos--project-root-override test-dir))
           ;; Create note at line 7 (fn load_config) - content sent automatically
           (goto-char (point-min))
           (forward-line 6)  ; Move to line 7
-          (let* ((created (hemis-add-note "Position tracking test"))
-                 (note-id (hemis-test--note-id created))
+          (let* ((created (mnemos-add-note "Position tracking test"))
+                 (note-id (mnemos-test--note-id created))
                  (hash (or (alist-get 'nodeTextHash created)
                           (plist-get created :nodeTextHash))))
             (should (stringp note-id))
             (should (stringp hash))  ; nodeTextHash computed for position tracking
 
             ;; Insert 2 comment lines at top
-            (let ((new-content (concat "// Comment 1\n// Comment 2\n" hemis-test-demo-code)))
+            (let ((new-content (concat "// Comment 1\n// Comment 2\n" mnemos-test-demo-code)))
               ;; List notes with modified content
-              (let* ((result (hemis--request "notes/list-for-file"
+              (let* ((result (mnemos--request "notes/list-for-file"
                                             `((file . ,test-file)
                                               (projectRoot . ,test-dir)
                                               (content . ,new-content))))
-                     (notes (hemis-test--unwrap-notes result))
+                     (notes (mnemos-test--unwrap-notes result))
                      (note (car notes))
-                     (new-line (hemis-test--note-line note)))
+                     (new-line (mnemos-test--note-line note)))
                 ;; Original line 7 + 2 inserted = 9
                 (should (= 9 new-line))))))))))
 
-(ert-deftest hemis-demo-stale-detection ()
+(ert-deftest mnemos-demo-stale-detection ()
   "Test that note is marked stale when anchor code changes."
-  (hemis-test-with-backend
+  (mnemos-test-with-backend
     (let ((test-file (expand-file-name "stale-test.rs" test-dir)))
       (with-temp-file test-file
-        (insert hemis-test-demo-code))
+        (insert mnemos-test-demo-code))
       (with-temp-buffer
-        (insert hemis-test-demo-code)
+        (insert mnemos-test-demo-code)
         (set-visited-file-name test-file t t)
         (setq comment-start "// ")
-        (let ((hemis--project-root-override test-dir))
+        (let ((mnemos--project-root-override test-dir))
           ;; Create note at line 12 (fn new)
           (goto-char (point-min))
           (forward-line 11)  ; Move to line 12
-          (let* ((created (hemis-add-note "Stale detection test"))
-                 (note-id (hemis-test--note-id created)))
+          (let* ((created (mnemos-add-note "Stale detection test"))
+                 (note-id (mnemos-test--note-id created)))
             (should (stringp note-id))
 
             ;; Check initial staleness (with original content)
-            (let* ((result (hemis--request "notes/list-for-file"
+            (let* ((result (mnemos--request "notes/list-for-file"
                                           `((file . ,test-file)
                                             (projectRoot . ,test-dir)
-                                            (content . ,hemis-test-demo-code))))
-                   (notes (hemis-test--unwrap-notes result))
+                                            (content . ,mnemos-test-demo-code))))
+                   (notes (mnemos-test--unwrap-notes result))
                    (note (car notes))
-                   (stale-before (hemis-test--note-stale note)))
+                   (stale-before (mnemos-test--note-stale note)))
               (should-not stale-before)  ; Note should be fresh initially
 
               ;; Change "fn new" to "fn create" (modifies anchor code)
               (let* ((modified-content (replace-regexp-in-string "fn new" "fn create"
-                                                                  hemis-test-demo-code))
-                     (result2 (hemis--request "notes/list-for-file"
+                                                                  mnemos-test-demo-code))
+                     (result2 (mnemos--request "notes/list-for-file"
                                              `((file . ,test-file)
                                                (projectRoot . ,test-dir)
                                                (content . ,modified-content))))
-                     (notes2 (hemis-test--unwrap-notes result2))
+                     (notes2 (mnemos-test--unwrap-notes result2))
                      (note2 (car notes2))
-                     (stale-after (hemis-test--note-stale note2)))
+                     (stale-after (mnemos-test--note-stale note2)))
                 (should stale-after)))))))))  ; Note should be stale after anchor changed
 
-(ert-deftest hemis-demo-reattach-clears-stale ()
+(ert-deftest mnemos-demo-reattach-clears-stale ()
   "Test that reattach clears stale status."
-  (hemis-test-with-backend
+  (mnemos-test-with-backend
     (let ((test-file (expand-file-name "reattach-test.rs" test-dir)))
       (with-temp-file test-file
-        (insert hemis-test-demo-code))
+        (insert mnemos-test-demo-code))
       (with-temp-buffer
-        (insert hemis-test-demo-code)
+        (insert mnemos-test-demo-code)
         (set-visited-file-name test-file t t)
         (setq comment-start "// ")
-        (let ((hemis--project-root-override test-dir))
+        (let ((mnemos--project-root-override test-dir))
           ;; Create note at line 12 (fn new)
           (goto-char (point-min))
           (forward-line 11)
-          (let* ((created (hemis-add-note "Reattach test"))
-                 (note-id (hemis-test--note-id created))
+          (let* ((created (mnemos-add-note "Reattach test"))
+                 (note-id (mnemos-test--note-id created))
                  (modified-content (replace-regexp-in-string "fn new" "fn create"
-                                                             hemis-test-demo-code)))
+                                                             mnemos-test-demo-code)))
             (should (stringp note-id))
 
             ;; Reattach note to new code
-            (hemis--request "notes/reattach"
+            (mnemos--request "notes/reattach"
                            `((id . ,note-id)
                              (file . ,test-file)
                              (line . 12)
@@ -1423,30 +1423,30 @@ Handles :json-false which is truthy in Emacs."
                              (projectRoot . ,test-dir)))
 
             ;; Check staleness after reattach
-            (let* ((result (hemis--request "notes/list-for-file"
+            (let* ((result (mnemos--request "notes/list-for-file"
                                           `((file . ,test-file)
                                             (projectRoot . ,test-dir)
                                             (content . ,modified-content))))
-                   (notes (hemis-test--unwrap-notes result))
+                   (notes (mnemos-test--unwrap-notes result))
                    (note (car notes))
-                   (stale-after (hemis-test--note-stale note)))
+                   (stale-after (mnemos-test--note-stale note)))
               (should-not stale-after))))))))  ; Note should be fresh after reattach
 
-(ert-deftest hemis-demo-multiline-notes ()
+(ert-deftest mnemos-demo-multiline-notes ()
   "Test that multiline notes are created with formattedLines."
-  (hemis-test-with-backend
+  (mnemos-test-with-backend
     (let ((test-file (expand-file-name "multiline-test.rs" test-dir)))
       (with-temp-file test-file
-        (insert hemis-test-demo-code))
+        (insert mnemos-test-demo-code))
       (with-temp-buffer
-        (insert hemis-test-demo-code)
+        (insert mnemos-test-demo-code)
         (set-visited-file-name test-file t t)
         (setq comment-start "// ")
-        (let ((hemis--project-root-override test-dir)
+        (let ((mnemos--project-root-override test-dir)
               (multiline-text "Config improvements:\n- Add validation\n- Support env vars"))
           (goto-char (point-min))
           (forward-line 6)
-          (let* ((created (hemis-add-note multiline-text))
+          (let* ((created (mnemos-add-note multiline-text))
                  (text (or (alist-get 'text created)
                           (plist-get created :text)))
                  (formatted-lines (or (alist-get 'formattedLines created)
@@ -1455,163 +1455,163 @@ Handles :json-false which is truthy in Emacs."
             (should formatted-lines)
             (should (>= (length formatted-lines) 3))))))))
 
-(ert-deftest hemis-demo-create-delete-cycle ()
+(ert-deftest mnemos-demo-create-delete-cycle ()
   "Test full create-display-delete cycle."
-  (hemis-test-with-backend
+  (mnemos-test-with-backend
     (let ((test-file (expand-file-name "lifecycle-test.rs" test-dir)))
       (with-temp-file test-file
-        (insert hemis-test-demo-code))
+        (insert mnemos-test-demo-code))
       (with-temp-buffer
-        (insert hemis-test-demo-code)
+        (insert mnemos-test-demo-code)
         (set-visited-file-name test-file t t)
         (setq comment-start "// ")
-        (let ((hemis--project-root-override test-dir))
+        (let ((mnemos--project-root-override test-dir))
           ;; Create note
           (goto-char (point-min))
           (forward-line 4)
-          (let* ((created (hemis-add-note "Lifecycle test note"))
-                 (note-id (hemis-test--note-id created)))
+          (let* ((created (mnemos-add-note "Lifecycle test note"))
+                 (note-id (mnemos-test--note-id created)))
             (should (stringp note-id))
 
             ;; List notes - should have one
-            (let* ((result (hemis--request "notes/list-for-file"
+            (let* ((result (mnemos--request "notes/list-for-file"
                                           `((file . ,test-file)
                                             (projectRoot . ,test-dir)
-                                            (content . ,hemis-test-demo-code))))
-                   (notes (hemis-test--unwrap-notes result)))
+                                            (content . ,mnemos-test-demo-code))))
+                   (notes (mnemos-test--unwrap-notes result)))
               (should (= 1 (length notes))))
 
             ;; Delete note
-            (hemis--request "notes/delete" `((id . ,note-id)))
+            (mnemos--request "notes/delete" `((id . ,note-id)))
 
             ;; List notes - should have none
-            (let* ((result (hemis--request "notes/list-for-file"
+            (let* ((result (mnemos--request "notes/list-for-file"
                                           `((file . ,test-file)
                                             (projectRoot . ,test-dir)
-                                            (content . ,hemis-test-demo-code))))
-                   (notes (hemis-test--unwrap-notes result)))
+                                            (content . ,mnemos-test-demo-code))))
+                   (notes (mnemos-test--unwrap-notes result)))
               (should (= 0 (length notes))))))))))
 
 ;;; Visual e2e tests - verify overlays render correctly with real backend
 
-(defun hemis-test--count-note-overlays ()
-  "Count hemis note overlays in current buffer."
-  (length (seq-filter (lambda (ov) (overlay-get ov 'hemis-note-marker))
-                      hemis--overlays)))
+(defun mnemos-test--count-note-overlays ()
+  "Count mnemos note overlays in current buffer."
+  (length (seq-filter (lambda (ov) (overlay-get ov 'mnemos-note-marker))
+                      mnemos--overlays)))
 
-(defun hemis-test--overlay-at-line (line)
-  "Find hemis note overlay at LINE (1-indexed)."
+(defun mnemos-test--overlay-at-line (line)
+  "Find mnemos note overlay at LINE (1-indexed)."
   (save-excursion
     (goto-char (point-min))
     (forward-line (1- line))
     (let ((pos (line-beginning-position)))
       (seq-find (lambda (ov)
-                  (and (overlay-get ov 'hemis-note-marker)
+                  (and (overlay-get ov 'mnemos-note-marker)
                        (= (overlay-start ov) pos)))
-                hemis--overlays))))
+                mnemos--overlays))))
 
-(ert-deftest hemis-visual-create-shows-overlay ()
+(ert-deftest mnemos-visual-create-shows-overlay ()
   "Test that creating a note shows an overlay in the buffer."
-  (hemis-test-with-backend
+  (mnemos-test-with-backend
     (let ((test-file (expand-file-name "visual-create.rs" test-dir)))
       (with-temp-file test-file
-        (insert hemis-test-demo-code))
+        (insert mnemos-test-demo-code))
       (with-temp-buffer
-        (insert hemis-test-demo-code)
+        (insert mnemos-test-demo-code)
         (set-visited-file-name test-file t t)
         (setq comment-start "// ")
-        (hemis-notes-mode 1)
-        (let ((hemis--project-root-override test-dir))
+        (mnemos-notes-mode 1)
+        (let ((mnemos--project-root-override test-dir))
           ;; Initially no overlays
-          (hemis--clear-note-overlays)
-          (should (= 0 (hemis-test--count-note-overlays)))
+          (mnemos--clear-note-overlays)
+          (should (= 0 (mnemos-test--count-note-overlays)))
 
           ;; Create note at line 7
           (goto-char (point-min))
           (forward-line 6)
-          (hemis-add-note "Visual create test")
+          (mnemos-add-note "Visual create test")
 
           ;; Should have overlay after create
-          (should (>= (hemis-test--count-note-overlays) 1))
-          (should (hemis-test--overlay-at-line 7)))))))
+          (should (>= (mnemos-test--count-note-overlays) 1))
+          (should (mnemos-test--overlay-at-line 7)))))))
 
-(ert-deftest hemis-visual-delete-removes-overlay ()
+(ert-deftest mnemos-visual-delete-removes-overlay ()
   "Test that deleting a note removes the overlay."
-  (hemis-test-with-backend
+  (mnemos-test-with-backend
     (let ((test-file (expand-file-name "visual-delete.rs" test-dir)))
       (with-temp-file test-file
-        (insert hemis-test-demo-code))
+        (insert mnemos-test-demo-code))
       (with-temp-buffer
-        (insert hemis-test-demo-code)
+        (insert mnemos-test-demo-code)
         (set-visited-file-name test-file t t)
         (setq comment-start "// ")
-        (hemis-notes-mode 1)
-        (let ((hemis--project-root-override test-dir))
+        (mnemos-notes-mode 1)
+        (let ((mnemos--project-root-override test-dir))
           ;; Create note
           (goto-char (point-min))
           (forward-line 6)
-          (let* ((created (hemis-add-note "Visual delete test"))
-                 (note-id (hemis-test--note-id created)))
+          (let* ((created (mnemos-add-note "Visual delete test"))
+                 (note-id (mnemos-test--note-id created)))
 
             ;; Should have overlay
-            (should (>= (hemis-test--count-note-overlays) 1))
+            (should (>= (mnemos-test--count-note-overlays) 1))
 
             ;; Delete note
-            (hemis--request "notes/delete" `((id . ,note-id)))
-            (hemis-refresh-notes)
+            (mnemos--request "notes/delete" `((id . ,note-id)))
+            (mnemos-refresh-notes)
 
             ;; Should have no overlays
-            (should (= 0 (hemis-test--count-note-overlays)))))))))
+            (should (= 0 (mnemos-test--count-note-overlays)))))))))
 
-(ert-deftest hemis-visual-position-tracking ()
+(ert-deftest mnemos-visual-position-tracking ()
   "Test that overlay position updates when lines inserted above."
-  (hemis-test-with-backend
+  (mnemos-test-with-backend
     (let ((test-file (expand-file-name "visual-position.rs" test-dir)))
       (with-temp-file test-file
-        (insert hemis-test-demo-code))
+        (insert mnemos-test-demo-code))
       (with-temp-buffer
-        (insert hemis-test-demo-code)
+        (insert mnemos-test-demo-code)
         (set-visited-file-name test-file t t)
         (setq comment-start "// ")
-        (hemis-notes-mode 1)
-        (let ((hemis--project-root-override test-dir))
+        (mnemos-notes-mode 1)
+        (let ((mnemos--project-root-override test-dir))
           ;; Create note at line 7
           (goto-char (point-min))
           (forward-line 6)
-          (hemis-add-note "Visual position test")
+          (mnemos-add-note "Visual position test")
 
           ;; Initially at line 7
-          (should (hemis-test--overlay-at-line 7))
+          (should (mnemos-test--overlay-at-line 7))
 
           ;; Insert 2 lines at top
           (goto-char (point-min))
           (insert "// Comment 1\n// Comment 2\n")
 
           ;; Refresh to get updated positions
-          (hemis-refresh-notes)
+          (mnemos-refresh-notes)
 
           ;; Overlay should now be at line 9 (7 + 2)
-          (should (hemis-test--overlay-at-line 9)))))))
+          (should (mnemos-test--overlay-at-line 9)))))))
 
-(ert-deftest hemis-visual-multiline-overlay ()
+(ert-deftest mnemos-visual-multiline-overlay ()
   "Test that multiline notes create overlay with all content."
-  (hemis-test-with-backend
+  (mnemos-test-with-backend
     (let ((test-file (expand-file-name "visual-multiline.rs" test-dir)))
       (with-temp-file test-file
-        (insert hemis-test-demo-code))
+        (insert mnemos-test-demo-code))
       (with-temp-buffer
-        (insert hemis-test-demo-code)
+        (insert mnemos-test-demo-code)
         (set-visited-file-name test-file t t)
         (setq comment-start "// ")
-        (hemis-notes-mode 1)
-        (let ((hemis--project-root-override test-dir))
+        (mnemos-notes-mode 1)
+        (let ((mnemos--project-root-override test-dir))
           ;; Create multiline note
           (goto-char (point-min))
           (forward-line 6)
-          (hemis-add-note "Line 1\nLine 2\nLine 3")
+          (mnemos-add-note "Line 1\nLine 2\nLine 3")
 
           ;; Should have overlay
-          (let ((ov (hemis-test--overlay-at-line 7)))
+          (let ((ov (mnemos-test--overlay-at-line 7)))
             (should ov)
             ;; Check overlay has display content
             (let ((display (overlay-get ov 'before-string)))
@@ -1621,160 +1621,160 @@ Handles :json-false which is truthy in Emacs."
 ;;; Goto-Symbol E2E Tests (simulating demo driver behavior)
 ;;; These tests verify the FULL goto-symbol flow: index -> search -> navigate
 
-(defun hemis-test--search-result-to-list (result)
+(defun mnemos-test--search-result-to-list (result)
   "Convert RESULT from index/search to a list (handles vectors)."
   (if (vectorp result)
       (append result nil)
     result))
 
-(defun hemis-test--get-result-line (hit)
+(defun mnemos-test--get-result-line (hit)
   "Get line from search result HIT, handling various formats."
   (or (alist-get 'line hit)
       (plist-get hit :line)
       (cdr (assoc "line" hit))
       (and (hash-table-p hit) (gethash "line" hit))))
 
-(ert-deftest hemis-goto-symbol-fn-load-config ()
+(ert-deftest mnemos-goto-symbol-fn-load-config ()
   "Test index/search finds fn load_config at correct line."
-  (hemis-test-with-backend
+  (mnemos-test-with-backend
     (let ((test-file (expand-file-name "goto-symbol.rs" test-dir)))
       (with-temp-file test-file
-        (insert hemis-test-demo-code))
+        (insert mnemos-test-demo-code))
       (with-temp-buffer
-        (insert hemis-test-demo-code)
+        (insert mnemos-test-demo-code)
         (set-visited-file-name test-file t t)
-        (let ((hemis--project-root-override test-dir))
+        (let ((mnemos--project-root-override test-dir))
           ;; Step 1: Index the file
-          (hemis--request "index/add-file"
+          (mnemos--request "index/add-file"
                          `((file . ,test-file)
                            (projectRoot . ,test-dir)
-                           (content . ,hemis-test-demo-code)))
+                           (content . ,mnemos-test-demo-code)))
           ;; Step 2: Search for symbol
-          (let* ((raw-results (hemis--request "index/search"
+          (let* ((raw-results (mnemos--request "index/search"
                                              `((query . "fn load_config")
                                                (projectRoot . ,test-dir))))
-                 (results (hemis-test--search-result-to-list raw-results))
+                 (results (mnemos-test--search-result-to-list raw-results))
                  (first-hit (car results))
-                 (line (hemis-test--get-result-line first-hit)))
+                 (line (mnemos-test--get-result-line first-hit)))
             (should results)
             (should (> (length results) 0))
             ;; fn load_config is on line 7
             (should (= 7 line))))))))
 
-(ert-deftest hemis-goto-symbol-impl-server ()
+(ert-deftest mnemos-goto-symbol-impl-server ()
   "Test index/search finds impl Server at correct line."
-  (hemis-test-with-backend
+  (mnemos-test-with-backend
     (let ((test-file (expand-file-name "goto-symbol2.rs" test-dir)))
       (with-temp-file test-file
-        (insert hemis-test-demo-code))
+        (insert mnemos-test-demo-code))
       (with-temp-buffer
-        (insert hemis-test-demo-code)
+        (insert mnemos-test-demo-code)
         (set-visited-file-name test-file t t)
-        (let ((hemis--project-root-override test-dir))
+        (let ((mnemos--project-root-override test-dir))
           ;; Index the file
-          (hemis--request "index/add-file"
+          (mnemos--request "index/add-file"
                          `((file . ,test-file)
                            (projectRoot . ,test-dir)
-                           (content . ,hemis-test-demo-code)))
+                           (content . ,mnemos-test-demo-code)))
           ;; Search for impl Server
-          (let* ((raw-results (hemis--request "index/search"
+          (let* ((raw-results (mnemos--request "index/search"
                                              `((query . "impl Server")
                                                (projectRoot . ,test-dir))))
-                 (results (hemis-test--search-result-to-list raw-results))
+                 (results (mnemos-test--search-result-to-list raw-results))
                  (first-hit (car results))
-                 (line (hemis-test--get-result-line first-hit)))
+                 (line (mnemos-test--get-result-line first-hit)))
             (should results)
             ;; impl Server is on line 11
             (should (= 11 line))))))))
 
-(ert-deftest hemis-goto-symbol-fn-new ()
+(ert-deftest mnemos-goto-symbol-fn-new ()
   "Test index/search finds fn new at correct line."
-  (hemis-test-with-backend
+  (mnemos-test-with-backend
     (let ((test-file (expand-file-name "goto-symbol3.rs" test-dir)))
       (with-temp-file test-file
-        (insert hemis-test-demo-code))
+        (insert mnemos-test-demo-code))
       (with-temp-buffer
-        (insert hemis-test-demo-code)
+        (insert mnemos-test-demo-code)
         (set-visited-file-name test-file t t)
-        (let ((hemis--project-root-override test-dir))
+        (let ((mnemos--project-root-override test-dir))
           ;; Index the file
-          (hemis--request "index/add-file"
+          (mnemos--request "index/add-file"
                          `((file . ,test-file)
                            (projectRoot . ,test-dir)
-                           (content . ,hemis-test-demo-code)))
+                           (content . ,mnemos-test-demo-code)))
           ;; Search for fn new
-          (let* ((raw-results (hemis--request "index/search"
+          (let* ((raw-results (mnemos--request "index/search"
                                              `((query . "fn new")
                                                (projectRoot . ,test-dir))))
-                 (results (hemis-test--search-result-to-list raw-results))
+                 (results (mnemos-test--search-result-to-list raw-results))
                  (first-hit (car results))
-                 (line (hemis-test--get-result-line first-hit)))
+                 (line (mnemos-test--get-result-line first-hit)))
             (should results)
             ;; fn new is on line 12
             (should (= 12 line))))))))
 
-(ert-deftest hemis-goto-symbol-symlink-path ()
+(ert-deftest mnemos-goto-symbol-symlink-path ()
   "Test index/search works with symlinked paths (macOS /tmp -> /private/tmp)."
   ;; Use /tmp to test path canonicalization
-  (let* ((tmp-dir (make-temp-file "hemis-goto-symlink-" t))
+  (let* ((tmp-dir (make-temp-file "mnemos-goto-symlink-" t))
          (test-file (expand-file-name "app.rs" tmp-dir))
-         (hemis-dir tmp-dir)
-         (hemis--process nil)
-         (hemis--conn nil)
-         (hemis--server-process nil)
-         (hemis-backend-env (list (concat "HEMIS_DIR=" tmp-dir)
-                                  (concat "HEMIS_DB_PATH=" tmp-dir "/hemis.db")))
-         (hemis-backend (expand-file-name
-                         (or (getenv "HEMIS_BACKEND")
-                             hemis-backend
-                             hemis--default-backend))))
-    (hemis-notes-global-mode -1)
+         (mnemos-dir tmp-dir)
+         (mnemos--process nil)
+         (mnemos--conn nil)
+         (mnemos--server-process nil)
+         (mnemos-backend-env (list (concat "MNEMOS_DIR=" tmp-dir)
+                                  (concat "MNEMOS_DB_PATH=" tmp-dir "/mnemos.db")))
+         (mnemos-backend (expand-file-name
+                         (or (getenv "MNEMOS_BACKEND")
+                             mnemos-backend
+                             mnemos--default-backend))))
+    (mnemos-notes-global-mode -1)
     (unwind-protect
         (progn
           (with-temp-file test-file
-            (insert hemis-test-demo-code))
+            (insert mnemos-test-demo-code))
           ;; Check if this is a symlinked path
           (let* ((resolved (file-truename test-file))
                  (is-symlinked (not (string= test-file resolved))))
             (when is-symlinked
               (message "Testing symlink: %s -> %s" test-file resolved))
             ;; Index with non-canonical path
-            (hemis--request "index/add-file"
+            (mnemos--request "index/add-file"
                            `((file . ,test-file)
                              (projectRoot . ,tmp-dir)
-                             (content . ,hemis-test-demo-code)))
+                             (content . ,mnemos-test-demo-code)))
             ;; Search with non-canonical projectRoot
-            (let* ((raw-results (hemis--request "index/search"
+            (let* ((raw-results (mnemos--request "index/search"
                                                `((query . "fn load_config")
                                                  (projectRoot . ,tmp-dir))))
-                   (results (hemis-test--search-result-to-list raw-results))
+                   (results (mnemos-test--search-result-to-list raw-results))
                    (first-hit (car results))
-                   (line (hemis-test--get-result-line first-hit)))
+                   (line (mnemos-test--get-result-line first-hit)))
               (should results)
               (should (> (length results) 0))
               (should (= 7 line)))))
       ;; Cleanup
-      (ignore-errors (hemis-shutdown))
+      (ignore-errors (mnemos-shutdown))
       (let ((deadline (+ (float-time) 2)))
-        (while (and (file-exists-p (expand-file-name "hemis.sock" tmp-dir))
+        (while (and (file-exists-p (expand-file-name "mnemos.sock" tmp-dir))
                     (< (float-time) deadline))
           (sleep-for 0.1)))
-      (ignore-errors (delete-file (expand-file-name "hemis.sock" tmp-dir)))
-      (ignore-errors (delete-file (expand-file-name "hemis.lock" tmp-dir)))
+      (ignore-errors (delete-file (expand-file-name "mnemos.sock" tmp-dir)))
+      (ignore-errors (delete-file (expand-file-name "mnemos.lock" tmp-dir)))
       (ignore-errors (delete-directory tmp-dir t)))))
 
 ;;; Select Note Tests
 
-(ert-deftest hemis-select-note-from-picker ()
+(ert-deftest mnemos-select-note-from-picker ()
   "Test selecting a note via picker when no note at point."
-  (hemis-test-with-mocked-backend
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
       (insert "fn main() {}\n")
       (set-visited-file-name "/tmp/select.rs" t t)
       (setq comment-start "// ")
       (goto-char (point-min))
       ;; Mock to return one note in file
-      (cl-letf (((symbol-function 'hemis--request)
+      (cl-letf (((symbol-function 'mnemos--request)
                  (lambda (method &optional _params)
                    (pcase method
                      ("notes/list-for-file"
@@ -1786,21 +1786,21 @@ Handles :json-false which is truthy in Emacs."
                  (lambda (&rest _args)
                    "[select12] L1: Test note for selection")))
         ;; Select note - should use picker since no note at point
-        (hemis-select-note)
+        (mnemos-select-note)
         ;; Verify note was selected
-        (should hemis--selected-note)
-        (should (equal (hemis--note-get hemis--selected-note 'id) "select-test"))))))
+        (should mnemos--selected-note)
+        (should (equal (mnemos--note-get mnemos--selected-note 'id) "select-test"))))))
 
-(ert-deftest hemis-select-note-no-notes ()
+(ert-deftest mnemos-select-note-no-notes ()
   "Test select note shows message when no notes in file."
-  (hemis-test-with-mocked-backend
+  (mnemos-test-with-mocked-backend
     ;; Clear any stale selection from previous tests
-    (setq hemis--selected-note nil)
+    (setq mnemos--selected-note nil)
     (with-temp-buffer
       (insert "fn main() {}\n")
       (set-visited-file-name "/tmp/empty.rs" t t)
       (let ((message-shown nil))
-        (cl-letf (((symbol-function 'hemis--request)
+        (cl-letf (((symbol-function 'mnemos--request)
                    (lambda (method &optional _params)
                      (pcase method
                        ("notes/list-for-file" nil)
@@ -1809,20 +1809,20 @@ Handles :json-false which is truthy in Emacs."
                    (lambda (fmt &rest _args)
                      (when (string-match-p "No notes" fmt)
                        (setq message-shown t)))))
-          (hemis-select-note)
+          (mnemos-select-note)
           (should message-shown)
-          (should-not hemis--selected-note))))))
+          (should-not mnemos--selected-note))))))
 
-(ert-deftest hemis-select-note-picker-multiple ()
+(ert-deftest mnemos-select-note-picker-multiple ()
   "Test select note with picker when multiple notes exist."
-  (hemis-test-with-mocked-backend
+  (mnemos-test-with-mocked-backend
     (with-temp-buffer
       (insert "fn main() {}\nfn foo() {}\n")
       (set-visited-file-name "/tmp/multi.rs" t t)
       (goto-char (point-min))
       (forward-line 1)  ;; Position on line 2, no overlay here
       (let ((picker-called nil))
-        (cl-letf (((symbol-function 'hemis--request)
+        (cl-letf (((symbol-function 'mnemos--request)
                    (lambda (method &optional _params)
                      (pcase method
                        ("notes/list-for-file"
@@ -1833,62 +1833,62 @@ Handles :json-false which is truthy in Emacs."
                    (lambda (&rest _args)
                      (setq picker-called t)
                      "[note1234] L1: First note")))
-          (hemis-select-note)
+          (mnemos-select-note)
           (should picker-called)
-          (should hemis--selected-note))))))
+          (should mnemos--selected-note))))))
 
-(ert-deftest hemis-select-note-integration ()
+(ert-deftest mnemos-select-note-integration ()
   "Integration test: create note, then select it."
-  (hemis-test-with-backend
+  (mnemos-test-with-backend
     (let ((test-file (expand-file-name "select-int.rs" test-dir)))
       (with-temp-file test-file
-        (insert hemis-test-demo-code))
+        (insert mnemos-test-demo-code))
       (with-temp-buffer
-        (insert hemis-test-demo-code)
+        (insert mnemos-test-demo-code)
         (set-visited-file-name test-file t t)
         (setq comment-start "// ")
-        (hemis-notes-mode 1)
-        (let ((hemis--project-root-override test-dir))
+        (mnemos-notes-mode 1)
+        (let ((mnemos--project-root-override test-dir))
           ;; Create a note
           (goto-char (point-min))
           (forward-line 6)  ;; Line 7
-          (let* ((created (hemis-add-note "Select integration test"))
-                 (note-id (hemis-test--note-id created)))
+          (let* ((created (mnemos-add-note "Select integration test"))
+                 (note-id (mnemos-test--note-id created)))
             (should (stringp note-id))
             ;; Clear selection
-            (hemis-clear-selection)
-            (should-not hemis--selected-note)
+            (mnemos-clear-selection)
+            (should-not mnemos--selected-note)
             ;; Select the note using picker (simulate selecting first item)
             (cl-letf (((symbol-function 'completing-read)
                        (lambda (prompt choices &rest _)
                          ;; Return the first choice
                          (caar choices))))
-              (hemis-select-note))
+              (mnemos-select-note))
             ;; Should have selected our note
-            (should hemis--selected-note)))))))
+            (should mnemos--selected-note)))))))
 
-(ert-deftest hemis-goto-symbol-navigate ()
+(ert-deftest mnemos-goto-symbol-navigate ()
   "Test full goto-symbol flow: index, search, navigate to line."
-  (hemis-test-with-backend
+  (mnemos-test-with-backend
     (let ((test-file (expand-file-name "goto-navigate.rs" test-dir)))
       (with-temp-file test-file
-        (insert hemis-test-demo-code))
+        (insert mnemos-test-demo-code))
       (with-temp-buffer
-        (insert hemis-test-demo-code)
+        (insert mnemos-test-demo-code)
         (set-visited-file-name test-file t t)
-        (let ((hemis--project-root-override test-dir))
+        (let ((mnemos--project-root-override test-dir))
           ;; Index the file
-          (hemis--request "index/add-file"
+          (mnemos--request "index/add-file"
                          `((file . ,test-file)
                            (projectRoot . ,test-dir)
-                           (content . ,hemis-test-demo-code)))
+                           (content . ,mnemos-test-demo-code)))
           ;; Search for symbol
-          (let* ((raw-results (hemis--request "index/search"
+          (let* ((raw-results (mnemos--request "index/search"
                                              `((query . "fn load_config")
                                                (projectRoot . ,test-dir))))
-                 (results (hemis-test--search-result-to-list raw-results))
+                 (results (mnemos-test--search-result-to-list raw-results))
                  (first-hit (car results))
-                 (target-line (hemis-test--get-result-line first-hit)))
+                 (target-line (mnemos-test--get-result-line first-hit)))
             (should (= 7 target-line))
             ;; Navigate to line (simulating demo driver goto-line)
             (goto-char (point-min))
@@ -1903,78 +1903,78 @@ Handles :json-false which is truthy in Emacs."
 
 ;;; Event System Tests
 
-(ert-deftest hemis-events-on-registers-handler ()
-  "Test that hemis--events-on registers a handler."
-  (let ((hemis--events-handlers (make-hash-table :test 'equal)))
-    (hemis--events-on "note-created" #'ignore)
-    (should (eq (gethash "note-created" hemis--events-handlers) #'ignore))))
+(ert-deftest mnemos-events-on-registers-handler ()
+  "Test that mnemos--events-on registers a handler."
+  (let ((mnemos--events-handlers (make-hash-table :test 'equal)))
+    (mnemos--events-on "note-created" #'ignore)
+    (should (eq (gethash "note-created" mnemos--events-handlers) #'ignore))))
 
-(ert-deftest hemis-events-filter-dispatches-to-handler ()
-  "Test that hemis--events-filter parses JSON and calls the right handler."
-  (let ((hemis--events-handlers (make-hash-table :test 'equal))
-        (hemis--events-buffer "")
+(ert-deftest mnemos-events-filter-dispatches-to-handler ()
+  "Test that mnemos--events-filter parses JSON and calls the right handler."
+  (let ((mnemos--events-handlers (make-hash-table :test 'equal))
+        (mnemos--events-buffer "")
         (received-events nil))
-    (hemis--events-on "note-created"
+    (mnemos--events-on "note-created"
                       (lambda (event)
                         (push event received-events)))
     ;; Simulate receiving a complete JSON line
-    (hemis--events-filter nil "{\"type\":\"note-created\",\"noteId\":\"abc\"}\n")
+    (mnemos--events-filter nil "{\"type\":\"note-created\",\"noteId\":\"abc\"}\n")
     (should (= 1 (length received-events)))
     (should (equal "note-created" (alist-get 'type (car received-events))))
     (should (equal "abc" (alist-get 'noteId (car received-events))))))
 
-(ert-deftest hemis-events-filter-calls-catch-all ()
-  "Test that hemis--events-filter calls catch-all handler."
-  (let ((hemis--events-handlers (make-hash-table :test 'equal))
-        (hemis--events-buffer "")
+(ert-deftest mnemos-events-filter-calls-catch-all ()
+  "Test that mnemos--events-filter calls catch-all handler."
+  (let ((mnemos--events-handlers (make-hash-table :test 'equal))
+        (mnemos--events-buffer "")
         (catch-all-events nil))
-    (hemis--events-on "*" (lambda (event) (push event catch-all-events)))
-    (hemis--events-filter nil "{\"type\":\"any-event\"}\n")
+    (mnemos--events-on "*" (lambda (event) (push event catch-all-events)))
+    (mnemos--events-filter nil "{\"type\":\"any-event\"}\n")
     (should (= 1 (length catch-all-events)))
     (should (equal "any-event" (alist-get 'type (car catch-all-events))))))
 
-(ert-deftest hemis-events-filter-handles-partial-data ()
-  "Test that hemis--events-filter buffers partial JSON."
-  (let ((hemis--events-handlers (make-hash-table :test 'equal))
-        (hemis--events-buffer "")
+(ert-deftest mnemos-events-filter-handles-partial-data ()
+  "Test that mnemos--events-filter buffers partial JSON."
+  (let ((mnemos--events-handlers (make-hash-table :test 'equal))
+        (mnemos--events-buffer "")
         (received-events nil))
-    (hemis--events-on "test" (lambda (event) (push event received-events)))
+    (mnemos--events-on "test" (lambda (event) (push event received-events)))
     ;; Send partial data (no newline)
-    (hemis--events-filter nil "{\"type\":\"test\"")
+    (mnemos--events-filter nil "{\"type\":\"test\"")
     (should (= 0 (length received-events)))
-    (should (equal "{\"type\":\"test\"" hemis--events-buffer))
+    (should (equal "{\"type\":\"test\"" mnemos--events-buffer))
     ;; Complete the message
-    (hemis--events-filter nil ",\"data\":1}\n")
+    (mnemos--events-filter nil ",\"data\":1}\n")
     (should (= 1 (length received-events)))
     (should (equal "test" (alist-get 'type (car received-events))))))
 
-(ert-deftest hemis-events-filter-handles-multiple-events ()
-  "Test that hemis--events-filter handles multiple events in one chunk."
-  (let ((hemis--events-handlers (make-hash-table :test 'equal))
-        (hemis--events-buffer "")
+(ert-deftest mnemos-events-filter-handles-multiple-events ()
+  "Test that mnemos--events-filter handles multiple events in one chunk."
+  (let ((mnemos--events-handlers (make-hash-table :test 'equal))
+        (mnemos--events-buffer "")
         (received-events nil))
-    (hemis--events-on "event" (lambda (event) (push event received-events)))
+    (mnemos--events-on "event" (lambda (event) (push event received-events)))
     ;; Send multiple events at once
-    (hemis--events-filter nil "{\"type\":\"event\",\"n\":1}\n{\"type\":\"event\",\"n\":2}\n")
+    (mnemos--events-filter nil "{\"type\":\"event\",\"n\":1}\n{\"type\":\"event\",\"n\":2}\n")
     (should (= 2 (length received-events)))
     ;; Events are pushed, so reverse order
     (should (= 2 (alist-get 'n (car received-events))))
     (should (= 1 (alist-get 'n (cadr received-events))))))
 
-(ert-deftest hemis-events-filter-ignores-invalid-json ()
-  "Test that hemis--events-filter handles invalid JSON gracefully."
-  (let ((hemis--events-handlers (make-hash-table :test 'equal))
-        (hemis--events-buffer "")
+(ert-deftest mnemos-events-filter-ignores-invalid-json ()
+  "Test that mnemos--events-filter handles invalid JSON gracefully."
+  (let ((mnemos--events-handlers (make-hash-table :test 'equal))
+        (mnemos--events-buffer "")
         (received-events nil))
-    (hemis--events-on "test" (lambda (event) (push event received-events)))
+    (mnemos--events-on "test" (lambda (event) (push event received-events)))
     ;; Send invalid JSON followed by valid JSON
-    (hemis--events-filter nil "not valid json\n{\"type\":\"test\"}\n")
+    (mnemos--events-filter nil "not valid json\n{\"type\":\"test\"}\n")
     ;; Should have received the valid event
     (should (= 1 (length received-events)))))
 
 ;;; Follow-link Tests
 
-(ert-deftest hemis-follow-link-pattern-matches-basic ()
+(ert-deftest mnemos-follow-link-pattern-matches-basic ()
   "Test that link pattern matches [[desc][uuid]] format."
   (let ((link-re "\\[\\[[^]]*\\]\\[\\([a-f0-9-]+\\)\\]\\]")
         (test-uuid "12345678-1234-1234-1234-123456789abc"))
@@ -1987,7 +1987,7 @@ Handles :json-false which is truthy in Emacs."
       (should (string-match link-re line))
       (should (equal test-uuid (match-string 1 line))))))
 
-(ert-deftest hemis-follow-link-pattern-multiple-links ()
+(ert-deftest mnemos-follow-link-pattern-multiple-links ()
   "Test finding multiple links in a line."
   (let ((link-re "\\[\\[[^]]*\\]\\[\\([a-f0-9-]+\\)\\]\\]")
         (uuid1 "11111111-1111-1111-1111-111111111111")
@@ -2000,14 +2000,14 @@ Handles :json-false which is truthy in Emacs."
       (should (string-match link-re line (match-end 0)))
       (should (equal uuid2 (match-string 1 line))))))
 
-(ert-deftest hemis-follow-link-pattern-no-link ()
+(ert-deftest mnemos-follow-link-pattern-no-link ()
   "Test that pattern doesn't match non-link text."
   (let ((link-re "\\[\\[[^]]*\\]\\[\\([a-f0-9-]+\\)\\]\\]"))
     (should-not (string-match link-re "No links here"))
     (should-not (string-match link-re "[[broken link"))
     (should-not (string-match link-re "[single][brackets]"))))
 
-(ert-deftest hemis-follow-link-finds-link-at-cursor ()
+(ert-deftest mnemos-follow-link-finds-link-at-cursor ()
   "Test finding the correct link when cursor is at different positions."
   (let ((link-re "\\[\\[[^]]*\\]\\[\\([a-f0-9-]+\\)\\]\\]")
         (uuid1 "11111111-1111-1111-1111-111111111111")
@@ -2034,7 +2034,7 @@ Handles :json-false which is truthy in Emacs."
         ;; Cursor between links
         (should-not (find-link-at-col 50))))))
 
-(ert-deftest hemis-follow-link-empty-description ()
+(ert-deftest mnemos-follow-link-empty-description ()
   "Test link with empty description."
   (let ((link-re "\\[\\[[^]]*\\]\\[\\([a-f0-9-]+\\)\\]\\]")
         (uuid "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
@@ -2042,7 +2042,7 @@ Handles :json-false which is truthy in Emacs."
       (should (string-match link-re line))
       (should (equal uuid (match-string 1 line))))))
 
-(ert-deftest hemis-follow-link-special-chars-description ()
+(ert-deftest mnemos-follow-link-special-chars-description ()
   "Test link with special characters in description."
   (let ((link-re "\\[\\[[^]]*\\]\\[\\([a-f0-9-]+\\)\\]\\]")
         (uuid "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
@@ -2050,4 +2050,4 @@ Handles :json-false which is truthy in Emacs."
       (should (string-match link-re line))
       (should (equal uuid (match-string 1 line))))))
 
-(provide 'hemis-test)
+(provide 'mnemos-test)

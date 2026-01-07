@@ -8,19 +8,19 @@
 - Responsibilities:
   - Rendering code and semantic overlays.
   - Providing navigation (search, go-to-def, backlinks).
-  - Exposing conversational interface to Hemis.
+  - Exposing conversational interface to Mnemos.
   - Displaying streaming tokens from the LLM.
 
 ## 2.2 Lisp Backend Process
 
-Runs in a Common Lisp image (e.g., SBCL) and loads Hemis packages:
+Runs in a Common Lisp image (e.g., SBCL) and loads Mnemos packages:
 
-- `hemis.core`   — shared utilities and types.
-- `hemis.config` — configuration loading and validation.
-- `hemis.index`  — indexing, symbol graph, embeddings, notes.
-- `hemis.tools`  — tool implementations used by the LLM.
-- `hemis.llm`    — client for the LLM runner.
-- `hemis.server` — JSON-RPC server for the UI.
+- `mnemos.core`   — shared utilities and types.
+- `mnemos.config` — configuration loading and validation.
+- `mnemos.index`  — indexing, symbol graph, embeddings, notes.
+- `mnemos.tools`  — tool implementations used by the LLM.
+- `mnemos.llm`    — client for the LLM runner.
+- `mnemos.server` — JSON-RPC server for the UI.
 
 It also:
 - Connects to SLY/Slynk for live coding.

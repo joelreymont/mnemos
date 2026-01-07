@@ -3,12 +3,12 @@
 Run ERT in batch from repo root:
 
 ```bash
-HEMIS_BACKEND=/path/to/target/debug/hemis \
+MNEMOS_BACKEND=/path/to/target/debug/mnemos \
 emacs -Q --batch \
   -L ui/emacs \
-  -l hemis.el \
+  -l mnemos.el \
   -L ui/emacs/tests \
-  -l hemis-test.el \
+  -l mnemos-test.el \
   -f ert-run-tests-batch-and-exit
 ```
 

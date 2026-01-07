@@ -132,8 +132,8 @@ fn snapshot_create_and_list() -> anyhow::Result<()> {
         req_list.len(),
         req_list
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -188,8 +188,8 @@ fn snapshot_update_and_delete() -> anyhow::Result<()> {
     });
     // First create, then patch in the returned id for update/delete.
     let create_input = format!("Content-Length: {}\r\n\r\n{}", req_create.len(), req_create);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(create_input)
         .assert()
         .success();
@@ -223,8 +223,8 @@ fn snapshot_update_and_delete() -> anyhow::Result<()> {
         del.len(),
         del
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -281,8 +281,8 @@ fn snapshot_list_by_node() -> anyhow::Result<()> {
         req_list.len(),
         req_list
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -332,8 +332,8 @@ fn snapshot_index_search() -> anyhow::Result<()> {
         search_req.len(),
         search_req
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -366,8 +366,8 @@ fn snapshot_invalid_params() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -411,8 +411,8 @@ fn snapshot_missing_id_update_delete() -> anyhow::Result<()> {
         req_delete.len(),
         req_delete
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -441,8 +441,8 @@ fn snapshot_unknown_method() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -469,7 +469,7 @@ fn snapshot_explain_region() -> anyhow::Result<()> {
     let req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/explain-region",
+        "method": "mnemos/explain-region",
         "params": {
             "file": file_path.to_string_lossy(),
             "start": {"line": 1, "column": 0},
@@ -478,8 +478,8 @@ fn snapshot_explain_region() -> anyhow::Result<()> {
     })
     .to_string();
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -519,7 +519,7 @@ fn snapshot_save_and_load() -> anyhow::Result<()> {
     let save_req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 2,
-        "method": "hemis/save-snapshot",
+        "method": "mnemos/save-snapshot",
         "params": {
             "path": snap_path.path(),
             "projectRoot": root.path().to_string_lossy()
@@ -529,7 +529,7 @@ fn snapshot_save_and_load() -> anyhow::Result<()> {
     let load_req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 3,
-        "method": "hemis/load-snapshot",
+        "method": "mnemos/load-snapshot",
         "params": {
             "path": snap_path.path()
         }
@@ -544,8 +544,8 @@ fn snapshot_save_and_load() -> anyhow::Result<()> {
         load_req.len(),
         load_req
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -610,7 +610,7 @@ fn snapshot_status_returns_counts() -> anyhow::Result<()> {
     let status_req = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 2,
-        "method": "hemis/status",
+        "method": "mnemos/status",
         "params": {
             "projectRoot": root.path().to_string_lossy()
         }
@@ -623,8 +623,8 @@ fn snapshot_status_returns_counts() -> anyhow::Result<()> {
         status_req.len(),
         status_req
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -667,14 +667,14 @@ fn snapshot_index_project() -> anyhow::Result<()> {
     let req_index = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "hemis/index-project",
+        "method": "mnemos/index-project",
         "params": { "projectRoot": root.path().to_string_lossy() }
     })
     .to_string();
     let req_search = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 2,
-        "method": "hemis/search",
+        "method": "mnemos/search",
         "params": {
             "query": "foo",
             "projectRoot": root.path().to_string_lossy()
@@ -688,8 +688,8 @@ fn snapshot_index_project() -> anyhow::Result<()> {
         req_search.len(),
         req_search
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -759,8 +759,8 @@ fn snapshot_backlinks() -> anyhow::Result<()> {
         req_create_a.len(),
         req_create_a
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(create_a_input)
         .assert()
         .success();
@@ -802,8 +802,8 @@ fn snapshot_backlinks() -> anyhow::Result<()> {
         req_backlinks.len(),
         req_backlinks
     );
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();

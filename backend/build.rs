@@ -15,7 +15,7 @@ fn main() {
         })
         .unwrap_or_else(|| "unknown".to_string());
 
-    println!("cargo:rustc-env=HEMIS_GIT_HASH={}", git_hash);
+    println!("cargo:rustc-env=MNEMOS_GIT_HASH={}", git_hash);
 
     // Rebuild if HEAD changes
     println!("cargo:rerun-if-changed=../.git/HEAD");

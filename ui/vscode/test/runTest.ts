@@ -4,7 +4,7 @@ import { runTests } from '@vscode/test-electron';
 
 function findBackend(): string | undefined {
   // Check environment variable first
-  const envBackend = process.env['HEMIS_BACKEND'];
+  const envBackend = process.env['MNEMOS_BACKEND'];
   if (envBackend && fs.existsSync(envBackend)) {
     return envBackend;
   }
@@ -12,8 +12,8 @@ function findBackend(): string | undefined {
   // Try relative paths from extension root
   const extensionRoot = path.resolve(__dirname, '../../');
   const candidates = [
-    path.join(extensionRoot, '../../target/debug/hemis'),
-    path.join(extensionRoot, '../../target/release/hemis'),
+    path.join(extensionRoot, '../../target/debug/mnemos'),
+    path.join(extensionRoot, '../../target/release/mnemos'),
   ];
 
   for (const candidate of candidates) {
@@ -40,7 +40,7 @@ async function main() {
     const backend = findBackend();
     const env: Record<string, string> = { ...process.env as Record<string, string> };
     if (backend) {
-      env['HEMIS_BACKEND'] = backend;
+      env['MNEMOS_BACKEND'] = backend;
       console.log(`Using backend: ${backend}`);
     } else {
       console.log('Backend not found, integration tests will be skipped');

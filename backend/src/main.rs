@@ -1,7 +1,7 @@
-//! Hemis backend - JSON-RPC server for code notes.
+//! Mnemos backend - JSON-RPC server for code notes.
 //!
 //! Modes:
-//! - Server mode (default): Listens on Unix domain socket ~/.hemis/hemis.sock
+//! - Server mode (default): Listens on Unix domain socket ~/.mnemos/mnemos.sock
 //! - Stdio mode: Reads from stdin, writes to stdout (for testing/debugging)
 //!
 //! Subcommands:
@@ -12,7 +12,7 @@
 //! Auto-detection:
 //! - `--serve`: Force server mode
 //! - `--stdio`: Force stdio mode
-//! - No flags + TTY stdin: Server mode (user ran `hemis` in terminal)
+//! - No flags + TTY stdin: Server mode (user ran `mnemos` in terminal)
 //! - No flags + pipe stdin: Stdio mode (backward compat for existing integrations)
 
 use std::collections::VecDeque;
@@ -94,8 +94,8 @@ fn framed_needs_more(buf: &[u8]) -> bool {
     true
 }
 
-/// Get the hemis data directory (~/.hemis or HEMIS_DIR), creating it if needed.
-fn hemis_dir() -> PathBuf {
+/// Get the mnemos data directory (~/.mnemos or MNEMOS_DIR), creating it if needed.
+fn mnemos_dir() -> PathBuf {
     let dir = backend::config::data_dir();
     let _ = std::fs::create_dir_all(&dir);
     dir
@@ -187,7 +187,7 @@ fn run_stdio_mode(config: &ResolvedConfig) -> Result<()> {
 
 /// Run in server mode (Unix domain socket).
 fn run_server_mode(config: &ResolvedConfig) -> Result<()> {
-    let hdir = hemis_dir();
+    let hdir = mnemos_dir();
     let server = Server::new(hdir, config.db_path.clone());
     server.run()
 }
@@ -211,7 +211,7 @@ fn detect_mode() -> Mode {
     }
 
     // Auto-detect based on TTY
-    // TTY = user ran `hemis` in terminal → server mode
+    // TTY = user ran `mnemos` in terminal → server mode
     // Pipe = spawned by editor → stdio mode (backward compat)
     if atty::is(atty::Stream::Stdin) {
         Mode::Server
@@ -236,8 +236,8 @@ fn run_grammar_command(args: &[String]) -> Result<()> {
         "list" => grammar_list(),
         "fetch" => {
             if args.len() < 2 {
-                eprintln!("Usage: hemis grammar fetch <name>");
-                eprintln!("       hemis grammar fetch --all");
+                eprintln!("Usage: mnemos grammar fetch <name>");
+                eprintln!("       mnemos grammar fetch --all");
                 std::process::exit(1);
             }
             if args[1] == "--all" {
@@ -248,8 +248,8 @@ fn run_grammar_command(args: &[String]) -> Result<()> {
         }
         "build" => {
             if args.len() < 2 {
-                eprintln!("Usage: hemis grammar build <name>");
-                eprintln!("       hemis grammar build --all");
+                eprintln!("Usage: mnemos grammar build <name>");
+                eprintln!("       mnemos grammar build --all");
                 std::process::exit(1);
             }
             if args[1] == "--all" {
@@ -271,10 +271,10 @@ fn run_grammar_command(args: &[String]) -> Result<()> {
 }
 
 fn print_grammar_help() {
-    println!("hemis grammar - Manage tree-sitter grammars");
+    println!("mnemos grammar - Manage tree-sitter grammars");
     println!();
     println!("USAGE:");
-    println!("    hemis grammar <COMMAND>");
+    println!("    mnemos grammar <COMMAND>");
     println!();
     println!("COMMANDS:");
     println!("    list              List available grammars (bundled and user-installed)");
@@ -285,9 +285,9 @@ fn print_grammar_help() {
     println!("    help              Show this help message");
     println!();
     println!("CONFIGURATION:");
-    println!("    Grammars are configured in ~/.config/hemis/languages.toml");
-    println!("    Fetched sources are stored in ~/.config/hemis/grammars/sources/");
-    println!("    Built libraries are stored in ~/.config/hemis/grammars/");
+    println!("    Grammars are configured in ~/.config/mnemos/languages.toml");
+    println!("    Fetched sources are stored in ~/.config/mnemos/grammars/sources/");
+    println!("    Built libraries are stored in ~/.config/mnemos/grammars/");
 }
 
 /// List available grammars
@@ -472,7 +472,7 @@ fn grammar_build(name: &str) -> Result<()> {
 
     if !source_dir.exists() {
         anyhow::bail!(
-            "Source not found for '{}'. Run 'hemis grammar fetch {}' first.",
+            "Source not found for '{}'. Run 'mnemos grammar fetch {}' first.",
             name,
             name
         );
@@ -583,7 +583,7 @@ fn grammar_build_all() -> Result<()> {
     let sources_dir = config.grammars_dir().join("sources");
 
     if !sources_dir.exists() {
-        println!("No grammar sources found. Run 'hemis grammar fetch --all' first.");
+        println!("No grammar sources found. Run 'mnemos grammar fetch --all' first.");
         return Ok(());
     }
 
@@ -606,20 +606,20 @@ fn grammar_build_all() -> Result<()> {
 
 fn print_version() {
     println!(
-        "hemis {} ({})",
+        "mnemos {} ({})",
         backend::version::PROTOCOL_VERSION,
         backend::version::GIT_HASH
     );
 }
 
 fn print_help() {
-    println!("hemis - A second brain for your code");
+    println!("mnemos - A second brain for your code");
     println!();
     println!("USAGE:");
-    println!("    hemis [OPTIONS]");
-    println!("    hemis ensure-daemon");
-    println!("    hemis grammar <COMMAND>");
-    println!("    hemis oracle <QUESTION>");
+    println!("    mnemos [OPTIONS]");
+    println!("    mnemos ensure-daemon");
+    println!("    mnemos grammar <COMMAND>");
+    println!("    mnemos oracle <QUESTION>");
     println!();
     println!("SUBCOMMANDS:");
     println!("    ensure-daemon  Ensure daemon is running, output JSON with socket path");
@@ -627,9 +627,9 @@ fn print_help() {
     println!("    oracle         Ask codex -m o3 for help with difficult questions");
     println!();
     println!("OPTIONS:");
-    println!("    --serve, -s            Run as server (Unix socket at ~/.hemis/hemis.sock)");
+    println!("    --serve, -s            Run as server (Unix socket at ~/.mnemos/mnemos.sock)");
     println!("    --stdio                Run in stdio mode (for testing/debugging)");
-    println!("    --config <PATH>        Path to config file (default: ~/.config/hemis/config.toml)");
+    println!("    --config <PATH>        Path to config file (default: ~/.config/mnemos/config.toml)");
     println!("    --db-path <PATH>       Path to SQLite database (overrides config/env)");
     println!("    --ai-provider <NAME>   AI provider: codex, claude, none (overrides config/env)");
     println!("    --save-snapshot <PATH> Save database snapshot to file and exit");
@@ -638,7 +638,7 @@ fn print_help() {
     println!("    --help, -h             Print this help message");
     println!();
     println!("CONFIG FILE:");
-    println!("    db-path = \"/path/to/hemis.db\"");
+    println!("    db-path = \"/path/to/mnemos.db\"");
     println!("    ai-provider = \"claude\"  # or \"codex\", \"none\"");
     println!();
     println!("PRECEDENCE: CLI flags > environment variables > config file > defaults");
@@ -730,13 +730,13 @@ fn run_load_snapshot(config: &ResolvedConfig, path: &str) -> Result<()> {
 /// Run the oracle command (ask codex -m o3)
 fn run_oracle_command(args: &[String]) -> Result<()> {
     if args.is_empty() {
-        println!("Usage: hemis oracle <QUESTION>");
+        println!("Usage: mnemos oracle <QUESTION>");
         println!();
         println!("Ask codex -m o3 (the oracle) for help with difficult questions.");
         println!();
         println!("Examples:");
-        println!("    hemis oracle \"How do I implement a trie in Rust?\"");
-        println!("    hemis oracle \"What's the best way to handle async errors?\"");
+        println!("    mnemos oracle \"How do I implement a trie in Rust?\"");
+        println!("    mnemos oracle \"What's the best way to handle async errors?\"");
         return Ok(());
     }
 
@@ -767,12 +767,12 @@ fn run_ensure_daemon() -> Result<()> {
     use std::os::unix::net::UnixStream;
     use std::time::Duration;
 
-    let hemis_dir = dirs::home_dir()
-        .map(|h| h.join(".hemis"))
-        .unwrap_or_else(|| PathBuf::from(".hemis"));
-    let socket_path = hemis_dir.join("hemis.sock");
-    let events_socket_path = hemis_dir.join("events.sock");
-    let lock_path = hemis_dir.join("hemis.lock");
+    let mnemos_dir = dirs::home_dir()
+        .map(|h| h.join(".mnemos"))
+        .unwrap_or_else(|| PathBuf::from(".mnemos"));
+    let socket_path = mnemos_dir.join("mnemos.sock");
+    let events_socket_path = mnemos_dir.join("events.sock");
+    let lock_path = mnemos_dir.join("mnemos.lock");
 
     // Try to connect to existing daemon
     if socket_path.exists() {
@@ -800,8 +800,8 @@ fn run_ensure_daemon() -> Result<()> {
         }
     }
 
-    // Create hemis directory if needed
-    std::fs::create_dir_all(&hemis_dir)?;
+    // Create mnemos directory if needed
+    std::fs::create_dir_all(&mnemos_dir)?;
 
     // Start daemon in background
     let exe = std::env::current_exe()?;
@@ -837,8 +837,8 @@ fn run_ensure_daemon() -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    // Initialize logging: HEMIS_LOG=debug for verbose, default is info
-    env_logger::Builder::from_env(env_logger::Env::default().filter_or("HEMIS_LOG", "info"))
+    // Initialize logging: MNEMOS_LOG=debug for verbose, default is info
+    env_logger::Builder::from_env(env_logger::Env::default().filter_or("MNEMOS_LOG", "info"))
         .format_timestamp_millis()
         .init();
 

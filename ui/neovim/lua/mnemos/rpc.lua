@@ -1,5 +1,5 @@
--- JSON-RPC client for Hemis backend (Unix socket mode)
-local config = require("hemis.config")
+-- JSON-RPC client for Mnemos backend (Unix socket mode)
+local config = require("mnemos.config")
 
 local M = {}
 
@@ -28,8 +28,8 @@ M.connected = false
 M.connecting = false
 
 -- Paths (must be async-safe - no vim.fn.* in callbacks)
-local function get_hemis_dir()
-  local custom = config.get("hemis_dir")
+local function get_mnemos_dir()
+  local custom = config.get("mnemos_dir")
   if custom then
     -- Expand ~ manually for async safety
     if custom:sub(1, 1) == "~" then
@@ -37,24 +37,24 @@ local function get_hemis_dir()
     end
     return custom
   end
-  -- Check HEMIS_DIR env var (used by demo automation)
-  local env_dir = os.getenv("HEMIS_DIR")
+  -- Check MNEMOS_DIR env var (used by demo automation)
+  local env_dir = os.getenv("MNEMOS_DIR")
   if env_dir then
     return env_dir
   end
-  return os.getenv("HOME") .. "/.hemis"
+  return os.getenv("HOME") .. "/.mnemos"
 end
 
 local function get_socket_path()
-  return get_hemis_dir() .. "/hemis.sock"
+  return get_mnemos_dir() .. "/mnemos.sock"
 end
 
 local function get_lock_path()
-  return get_hemis_dir() .. "/hemis.lock"
+  return get_mnemos_dir() .. "/mnemos.lock"
 end
 
 local function get_log_path()
-  return get_hemis_dir() .. "/hemis.log"
+  return get_mnemos_dir() .. "/mnemos.log"
 end
 
 -- Async-safe helpers (no vim.fn.* - safe to call in libuv callbacks)
@@ -112,15 +112,15 @@ local function check_startup_error()
   -- Check for schema version error
   if tail:match("newer than this version") or tail:match("schema version") then
     return "Database schema is incompatible.\n\n"
-      .. "Your database was created by a newer version of Hemis.\n"
-      .. "Please upgrade Hemis or use a different database file.\n\n"
+      .. "Your database was created by a newer version of Mnemos.\n"
+      .. "Please upgrade Mnemos or use a different database file.\n\n"
       .. "To use a fresh database:\n"
-      .. "  rm ~/.hemis/hemis.db\n\n"
-      .. "Check ~/.hemis/hemis.log for details."
+      .. "  rm ~/.mnemos/mnemos.db\n\n"
+      .. "Check ~/.mnemos/mnemos.log for details."
   end
   -- Check for other fatal errors
   if tail:match("Error:") or tail:match("FATAL") or tail:match("panic") then
-    return "Backend failed to start.\n\nCheck ~/.hemis/hemis.log for details:\n" .. tail
+    return "Backend failed to start.\n\nCheck ~/.mnemos/mnemos.log for details:\n" .. tail
   end
   return nil
 end
@@ -131,7 +131,7 @@ local function log(level, msg)
   local cfg_level = levels[config.get("log_level")] or 3
   if levels[level] >= cfg_level then
     vim.schedule(function()
-      vim.notify("[hemis] " .. msg, vim.log.levels[level:upper()])
+      vim.notify("[mnemos] " .. msg, vim.log.levels[level:upper()])
     end)
   end
 end
@@ -253,9 +253,9 @@ end
 
 -- Try to acquire lock file (returns true if acquired)
 local function try_acquire_lock()
-  local hemis_dir = get_hemis_dir()
+  local mnemos_dir = get_mnemos_dir()
   -- Ensure directory exists before trying to create lock
-  mkdir_p(hemis_dir)
+  mkdir_p(mnemos_dir)
   local lock_path = get_lock_path()
   -- Use O_CREAT | O_EXCL via shell
   local cmd = string.format('set -C; echo %d > "%s" 2>/dev/null', vim.uv.os_getpid(), lock_path)
@@ -282,10 +282,10 @@ local function start_server()
     return false
   end
 
-  local hemis_dir = get_hemis_dir()
+  local mnemos_dir = get_mnemos_dir()
 
-  -- Ensure hemis directory exists
-  mkdir_p(hemis_dir)
+  -- Ensure mnemos directory exists
+  mkdir_p(mnemos_dir)
 
   -- Build command with optional --config flag
   local config_path = config.get("config_path")
@@ -295,14 +295,14 @@ local function start_server()
   end
 
   -- Start server in background (detached)
-  -- Must set HEMIS_DIR so backend uses the same socket path we're expecting
+  -- Must set MNEMOS_DIR so backend uses the same socket path we're expecting
   -- Use env command to ensure the env var is properly set
   local cmd = string.format(
-    "env HEMIS_DIR=%s %s --serve%s >> %s/hemis.log 2>&1 &",
-    shell_escape(hemis_dir),
+    "env MNEMOS_DIR=%s %s --serve%s >> %s/mnemos.log 2>&1 &",
+    shell_escape(mnemos_dir),
     shell_escape(backend),
     config_arg,
-    shell_escape(hemis_dir)
+    shell_escape(mnemos_dir)
   )
   log("debug", "Starting server: " .. cmd)
   os.execute(cmd)
@@ -449,7 +449,7 @@ function M.ensure_connected_start_server(callback)
         local startup_err = check_startup_error()
         if startup_err then
           vim.schedule(function()
-            vim.notify("[hemis] " .. startup_err, vim.log.levels.ERROR)
+            vim.notify("[mnemos] " .. startup_err, vim.log.levels.ERROR)
           end)
           callback("Backend startup failed - check log")
         else
@@ -498,7 +498,7 @@ function M.start(callback)
     end
 
     -- Check version
-    M.request("hemis/version", {}, function(ver_err, result)
+    M.request("mnemos/version", {}, function(ver_err, result)
       if ver_err then
         log("warn", "Version check failed: " .. vim.inspect(ver_err))
         if callback then
@@ -512,8 +512,8 @@ function M.start(callback)
           log("warn", "Backend is newer than expected. Consider updating the plugin.")
         elseif result.protocolVersion < EXPECTED_PROTOCOL_VERSION then
           vim.notify(
-            "[hemis] Backend is outdated. Please restart to update.\n"
-              .. "Run: pkill -f 'hemis --serve' && hemis --serve",
+            "[mnemos] Backend is outdated. Please restart to update.\n"
+              .. "Run: pkill -f 'mnemos --serve' && mnemos --serve",
             vim.log.levels.WARN
           )
         end

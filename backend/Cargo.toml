@@ -5,7 +5,7 @@ edition = "2021"
 build = "build.rs"
 
 [[bin]]
-name = "hemis"
+name = "mnemos"
 path = "src/main.rs"
 
 [dependencies]

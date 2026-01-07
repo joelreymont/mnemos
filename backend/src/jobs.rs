@@ -221,7 +221,7 @@ pub fn process_index_project(
                 let root_path = Path::new(root).to_path_buf();
                 std::thread::spawn(move || {
                     if let Err(e) = crate::ai_cli::warm_up_claude(&root_path) {
-                        debug!("[hemis] Claude warm-up failed: {}", e);
+                        debug!("[mnemos] Claude warm-up failed: {}", e);
                     }
                 });
             }
@@ -312,8 +312,8 @@ struct ListFilesResult {
     truncated: bool,
 }
 
-/// File prefixes to skip when indexing (e.g., hemis runtime files)
-const IGNORE_FILE_PREFIXES: &[&str] = &["hemis."];
+/// File prefixes to skip when indexing (e.g., mnemos runtime files)
+const IGNORE_FILE_PREFIXES: &[&str] = &["mnemos."];
 
 /// Directories to always skip (in addition to .gitignore patterns)
 const IGNORE_DIRS: &[&str] = &[
@@ -433,7 +433,7 @@ fn list_files(root: &Path) -> anyhow::Result<ListFilesResult> {
             continue;
         }
 
-        // Skip hemis.* runtime files
+        // Skip mnemos.* runtime files
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
             if IGNORE_FILE_PREFIXES.iter().any(|prefix| name.starts_with(prefix)) {
                 continue;

@@ -13,8 +13,8 @@ suite('RPC Client Test Suite', () => {
 
   test('Config should have defaults', () => {
     const config = require('../../src/config');
-    const hemisConfig = config.getConfig();
-    assert.strictEqual(typeof hemisConfig.autoRefresh, 'boolean');
-    assert.strictEqual(typeof hemisConfig.displayStyle, 'string');
+    const mnemosConfig = config.getConfig();
+    assert.strictEqual(typeof mnemosConfig.autoRefresh, 'boolean');
+    assert.strictEqual(typeof mnemosConfig.displayStyle, 'string');
   });
 });

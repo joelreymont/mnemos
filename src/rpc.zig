@@ -295,28 +295,28 @@ const Handler = *const fn (Allocator, ParsedRequest, ?*storage.Database) anyerro
 
 /// Comptime dispatch table for RPC methods
 const dispatch_table = std.StaticStringMap(Handler).initComptime(.{
-    // hemis/* handlers
-    .{ "hemis/status", handleStatus },
-    .{ "hemis/version", handleVersion },
-    .{ "hemis/shutdown", handleShutdown },
-    .{ "hemis/open-project", handleOpenProject },
-    .{ "hemis/search", handleHemisSearch },
-    .{ "hemis/index-project", handleIndexProject },
-    .{ "hemis/project-meta", handleProjectMeta },
-    .{ "hemis/save-snapshot", handleSaveSnapshot },
-    .{ "hemis/load-snapshot", handleLoadSnapshot },
-    .{ "hemis/file-context", handleFileContext },
-    .{ "hemis/explain-region", handleExplainRegion },
-    .{ "hemis/buffer-context", handleBufferContext },
-    .{ "hemis/graph", handleGraph },
-    .{ "hemis/tasks", handleTasks },
-    .{ "hemis/task-status", handleTaskStatus },
-    .{ "hemis/task-list", handleTaskList },
-    .{ "hemis/display-config", handleDisplayConfig },
-    .{ "hemis/note-templates", handleNoteTemplates },
-    .{ "hemis/suggest-tags", handleSuggestTags },
-    .{ "hemis/code-references", handleCodeReferences },
-    .{ "hemis/summarize-file", handleSummarizeFile },
+    // mnemos/* handlers
+    .{ "mnemos/status", handleStatus },
+    .{ "mnemos/version", handleVersion },
+    .{ "mnemos/shutdown", handleShutdown },
+    .{ "mnemos/open-project", handleOpenProject },
+    .{ "mnemos/search", handleMnemosSearch },
+    .{ "mnemos/index-project", handleIndexProject },
+    .{ "mnemos/project-meta", handleProjectMeta },
+    .{ "mnemos/save-snapshot", handleSaveSnapshot },
+    .{ "mnemos/load-snapshot", handleLoadSnapshot },
+    .{ "mnemos/file-context", handleFileContext },
+    .{ "mnemos/explain-region", handleExplainRegion },
+    .{ "mnemos/buffer-context", handleBufferContext },
+    .{ "mnemos/graph", handleGraph },
+    .{ "mnemos/tasks", handleTasks },
+    .{ "mnemos/task-status", handleTaskStatus },
+    .{ "mnemos/task-list", handleTaskList },
+    .{ "mnemos/display-config", handleDisplayConfig },
+    .{ "mnemos/note-templates", handleNoteTemplates },
+    .{ "mnemos/suggest-tags", handleSuggestTags },
+    .{ "mnemos/code-references", handleCodeReferences },
+    .{ "mnemos/summarize-file", handleSummarizeFile },
     // notes/* handlers
     .{ "notes/create", handleNotesCreate },
     .{ "notes/list-project", handleNotesListProject },
@@ -347,8 +347,9 @@ fn handleStatus(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![
     const file_count: i64 = if (db) |d| storage.countFiles(d) catch 0 else 0;
     const proj_display = proj orelse "None";
 
-    const status_display = try std.fmt.allocPrint(alloc,
-        "Hemis Status: OK\nProject: {s}\nNotes: {d}\nFiles: {d}\nEmbeddings: 0",
+    const status_display = try std.fmt.allocPrint(
+        alloc,
+        "Mnemos Status: OK\nProject: {s}\nNotes: {d}\nFiles: {d}\nEmbeddings: 0",
         .{ proj_display, note_count, file_count },
     );
     defer alloc.free(status_display);
@@ -764,7 +765,7 @@ fn handleNotesReattach(alloc: Allocator, req: ParsedRequest, db: ?*storage.Datab
     return try std.fmt.allocPrint(alloc, "{{\"ok\":true,\"id\":\"{s}\"}}", .{id});
 }
 
-// hemis/* handlers
+// mnemos/* handlers
 
 fn handleOpenProject(alloc: Allocator, _: ParsedRequest, _: ?*storage.Database) ![]const u8 {
     return jsonStringify(alloc, .{ .ok = true });
@@ -774,7 +775,7 @@ const SearchResultsResponse = struct {
     results: []const SimpleNoteResponse,
 };
 
-fn handleHemisSearch(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
+fn handleMnemosSearch(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
     const database = db orelse return error.NoDatabaseConnection;
 
     const query = req.getString("query") orelse
@@ -1063,7 +1064,7 @@ fn handleIndexSearch(alloc: Allocator, req: ParsedRequest, db: ?*storage.Databas
 
 fn handleDisplayConfig(alloc: Allocator, _: ParsedRequest, _: ?*storage.Database) ![]const u8 {
     return try std.fmt.allocPrint(alloc,
-        \\{{"colors":{{"note":"#4682B4","noteStale":"#808080","marker":"#4682B4"}},"icons":{{"noteFresh":"📝","noteStale":"📝","noteAi":"🤖"}},"templates":{{"displayLabel":"{{shortId}} {{summary}}","hoverText":"hemis: {{summary}}"}}}}
+        \\{{"colors":{{"note":"#4682B4","noteStale":"#808080","marker":"#4682B4"}},"icons":{{"noteFresh":"📝","noteStale":"📝","noteAi":"🤖"}},"templates":{{"displayLabel":"{{shortId}} {{summary}}","hoverText":"mnemos: {{summary}}"}}}}
     , .{});
 }
 
@@ -1571,7 +1572,7 @@ fn makeErrorJson(alloc: Allocator, id: ?[]const u8, code: i32, message: []const 
 
 test "dispatch status" {
     const alloc = std.testing.allocator;
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/status\"}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/status\"}";
     const resp = dispatch(alloc, req);
     defer alloc.free(resp);
 
@@ -1586,7 +1587,7 @@ test "dispatch with database" {
     defer db.close();
 
     // Status with db returns counts
-    const status_req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/status\"}";
+    const status_req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/status\"}";
     const status_resp = dispatchWithDb(alloc, status_req, &db);
     defer alloc.free(status_resp);
     try std.testing.expect(mem.indexOf(u8, status_resp, "\"notes\":0") != null);
@@ -1657,12 +1658,12 @@ test "extract nested int" {
     try std.testing.expectEqual(@as(i64, 10), offset.?);
 }
 
-test "dispatch hemis project meta" {
+test "dispatch mnemos project meta" {
     const alloc = std.testing.allocator;
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/project-meta\"}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/project-meta\"}";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
@@ -1801,21 +1802,21 @@ test "dispatch notes delete" {
     try std.testing.expect(mem.indexOf(u8, get_resp, "\"error\"") != null);
 }
 
-test "dispatch hemis search" {
+test "dispatch mnemos search" {
     const alloc = std.testing.allocator;
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
     // Create note (using correct param names)
     const create_req =
-        \\{"jsonrpc":"2.0","id":1,"method":"notes/create","params":{"filePath":"/test.zig","content":"hemis search test"}}
+        \\{"jsonrpc":"2.0","id":1,"method":"notes/create","params":{"filePath":"/test.zig","content":"mnemos search test"}}
     ;
     const create_resp = dispatchWithDb(alloc, create_req, &db);
     defer alloc.free(create_resp);
 
-    // Search via hemis/search
+    // Search via mnemos/search
     const search_req =
-        \\{"jsonrpc":"2.0","id":2,"method":"hemis/search","params":{"query":"hemis"}}
+        \\{"jsonrpc":"2.0","id":2,"method":"mnemos/search","params":{"query":"mnemos"}}
     ;
     const search_resp = dispatchWithDb(alloc, search_req, &db);
     defer alloc.free(search_resp);
@@ -1854,7 +1855,7 @@ test "dispatch open-project" {
     const alloc = std.testing.allocator;
 
     const req =
-        \\{"jsonrpc":"2.0","id":1,"method":"hemis/open-project","params":{"path":"/tmp"}}
+        \\{"jsonrpc":"2.0","id":1,"method":"mnemos/open-project","params":{"path":"/tmp"}}
     ;
     const resp = dispatch(alloc, req);
     defer alloc.free(resp);
@@ -1862,10 +1863,10 @@ test "dispatch open-project" {
 }
 
 test "dispatch shutdown handler exists" {
-    // Note: Can't test hemis/shutdown directly as it calls std.process.exit(0)
+    // Note: Can't test mnemos/shutdown directly as it calls std.process.exit(0)
     // Just verify the method string parsing would work
-    const method = "hemis/shutdown";
-    try std.testing.expect(mem.eql(u8, method, "hemis/shutdown"));
+    const method = "mnemos/shutdown";
+    try std.testing.expect(mem.eql(u8, method, "mnemos/shutdown"));
 }
 
 test "dispatch notes backlinks" {
@@ -1934,78 +1935,78 @@ test "dispatch notes buffer-update" {
     try std.testing.expect(mem.indexOf(u8, resp, "\"ok\":true") != null);
 }
 
-test "dispatch hemis index-project" {
+test "dispatch mnemos index-project" {
     const alloc = std.testing.allocator;
 
     const req =
-        \\{"jsonrpc":"2.0","id":1,"method":"hemis/index-project","params":{}}
+        \\{"jsonrpc":"2.0","id":1,"method":"mnemos/index-project","params":{}}
     ;
     const resp = dispatch(alloc, req);
     defer alloc.free(resp);
     try std.testing.expect(mem.indexOf(u8, resp, "\"ok\":true") != null);
 }
 
-test "dispatch hemis graph" {
+test "dispatch mnemos graph" {
     const alloc = std.testing.allocator;
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
     const req =
-        \\{"jsonrpc":"2.0","id":1,"method":"hemis/graph","params":{}}
+        \\{"jsonrpc":"2.0","id":1,"method":"mnemos/graph","params":{}}
     ;
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
     try std.testing.expect(mem.indexOf(u8, resp, "\"nodes\":") != null);
 }
 
-test "dispatch hemis save-snapshot" {
+test "dispatch mnemos save-snapshot" {
     const alloc = std.testing.allocator;
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
     // Use /tmp for test file
     const req =
-        \\{"jsonrpc":"2.0","id":1,"method":"hemis/save-snapshot","params":{"path":"/tmp/hemis-test-snapshot.json"}}
+        \\{"jsonrpc":"2.0","id":1,"method":"mnemos/save-snapshot","params":{"path":"/tmp/mnemos-test-snapshot.json"}}
     ;
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
     try std.testing.expect(mem.indexOf(u8, resp, "\"ok\":true") != null);
 
     // Cleanup
-    std.fs.deleteFileAbsolute("/tmp/hemis-test-snapshot.json") catch {};
+    std.fs.deleteFileAbsolute("/tmp/mnemos-test-snapshot.json") catch {};
 }
 
-test "dispatch hemis file-context" {
+test "dispatch mnemos file-context" {
     const alloc = std.testing.allocator;
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
     const req =
-        \\{"jsonrpc":"2.0","id":1,"method":"hemis/file-context","params":{"file":"/test.zig"}}
+        \\{"jsonrpc":"2.0","id":1,"method":"mnemos/file-context","params":{"file":"/test.zig"}}
     ;
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
     try std.testing.expect(mem.indexOf(u8, resp, "\"file\":") != null);
 }
 
-test "dispatch hemis buffer-context" {
+test "dispatch mnemos buffer-context" {
     const alloc = std.testing.allocator;
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
     const req =
-        \\{"jsonrpc":"2.0","id":1,"method":"hemis/buffer-context","params":{"file":"/test.zig","content":"test"}}
+        \\{"jsonrpc":"2.0","id":1,"method":"mnemos/buffer-context","params":{"file":"/test.zig","content":"test"}}
     ;
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
     try std.testing.expect(mem.indexOf(u8, resp, "\"file\":") != null);
 }
 
-test "dispatch hemis explain-region" {
+test "dispatch mnemos explain-region" {
     const alloc = std.testing.allocator;
 
     const req =
-        \\{"jsonrpc":"2.0","id":1,"method":"hemis/explain-region","params":{"file":"/test.zig","startLine":1,"endLine":10}}
+        \\{"jsonrpc":"2.0","id":1,"method":"mnemos/explain-region","params":{"file":"/test.zig","startLine":1,"endLine":10}}
     ;
     const resp = dispatch(alloc, req);
     defer alloc.free(resp);
@@ -2025,24 +2026,24 @@ test "extract int missing" {
     try std.testing.expect(result == null);
 }
 
-test "dispatch hemis status" {
+test "dispatch mnemos status" {
     const alloc = std.testing.allocator;
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/status\",\"params\":{}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/status\",\"params\":{}}";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
     try std.testing.expect(mem.indexOf(u8, resp, "\"result\"") != null);
 }
 
-test "dispatch hemis list-files" {
+test "dispatch mnemos list-files" {
     const alloc = std.testing.allocator;
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/list-files\",\"params\":{}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/list-files\",\"params\":{}}";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
@@ -2050,12 +2051,12 @@ test "dispatch hemis list-files" {
     try std.testing.expect(mem.indexOf(u8, resp, "\"jsonrpc\"") != null);
 }
 
-test "dispatch hemis get-file" {
+test "dispatch mnemos get-file" {
     const alloc = std.testing.allocator;
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/get-file\",\"params\":{\"path\":\"/test.zig\"}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/get-file\",\"params\":{\"path\":\"/test.zig\"}}";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
@@ -2128,7 +2129,7 @@ test "dispatch project meta" {
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/project-meta\",\"params\":{}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/project-meta\",\"params\":{}}";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
@@ -2171,7 +2172,7 @@ test "dispatch load-snapshot" {
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/load-snapshot\",\"params\":{\"path\":\"/nonexistent/snapshot.json\"}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/load-snapshot\",\"params\":{\"path\":\"/nonexistent/snapshot.json\"}}";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
@@ -2285,30 +2286,30 @@ test "search empty query" {
     try std.testing.expect(mem.indexOf(u8, resp, "\"result\"") != null);
 }
 
-test "hemis search empty query" {
+test "mnemos search empty query" {
     const alloc = std.testing.allocator;
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/search\",\"params\":{\"query\":\"\"}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/search\",\"params\":{\"query\":\"\"}}";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
     try std.testing.expect(mem.indexOf(u8, resp, "\"result\"") != null);
 }
 
-test "dispatch hemis tasks" {
+test "dispatch mnemos tasks" {
     const alloc = std.testing.allocator;
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/tasks\",\"params\":{}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/tasks\",\"params\":{}}";
     const resp = dispatch(alloc, req);
     defer alloc.free(resp);
 
     try std.testing.expect(mem.indexOf(u8, resp, "\"tasks\"") != null);
 }
 
-test "dispatch hemis task-status" {
+test "dispatch mnemos task-status" {
     const alloc = std.testing.allocator;
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/task-status\",\"params\":{\"taskId\":\"task-123\"}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/task-status\",\"params\":{\"taskId\":\"task-123\"}}";
     const resp = dispatch(alloc, req);
     defer alloc.free(resp);
 
@@ -2316,9 +2317,9 @@ test "dispatch hemis task-status" {
     try std.testing.expect(mem.indexOf(u8, resp, "task-123") != null);
 }
 
-test "dispatch hemis task-list" {
+test "dispatch mnemos task-list" {
     const alloc = std.testing.allocator;
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/task-list\",\"params\":{}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/task-list\",\"params\":{}}";
     const resp = dispatch(alloc, req);
     defer alloc.free(resp);
 
@@ -2327,7 +2328,7 @@ test "dispatch hemis task-list" {
 
 test "dispatch task-status missing taskId" {
     const alloc = std.testing.allocator;
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/task-status\",\"params\":{}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/task-status\",\"params\":{}}";
     const resp = dispatch(alloc, req);
     defer alloc.free(resp);
 
@@ -2418,12 +2419,12 @@ test "dispatch notes list-for-file missing file" {
     try std.testing.expect(mem.indexOf(u8, resp, "\"error\"") != null);
 }
 
-test "dispatch hemis search missing query" {
+test "dispatch mnemos search missing query" {
     const alloc = std.testing.allocator;
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/search\",\"params\":{}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/search\",\"params\":{}}";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
@@ -2435,7 +2436,7 @@ test "dispatch file-context missing file" {
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/file-context\",\"params\":{}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/file-context\",\"params\":{}}";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
@@ -2447,7 +2448,7 @@ test "dispatch buffer-context missing file" {
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/buffer-context\",\"params\":{}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/buffer-context\",\"params\":{}}";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
@@ -2456,7 +2457,7 @@ test "dispatch buffer-context missing file" {
 
 test "dispatch explain-region missing file" {
     const alloc = std.testing.allocator;
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/explain-region\",\"params\":{}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/explain-region\",\"params\":{}}";
     const resp = dispatch(alloc, req);
     defer alloc.free(resp);
 
@@ -2468,7 +2469,7 @@ test "dispatch save-snapshot missing path" {
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/save-snapshot\",\"params\":{}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/save-snapshot\",\"params\":{}}";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
@@ -2480,7 +2481,7 @@ test "dispatch load-snapshot missing path" {
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/load-snapshot\",\"params\":{}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/load-snapshot\",\"params\":{}}";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
@@ -2672,7 +2673,7 @@ test "malformed json missing closing brace" {
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/status\"";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/status\"";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
@@ -2685,7 +2686,7 @@ test "malformed json null value" {
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":null,\"method\":\"hemis/status\"}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":null,\"method\":\"mnemos/status\"}";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
@@ -2853,7 +2854,7 @@ test "response includes jsonrpc version" {
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/status\"}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/status\"}";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
@@ -2865,7 +2866,7 @@ test "response includes request id" {
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"hemis/status\"}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"mnemos/status\"}";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
@@ -2877,7 +2878,7 @@ test "response with string id preserves id" {
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":\"req-123\",\"method\":\"hemis/status\"}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":\"req-123\",\"method\":\"mnemos/status\"}";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
@@ -2934,9 +2935,9 @@ test "file path with spaces" {
 // New Handler Tests
 // ============================================================================
 
-test "dispatch hemis display-config" {
+test "dispatch mnemos display-config" {
     const alloc = std.testing.allocator;
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/display-config\",\"params\":{}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/display-config\",\"params\":{}}";
     const resp = dispatch(alloc, req);
     defer alloc.free(resp);
 
@@ -2944,9 +2945,9 @@ test "dispatch hemis display-config" {
     try std.testing.expect(mem.indexOf(u8, resp, "\"icons\"") != null);
 }
 
-test "dispatch hemis note-templates" {
+test "dispatch mnemos note-templates" {
     const alloc = std.testing.allocator;
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/note-templates\",\"params\":{}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/note-templates\",\"params\":{}}";
     const resp = dispatch(alloc, req);
     defer alloc.free(resp);
 
@@ -2954,9 +2955,9 @@ test "dispatch hemis note-templates" {
     try std.testing.expect(mem.indexOf(u8, resp, "\"bug\"") != null);
 }
 
-test "dispatch hemis suggest-tags zig file" {
+test "dispatch mnemos suggest-tags zig file" {
     const alloc = std.testing.allocator;
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/suggest-tags\",\"params\":{\"file\":\"/src/main.zig\"}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/suggest-tags\",\"params\":{\"file\":\"/src/main.zig\"}}";
     const resp = dispatch(alloc, req);
     defer alloc.free(resp);
 
@@ -2964,27 +2965,27 @@ test "dispatch hemis suggest-tags zig file" {
     try std.testing.expect(mem.indexOf(u8, resp, "\"zig\"") != null);
 }
 
-test "dispatch hemis suggest-tags rust file" {
+test "dispatch mnemos suggest-tags rust file" {
     const alloc = std.testing.allocator;
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/suggest-tags\",\"params\":{\"file\":\"/src/lib.rs\"}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/suggest-tags\",\"params\":{\"file\":\"/src/lib.rs\"}}";
     const resp = dispatch(alloc, req);
     defer alloc.free(resp);
 
     try std.testing.expect(mem.indexOf(u8, resp, "\"rust\"") != null);
 }
 
-test "dispatch hemis suggest-tags test file" {
+test "dispatch mnemos suggest-tags test file" {
     const alloc = std.testing.allocator;
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/suggest-tags\",\"params\":{\"file\":\"/src/test_main.zig\"}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/suggest-tags\",\"params\":{\"file\":\"/src/test_main.zig\"}}";
     const resp = dispatch(alloc, req);
     defer alloc.free(resp);
 
     try std.testing.expect(mem.indexOf(u8, resp, "\"test\"") != null);
 }
 
-test "dispatch hemis code-references" {
+test "dispatch mnemos code-references" {
     const alloc = std.testing.allocator;
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/code-references\",\"params\":{\"file\":\"/test.zig\",\"line\":10}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/code-references\",\"params\":{\"file\":\"/test.zig\",\"line\":10}}";
     const resp = dispatch(alloc, req);
     defer alloc.free(resp);
 
@@ -2992,12 +2993,12 @@ test "dispatch hemis code-references" {
     try std.testing.expect(mem.indexOf(u8, resp, "\"anchor\"") != null);
 }
 
-test "dispatch hemis summarize-file" {
+test "dispatch mnemos summarize-file" {
     const alloc = std.testing.allocator;
     var db = try storage.Database.open(alloc, ":memory:");
     defer db.close();
 
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"hemis/summarize-file\",\"params\":{\"file\":\"/test.zig\"}}";
+    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/summarize-file\",\"params\":{\"file\":\"/test.zig\"}}";
     const resp = dispatchWithDb(alloc, req, &db);
     defer alloc.free(resp);
 
@@ -3069,9 +3070,9 @@ test "dispatch notes explain-and-create" {
 
 test "dispatch table has all methods" {
     // Verify dispatch table is populated
-    try std.testing.expect(dispatch_table.get("hemis/status") != null);
-    try std.testing.expect(dispatch_table.get("hemis/version") != null);
-    try std.testing.expect(dispatch_table.get("hemis/display-config") != null);
+    try std.testing.expect(dispatch_table.get("mnemos/status") != null);
+    try std.testing.expect(dispatch_table.get("mnemos/version") != null);
+    try std.testing.expect(dispatch_table.get("mnemos/display-config") != null);
     try std.testing.expect(dispatch_table.get("notes/create") != null);
     try std.testing.expect(dispatch_table.get("notes/history") != null);
     try std.testing.expect(dispatch_table.get("index/search") != null);

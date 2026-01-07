@@ -954,7 +954,7 @@ test "languageForFile extracts extension and maps" {
 
     try testing.expectEqualStrings("rust", languageForFile("/path/to/main.rs").?);
     try testing.expectEqualStrings("python", languageForFile("script.py").?);
-    try testing.expectEqualStrings("zig", languageForFile("/Users/joel/Work/hemis/src/rpc.zig").?);
+    try testing.expectEqualStrings("zig", languageForFile("/Users/joel/Work/mnemos/src/rpc.zig").?);
 }
 
 test "languageForFile returns null for no extension" {

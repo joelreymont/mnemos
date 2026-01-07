@@ -1,20 +1,20 @@
-# Hemis Demo Script
+# Mnemos Demo Script
 
-A walkthrough for screen recording the Hemis note-taking system across Emacs, Neovim, and VS Code.
+A walkthrough for screen recording the Mnemos note-taking system across Emacs, Neovim, and VS Code.
 
 ## Setup (Before Recording)
 
 ```bash
 # Build the backend
-cd ~/Work/hemis
+cd ~/Work/mnemos
 cargo build --release
 
 # Clean slate - remove old database
-rm -f ~/.hemis/hemis-notes.db
+rm -f ~/.mnemos/mnemos-notes.db
 
 # Prepare a demo project
-mkdir -p /tmp/hemis-demo
-cat > /tmp/hemis-demo/app.rs << 'EOF'
+mkdir -p /tmp/mnemos-demo
+cat > /tmp/mnemos-demo/app.rs << 'EOF'
 fn main() {
     let config = load_config();
     let server = Server::new(config);
@@ -50,7 +50,7 @@ impl Default for Config {
 }
 EOF
 
-cat > /tmp/hemis-demo/utils.rs << 'EOF'
+cat > /tmp/mnemos-demo/utils.rs << 'EOF'
 pub fn format_port(port: u16) -> String {
     format!(":{}", port)
 }
@@ -60,7 +60,7 @@ pub fn validate_port(port: u16) -> bool {
 }
 EOF
 
-cd /tmp/hemis-demo
+cd /tmp/mnemos-demo
 git init && git add . && git commit -m "Initial"
 ```
 
@@ -68,31 +68,31 @@ git init && git add . && git commit -m "Initial"
 
 ## Part 1: Emacs Demo (~5 min)
 
-### 1.1 Start Hemis & Help
+### 1.1 Start Mnemos & Help
 ```
 Open Emacs
-M-x hemis-start
-→ Shows "Hemis: connected to backend"
+M-x mnemos-start
+→ Shows "Mnemos: connected to backend"
 
-M-x hemis-help
+M-x mnemos-help
 → Shows available keybindings and commands
 ```
 
 ### 1.2 Open Demo File
 ```
-C-x C-f /tmp/hemis-demo/app.rs
+C-x C-f /tmp/mnemos-demo/app.rs
 ```
 
 ### 1.3 Index the Project
 ```
-M-x hemis-index-project
+M-x mnemos-index-project
 → Shows "Project indexed: 2 files"
 ```
 
 ### 1.4 Create First Note
 ```
 Move cursor to line 4 (server.start())
-C-c h n (hemis-add-note)
+C-c h n (mnemos-add-note)
 → Type: "TODO: Add graceful shutdown handling"
 → C-c C-c to save
 → Shows "Note created"
@@ -124,7 +124,7 @@ C-c h n
 
 ### 1.7 View Notes List
 ```
-C-c h l (hemis-list-notes)
+C-c h l (mnemos-list-notes)
 → Shows buffer with all notes
 → j/k or n/p to navigate
 → Press RET to jump to note location
@@ -134,20 +134,20 @@ C-c h l (hemis-list-notes)
 ### 1.8 View Note Details
 ```
 Move to a note in the list
-Press v (hemis-view-note)
+Press v (mnemos-view-note)
 → Opens note in markdown mode with full text
 ```
 
 ### 1.9 Show Backlinks
 ```
 In notes list, cursor on "shutdown" note
-Press b (hemis-show-backlinks)
+Press b (mnemos-show-backlinks)
 → Shows the Server::new note that links to it
 ```
 
 ### 1.10 Search Notes & Files
 ```
-M-x hemis-search-project
+M-x mnemos-search-project
 → Type: "config"
 → Shows matching notes AND indexed file content
 → Press RET to visit result
@@ -156,38 +156,38 @@ M-x hemis-search-project
 ### 1.11 Explain Region (LLM Hook)
 ```
 Select lines 12-16 (Server struct)
-M-x hemis-explain-region
+M-x mnemos-explain-region
 → Returns code snippet ready for LLM context
 ```
 
 ### 1.12 Save/Load Snapshot
 ```
-M-x hemis-save-snapshot
-→ Enter path: /tmp/hemis-backup.json
+M-x mnemos-save-snapshot
+→ Enter path: /tmp/mnemos-backup.json
 → Saves all notes, files, embeddings
 
-M-x hemis-load-snapshot
+M-x mnemos-load-snapshot
 → Select file
 → Restores database state
 ```
 
 ### 1.14 Edit a Note
 ```
-C-c h e (hemis-edit-note-at-point)
+C-c h e (mnemos-edit-note-at-point)
 → Modify text in buffer
 → C-c C-c to save
 ```
 
 ### 1.15 Delete a Note
 ```
-C-c h d (hemis-delete-note-at-point)
+C-c h d (mnemos-delete-note-at-point)
 → Confirms deletion
 → Note removed
 ```
 
 ### 1.16 Check Status
 ```
-C-c h S (hemis-status)
+C-c h S (mnemos-status)
 → Shows: "3 notes, 2 files, 0 embeddings"
 ```
 
@@ -197,21 +197,21 @@ C-c h S (hemis-status)
 
 ### 2.1 Open File & Help
 ```
-nvim /tmp/hemis-demo/app.rs
+nvim /tmp/mnemos-demo/app.rs
 
-:Hemis help
+:Mnemos help
 → Shows all available commands
 ```
 
 ### 2.2 Verify Connection & Status
 ```
-:Hemis status
+:Mnemos status
 → Shows note/file counts from shared database
 ```
 
 ### 2.3 Refresh to See Existing Notes
 ```
-:Hemis refresh
+:Mnemos refresh
 → Overlays appear for notes created in Emacs
 → (Demonstrates shared database)
 ```
@@ -219,7 +219,7 @@ nvim /tmp/hemis-demo/app.rs
 ### 2.4 Create a Simple Note
 ```
 Move to line 28 (Config struct)
-:Hemis add
+:Mnemos add
 → Type: "Add validation constraints"
 → Press Enter
 ```
@@ -227,7 +227,7 @@ Move to line 28 (Config struct)
 ### 2.5 Create Multiline Note
 ```
 Move to line 32 (port field)
-:Hemis add_multiline
+:Mnemos add_multiline
 → Opens buffer for longer note
 → Type multiple lines:
   "Port configuration:
@@ -239,7 +239,7 @@ Move to line 32 (port field)
 
 ### 2.6 List Notes with Navigation
 ```
-:Hemis list
+:Mnemos list
 → Opens floating window with notes
 → j/k to navigate
 → Press Enter to jump to note
@@ -249,7 +249,7 @@ Move to line 32 (port field)
 ### 2.7 Insert Link to Another Note
 ```
 Move to a new line
-:Hemis insert_link
+:Mnemos insert_link
 → Search for "shutdown"
 → Select note
 → Inserts [[description][id]] format
@@ -258,25 +258,25 @@ Move to a new line
 ### 2.8 Show Backlinks
 ```
 Move to line with linked note
-:Hemis backlinks
+:Mnemos backlinks
 → Shows notes that reference this one
 ```
 
 ### 2.9 Index Current File
 ```
-:Hemis index_file
+:Mnemos index_file
 → Indexes current buffer for search
 ```
 
 ### 2.10 Index Entire Project
 ```
-:Hemis index_project
+:Mnemos index_project
 → Indexes all files in project root
 ```
 
 ### 2.11 Search
 ```
-:Hemis search config
+:Mnemos search config
 → Shows matching notes and file content
 → Select to jump to location
 ```
@@ -284,14 +284,14 @@ Move to line with linked note
 ### 2.12 Edit Note
 ```
 Move cursor to note line
-:Hemis edit
+:Mnemos edit
 → Modify text
 → Save
 ```
 
 ### 2.13 Delete Note
 ```
-:Hemis delete
+:Mnemos delete
 → Confirms deletion
 → Note removed
 ```
@@ -299,17 +299,17 @@ Move cursor to note line
 ### 2.14 Explain Region (LLM Hook)
 ```
 Select lines 12-16 (Server struct) in visual mode
-:HemisExplainRegion
+:MnemosExplainRegion
 → Copies snippet to clipboard (LLM-ready)
 ```
 
 ### 2.16 Save/Load Snapshot
 ```
-:HemisSaveSnapshot
-→ Enter path: /tmp/hemis-backup.json
+:MnemosSaveSnapshot
+→ Enter path: /tmp/mnemos-backup.json
 → Saves all notes, files, embeddings
 
-:HemisLoadSnapshot
+:MnemosLoadSnapshot
 → Enter path
 → Confirms replacement
 → Restores database state
@@ -317,7 +317,7 @@ Select lines 12-16 (Server struct) in visual mode
 
 ### 2.17 Shutdown Backend
 ```
-:HemisShutdown
+:MnemosShutdown
 → Cleanly stops the backend process
 ```
 
@@ -327,12 +327,12 @@ Select lines 12-16 (Server struct) in visual mode
 
 ### 3.1 Open Folder
 ```
-File → Open Folder → /tmp/hemis-demo
+File → Open Folder → /tmp/mnemos-demo
 ```
 
 ### 3.2 Check Status
 ```
-Cmd+Shift+P → "Hemis: Status"
+Cmd+Shift+P → "Mnemos: Status"
 → Shows note/file/embedding counts
 ```
 
@@ -344,21 +344,21 @@ Open app.rs
 
 ### 3.4 Refresh Notes
 ```
-Cmd+Shift+P → "Hemis: Refresh Notes"
+Cmd+Shift+P → "Mnemos: Refresh Notes"
 → Updates decorations from database
 ```
 
 ### 3.5 Add Note
 ```
 Click on line 35 (Default impl)
-Cmd+Shift+P → "Hemis: Add Note"
+Cmd+Shift+P → "Mnemos: Add Note"
 → Type: "Consider using builder pattern"
 → Press Enter
 ```
 
 ### 3.6 List Notes in File
 ```
-Cmd+Shift+P → "Hemis: List Notes"
+Cmd+Shift+P → "Mnemos: List Notes"
 → QuickPick shows all notes with line numbers
 → Select to jump to location
 ```
@@ -366,7 +366,7 @@ Cmd+Shift+P → "Hemis: List Notes"
 ### 3.7 Edit Note
 ```
 Place cursor on note line
-Cmd+Shift+P → "Hemis: Edit Note"
+Cmd+Shift+P → "Mnemos: Edit Note"
 → Shows input with current text
 → Modify and press Enter
 ```
@@ -374,27 +374,27 @@ Cmd+Shift+P → "Hemis: Edit Note"
 ### 3.8 Delete Note
 ```
 Place cursor on note line
-Cmd+Shift+P → "Hemis: Delete Note"
+Cmd+Shift+P → "Mnemos: Delete Note"
 → Confirmation dialog
 → Confirm to remove
 ```
 
 ### 3.9 Index Current File
 ```
-Cmd+Shift+P → "Hemis: Index File"
+Cmd+Shift+P → "Mnemos: Index File"
 → Indexes for search
 ```
 
 ### 3.10 Index Project
 ```
-Cmd+Shift+P → "Hemis: Index Project"
+Cmd+Shift+P → "Mnemos: Index Project"
 → Shows progress
 → "Indexed X files"
 ```
 
 ### 3.11 Search Notes & Files
 ```
-Cmd+Shift+P → "Hemis: Search"
+Cmd+Shift+P → "Mnemos: Search"
 → Type: "port"
 → Shows [Note] and [File] results with scores
 → Select to open location
@@ -402,7 +402,7 @@ Cmd+Shift+P → "Hemis: Search"
 
 ### 3.12 Insert Link to Note
 ```
-Cmd+Shift+P → "Hemis: Insert Link"
+Cmd+Shift+P → "Mnemos: Insert Link"
 → Search for existing note
 → Inserts [[description][id]] at cursor
 ```
@@ -410,7 +410,7 @@ Cmd+Shift+P → "Hemis: Insert Link"
 ### 3.13 View Note Details
 ```
 Place cursor on note line
-Cmd+Shift+P → "Hemis: View Note" (or Cmd+Shift+H V)
+Cmd+Shift+P → "Mnemos: View Note" (or Cmd+Shift+H V)
 → Opens note in markdown preview
 → Shows file, timestamps, stale status, full text
 ```
@@ -418,14 +418,14 @@ Cmd+Shift+P → "Hemis: View Note" (or Cmd+Shift+H V)
 ### 3.14 Show Backlinks
 ```
 Place cursor on note line
-Cmd+Shift+P → "Hemis: Show Backlinks" (or Cmd+Shift+H B)
+Cmd+Shift+P → "Mnemos: Show Backlinks" (or Cmd+Shift+H B)
 → Lists notes that link to this note
 → Select to jump to linking note
 ```
 
 ### 3.15 Browse Project Files
 ```
-Cmd+Shift+P → "Hemis: List Project Files"
+Cmd+Shift+P → "Mnemos: List Project Files"
 → Shows all files in project with sizes
 → Select to open file
 ```
@@ -433,17 +433,17 @@ Cmd+Shift+P → "Hemis: List Project Files"
 ### 3.16 Explain Region (LLM Hook)
 ```
 Select lines 12-16 (Server struct)
-Cmd+Shift+P → "Hemis: Explain Region" (or Cmd+Shift+H X)
+Cmd+Shift+P → "Mnemos: Explain Region" (or Cmd+Shift+H X)
 → Copies code snippet to clipboard (LLM-ready format)
 ```
 
 ### 3.17 Save/Load Snapshot
 ```
-Cmd+Shift+P → "Hemis: Save Snapshot"
+Cmd+Shift+P → "Mnemos: Save Snapshot"
 → Choose save location
 → "Snapshot saved: X notes, Y files"
 
-Cmd+Shift+P → "Hemis: Load Snapshot"
+Cmd+Shift+P → "Mnemos: Load Snapshot"
 → Select snapshot file
 → Confirms replacement
 → Restores database state
@@ -451,13 +451,13 @@ Cmd+Shift+P → "Hemis: Load Snapshot"
 
 ### 3.18 Show Help
 ```
-Cmd+Shift+P → "Hemis: Help"
+Cmd+Shift+P → "Mnemos: Help"
 → Opens markdown with all commands and keybindings
 ```
 
 ### 3.19 Shutdown Backend
 ```
-Cmd+Shift+P → "Hemis: Shutdown Backend"
+Cmd+Shift+P → "Mnemos: Shutdown Backend"
 → Cleanly stops the backend process
 ```
 
@@ -467,14 +467,14 @@ Cmd+Shift+P → "Hemis: Shutdown Backend"
 
 ### 4.1 Show Database Location
 ```bash
-ls -la ~/.hemis/hemis-notes.db
-sqlite3 ~/.hemis/hemis-notes.db "SELECT COUNT(*) FROM notes;"
+ls -la ~/.mnemos/mnemos-notes.db
+sqlite3 ~/.mnemos/mnemos-notes.db "SELECT COUNT(*) FROM notes;"
 ```
 
 ### 4.2 Demonstrate Real-Time Sync
 ```
 1. In Emacs: Create note "Cross-editor sync test"
-2. In Neovim: :Hemis refresh → Note appears instantly
+2. In Neovim: :Mnemos refresh → Note appears instantly
 3. In VS Code: Refresh → Note appears
 → All editors share the same database!
 ```

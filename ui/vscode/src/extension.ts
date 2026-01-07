@@ -38,7 +38,7 @@ function pathsMatch(editorPath: string, eventPath: string): boolean {
 let notesProvider: NotesTreeDataProvider | null = null;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  console.log('Hemis extension activating...');
+  console.log('Mnemos extension activating...');
   debug('Extension activating');
 
   // Register commands
@@ -47,7 +47,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Register tree view
   notesProvider = new NotesTreeDataProvider();
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider('hemisNotes', notesProvider)
+    vscode.window.registerTreeDataProvider('mnemosNotes', notesProvider)
   );
 
   // Start backend
@@ -55,9 +55,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const started = await client.start();
 
   if (started) {
-    console.log('Hemis backend started successfully');
+    console.log('Mnemos backend started successfully');
   } else {
-    console.log('Hemis backend failed to start - commands will try to start it on demand');
+    console.log('Mnemos backend failed to start - commands will try to start it on demand');
   }
 
   // Start event client for push notifications
@@ -124,7 +124,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Configuration change handler
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('hemis')) {
+      if (e.affectsConfiguration('mnemos')) {
         // Restart backend if config changed
         disposeRpcClient();
         getRpcClient().start();
@@ -133,17 +133,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
-  console.log('Hemis extension activated');
+  console.log('Mnemos extension activated');
 }
 
 export function deactivate(): void {
-  console.log('Hemis extension deactivating...');
+  console.log('Mnemos extension deactivating...');
   debug('Extension deactivating');
   disposeEventClient();
   disposeRpcClient();
   disposeDecorations();
   disposeDebug();
-  console.log('Hemis extension deactivated');
+  console.log('Mnemos extension deactivated');
 }
 
 // Helper to refresh decorations for a specific file

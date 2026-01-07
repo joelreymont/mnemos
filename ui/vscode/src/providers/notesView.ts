@@ -56,7 +56,7 @@ export class NoteItem extends vscode.TreeItem {
 
     // Click to jump to note
     this.command = {
-      command: 'hemis.jumpToNote',
+      command: 'mnemos.jumpToNote',
       title: 'Jump to Note',
       arguments: [note],
     };

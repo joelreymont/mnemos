@@ -4,7 +4,7 @@ use storage::connect;
 #[test]
 fn embedder_falls_back_on_error() {
     let db = tempfile::NamedTempFile::new().unwrap();
-    std::env::set_var("HEMIS_EMBED_URL", "http://127.0.0.1:9"); // unroutable -> fails fast
+    std::env::set_var("MNEMOS_EMBED_URL", "http://127.0.0.1:9"); // unroutable -> fails fast
     let conn = connect(db.path().to_str().unwrap()).unwrap();
     let content = "fn main() {}\n";
     // Should not panic; should store derived vector.
@@ -17,5 +17,5 @@ fn embedder_falls_back_on_error() {
         .unwrap();
     let vec: Vec<f32> = serde_json::from_str(&vec_str).unwrap();
     assert_eq!(vec.len(), 2, "fallback vector should have two dimensions");
-    std::env::remove_var("HEMIS_EMBED_URL");
+    std::env::remove_var("MNEMOS_EMBED_URL");
 }

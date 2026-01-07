@@ -1,7 +1,7 @@
-//! Event broadcasting system for hemis.
+//! Event broadcasting system for mnemos.
 //!
 //! Provides a push-based notification mechanism via a Unix socket.
-//! Clients connect to ~/.hemis/events.sock and receive JSON-lines events.
+//! Clients connect to ~/.mnemos/events.sock and receive JSON-lines events.
 
 use log::{debug, error, info, warn};
 use serde::Serialize;

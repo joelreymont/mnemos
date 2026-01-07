@@ -70,10 +70,10 @@ fn old_schema_migrates_and_works() {
     create_old_schema_db(db_path);
 
     // Send status request
-    let req = format_request(r#"{"jsonrpc":"2.0","id":1,"method":"hemis/status","params":{}}"#);
+    let req = format_request(r#"{"jsonrpc":"2.0","id":1,"method":"mnemos/status","params":{}}"#);
 
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db_path)
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db_path)
         .write_stdin(req)
         .assert()
         .success();
@@ -129,8 +129,8 @@ fn old_data_preserved_after_migration() {
     // Get the old note
     let req = format_request(r#"{"jsonrpc":"2.0","id":1,"method":"notes/get","params":{"id":"note-123"}}"#);
 
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db_path)
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db_path)
         .write_stdin(req)
         .assert()
         .success();
@@ -154,11 +154,11 @@ fn future_schema_fails_with_clear_error() {
     // Create database with future schema version
     create_future_schema_db(db_path);
 
-    // Try to use hemis - should fail immediately
-    let req = format_request(r#"{"jsonrpc":"2.0","id":1,"method":"hemis/status","params":{}}"#);
+    // Try to use mnemos - should fail immediately
+    let req = format_request(r#"{"jsonrpc":"2.0","id":1,"method":"mnemos/status","params":{}}"#);
 
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db_path)
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db_path)
         .write_stdin(req)
         .assert()
         .failure();
@@ -213,13 +213,13 @@ fn index_project_works_after_migration() {
 
     // Index the project - this uses content_hash internally
     let request = format!(
-        r#"{{"jsonrpc":"2.0","id":1,"method":"hemis/index-project","params":{{"file":"{}"}}}}"#,
+        r#"{{"jsonrpc":"2.0","id":1,"method":"mnemos/index-project","params":{{"file":"{}"}}}}"#,
         test_file.to_str().unwrap()
     );
     let req = format_request(&request);
 
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db_path)
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db_path)
         .write_stdin(req)
         .assert()
         .success();

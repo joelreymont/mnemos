@@ -1,4 +1,4 @@
-//! Tree-sitter integration for Hemis
+//! Tree-sitter integration for Mnemos
 //!
 //! Provides server-side parsing and node tracking for code annotation positioning.
 //! Supports bundled grammars (compiled in) and user-installed grammars (loaded from disk).

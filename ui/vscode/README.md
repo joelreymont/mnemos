@@ -1,4 +1,4 @@
-# Hemis VS Code Extension
+# Mnemos VS Code Extension
 
 A second brain for your code - attach persistent notes to AST nodes.
 
@@ -13,27 +13,27 @@ A second brain for your code - attach persistent notes to AST nodes.
 ## Requirements
 
 - VS Code 1.80+
-- Hemis backend binary
+- Mnemos backend binary
 
 ## Installation
 
 1. Build the backend:
    ```bash
-   cd /path/to/hemis
+   cd /path/to/mnemos
    cargo build --release
    ```
 
 2. Configure the extension in VS Code settings:
    ```json
    {
-     "hemis.backend": "/path/to/hemis/target/release/hemis"
+     "mnemos.backend": "/path/to/mnemos/target/release/mnemos"
    }
    ```
 
-   The database defaults to `~/.hemis/hemis.db`. Override with:
+   The database defaults to `~/.mnemos/mnemos.db`. Override with:
    ```json
    {
-     "hemis.databasePath": "/path/to/custom.db"
+     "mnemos.databasePath": "/path/to/custom.db"
    }
    ```
 
@@ -53,16 +53,16 @@ A second brain for your code - attach persistent notes to AST nodes.
 
 ## Commands
 
-- `Hemis: Add Note` - Add a note at the cursor position
-- `Hemis: Delete Note` - Delete the note at cursor
-- `Hemis: Edit Note` - Edit the note at cursor
-- `Hemis: Refresh Notes` - Refresh note decorations
-- `Hemis: List Notes` - Show notes for current file
-- `Hemis: Search` - Search notes and indexed files
-- `Hemis: Index Current File` - Index current file for search
-- `Hemis: Index Project` - Index all project files
-- `Hemis: Insert Note Link` - Insert a link to another note
-- `Hemis: Show Status` - Display backend status
+- `Mnemos: Add Note` - Add a note at the cursor position
+- `Mnemos: Delete Note` - Delete the note at cursor
+- `Mnemos: Edit Note` - Edit the note at cursor
+- `Mnemos: Refresh Notes` - Refresh note decorations
+- `Mnemos: List Notes` - Show notes for current file
+- `Mnemos: Search` - Search notes and indexed files
+- `Mnemos: Index Current File` - Index current file for search
+- `Mnemos: Index Project` - Index all project files
+- `Mnemos: Insert Note Link` - Insert a link to another note
+- `Mnemos: Show Status` - Display backend status
 
 ## Development
 
@@ -82,4 +82,4 @@ npm test
 
 ## Multi-Editor Support
 
-This extension shares its database with the Emacs and Neovim Hemis clients. Notes created in one editor appear in the others after refresh.
+This extension shares its database with the Emacs and Neovim Mnemos clients. Notes created in one editor appear in the others after refresh.

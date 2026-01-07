@@ -1,14 +1,14 @@
--- Integration tests for Hemis Neovim plugin
+-- Integration tests for Mnemos Neovim plugin
 -- Tests all features through actual backend interaction
--- Run with backend: nvim --headless -c "let g:hemis_test_backend='/path/to/hemis'" -c "set rtp+=." -c "lua require('tests.run')"
+-- Run with backend: nvim --headless -c "let g:mnemos_test_backend='/path/to/mnemos'" -c "set rtp+=." -c "lua require('tests.run')"
 
 local helpers = require("tests.helpers")
 
 -- Skip all backend tests if no backend configured
-if not vim.g.hemis_test_backend then
-  describe("hemis integration (SKIPPED - no backend)", function()
-    it("requires g:hemis_test_backend to be set", function()
-      pending("Set g:hemis_test_backend to run integration tests")
+if not vim.g.mnemos_test_backend then
+  describe("mnemos integration (SKIPPED - no backend)", function()
+    it("requires g:mnemos_test_backend to be set", function()
+      pending("Set g:mnemos_test_backend to run integration tests")
     end)
   end)
   return
@@ -16,7 +16,7 @@ end
 
 -- Helper to get test environment (called inside each test)
 local function get_test_env()
-  local test_dir = vim.fn.tempname() .. "_hemis_int_" .. math.random(10000)
+  local test_dir = vim.fn.tempname() .. "_mnemos_int_" .. math.random(10000)
   local test_file = test_dir .. "/test.rs"
   vim.fn.mkdir(test_dir, "p")
   local f = io.open(test_file, "w")
@@ -26,13 +26,13 @@ local function get_test_env()
   end
 
   -- Stop any existing RPC connection before reconfiguring
-  local rpc = require("hemis.rpc")
+  local rpc = require("mnemos.rpc")
   rpc.stop()
 
-  local config = require("hemis.config")
+  local config = require("mnemos.config")
   config.setup({
-    backend = vim.g.hemis_test_backend,
-    hemis_dir = test_dir,
+    backend = vim.g.mnemos_test_backend,
+    mnemos_dir = test_dir,
     auto_refresh = false,
     keymaps = false,
   })
@@ -45,14 +45,14 @@ local function get_test_env()
       -- Stop the RPC connection first
       rpc.stop()
       -- Remove any lock file
-      os.remove(test_dir .. "/hemis.lock")
+      os.remove(test_dir .. "/mnemos.lock")
       -- Delete the test directory
       vim.fn.delete(test_dir, "rf")
     end,
   }
 end
 
-describe("hemis integration", function()
+describe("mnemos integration", function()
   after_each(function()
     helpers.cleanup()
   end)
@@ -498,7 +498,7 @@ describe("hemis integration", function()
     end)
   end)
 
-  describe("hemis/status", function()
+  describe("mnemos/status", function()
     it("returns note and file counts", function()
       local env = get_test_env()
       local done = false
@@ -512,7 +512,7 @@ describe("hemis integration", function()
         end
         connect_ok = true
 
-        env.rpc.request("hemis/status", { projectRoot = env.dir }, function(err, res)
+        env.rpc.request("mnemos/status", { projectRoot = env.dir }, function(err, res)
           status = res
           done = true
         end)
@@ -526,7 +526,7 @@ describe("hemis integration", function()
     end)
   end)
 
-  describe("hemis/save-snapshot and load-snapshot", function()
+  describe("mnemos/save-snapshot and load-snapshot", function()
     it("saves and loads snapshots", function()
       local env = get_test_env()
       local done = false
@@ -551,13 +551,13 @@ describe("hemis integration", function()
           projectRoot = env.dir,
         }, function(err, res)
           -- Save snapshot
-          env.rpc.request("hemis/save-snapshot", {
+          env.rpc.request("mnemos/save-snapshot", {
             path = snapshot_path,
             projectRoot = env.dir,
           }, function(err2, res2)
             save_ok = not err2
             -- Load snapshot
-            env.rpc.request("hemis/load-snapshot", {
+            env.rpc.request("mnemos/load-snapshot", {
               path = snapshot_path,
             }, function(err3, res3)
               load_ok = not err3
@@ -575,7 +575,7 @@ describe("hemis integration", function()
     end)
   end)
 
-  describe("hemis/search", function()
+  describe("mnemos/search", function()
     it("searches notes and files", function()
       local env = get_test_env()
       local done = false
@@ -598,7 +598,7 @@ describe("hemis integration", function()
           projectRoot = env.dir,
         }, function(err, res)
           -- Search for it
-          env.rpc.request("hemis/search", {
+          env.rpc.request("mnemos/search", {
             query = "Searchable",
             projectRoot = env.dir,
           }, function(err2, res2)
@@ -638,7 +638,7 @@ describe("hemis integration", function()
           projectRoot = env.dir,
         }, function(err, res)
           -- Search with lowercase
-          env.rpc.request("hemis/search", {
+          env.rpc.request("mnemos/search", {
             query = "config",
             projectRoot = env.dir,
           }, function(err2, res2)
@@ -688,7 +688,7 @@ describe("hemis integration", function()
     end)
   end)
 
-  describe("hemis/index-project", function()
+  describe("mnemos/index-project", function()
     it("indexes entire project", function()
       local env = get_test_env()
       local done = false
@@ -702,7 +702,7 @@ describe("hemis integration", function()
         end
         connect_ok = true
 
-        env.rpc.request("hemis/index-project", {
+        env.rpc.request("mnemos/index-project", {
           projectRoot = env.dir,
         }, function(err, res)
           result = res
@@ -718,7 +718,7 @@ describe("hemis integration", function()
     end)
   end)
 
-  describe("hemis/explain-region", function()
+  describe("mnemos/explain-region", function()
     it("returns code snippet for LLM context", function()
       local env = get_test_env()
       local done = false
@@ -732,7 +732,7 @@ describe("hemis integration", function()
         end
         connect_ok = true
 
-        env.rpc.request("hemis/explain-region", {
+        env.rpc.request("mnemos/explain-region", {
           file = env.file,
           startLine = 1,
           endLine = 3,
@@ -765,7 +765,7 @@ describe("hemis integration", function()
         end
         connect_ok = true
 
-        env.rpc.request("hemis/explain-region", {
+        env.rpc.request("mnemos/explain-region", {
           file = env.file,
           startLine = 2,
           endLine = 2,
@@ -812,7 +812,7 @@ describe("hemis integration", function()
         connect_ok = true
 
         -- Call explain-region
-        env.rpc.request("hemis/explain-region", {
+        env.rpc.request("mnemos/explain-region", {
           file = env.file,
           startLine = 1,
           endLine = 3,
@@ -895,7 +895,7 @@ describe("hemis integration", function()
   end)
 end)
 
-describe("hemis display integration", function()
+describe("mnemos display integration", function()
   local buf
 
   before_each(function()
@@ -907,7 +907,7 @@ describe("hemis display integration", function()
   end)
 
   it("renders notes from backend data", function()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
     -- Simulate backend response
     local notes = {
       { id = "int-001", line = 1, column = 0, text = "Integration test note" },
@@ -922,7 +922,7 @@ describe("hemis display integration", function()
   end)
 
   it("updates display when notes change", function()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
 
     -- Initial notes
     display.render_notes(buf, {
@@ -942,7 +942,7 @@ describe("hemis display integration", function()
   end)
 
   it("clears display when no notes", function()
-    local display = require("hemis.display")
+    local display = require("mnemos.display")
 
     -- Add notes first
     display.render_notes(buf, {
@@ -963,7 +963,7 @@ end)
 -- These test the complete user experience with real backend
 describe("demo workflow", function()
   -- Skip if no backend
-  if not vim.g.hemis_test_backend then
+  if not vim.g.mnemos_test_backend then
     return
   end
 
@@ -986,7 +986,7 @@ impl Server {
 ]]
 
   local function get_demo_env()
-    local test_dir = vim.fn.tempname() .. "_hemis_demo_" .. math.random(10000)
+    local test_dir = vim.fn.tempname() .. "_mnemos_demo_" .. math.random(10000)
     local test_file = test_dir .. "/app.rs"
     vim.fn.mkdir(test_dir, "p")
 
@@ -996,13 +996,13 @@ impl Server {
       f:close()
     end
 
-    local rpc = require("hemis.rpc")
+    local rpc = require("mnemos.rpc")
     rpc.stop()
 
-    local config = require("hemis.config")
+    local config = require("mnemos.config")
     config.setup({
-      backend = vim.g.hemis_test_backend,
-      hemis_dir = test_dir,
+      backend = vim.g.mnemos_test_backend,
+      mnemos_dir = test_dir,
       auto_refresh = false,
       keymaps = false,
     })
@@ -1018,7 +1018,7 @@ impl Server {
       cleanup = function()
         rpc.stop()
         pcall(vim.api.nvim_buf_delete, buf, { force = true })
-        os.remove(test_dir .. "/hemis.lock")
+        os.remove(test_dir .. "/mnemos.lock")
         vim.fn.delete(test_dir, "rf")
       end,
     }
@@ -1083,7 +1083,7 @@ impl Server {
 
     it("displays note at updated line position after lines inserted", function()
       local env = get_demo_env()
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
       local done = false
       local connect_ok = false
       local extmark_line = nil
@@ -1198,9 +1198,9 @@ impl Server {
       assert.is_true(stale_after, "Note should be stale after anchor changed")
     end)
 
-    it("displays stale note with HemisNoteStale highlight", function()
+    it("displays stale note with MnemosNoteStale highlight", function()
       local env = get_demo_env()
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
       local done = false
       local connect_ok = false
 
@@ -1256,7 +1256,7 @@ impl Server {
           end
         end
       end
-      assert.truthy(has_stale_hl, "Stale note should use HemisNoteStale highlight")
+      assert.truthy(has_stale_hl, "Stale note should use MnemosNoteStale highlight")
     end)
 
     it("reattach clears stale status", function()
@@ -1319,7 +1319,7 @@ impl Server {
 
     it("displays fresh highlight after reattach clears stale", function()
       local env = get_demo_env()
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
       local done = false
       local connect_ok = false
       local note_id = nil
@@ -1376,7 +1376,7 @@ impl Server {
       assert.truthy(connect_ok)
       assert.truthy(#state.extmarks > 0, "Should have extmark")
 
-      -- Check that stale highlight is NOT present (should use HemisNote, not HemisNoteStale)
+      -- Check that stale highlight is NOT present (should use MnemosNote, not MnemosNoteStale)
       local has_stale_hl = false
       for _, mark in ipairs(state.extmarks) do
         for _, hl in ipairs(mark.hl_groups or {}) do
@@ -1386,14 +1386,14 @@ impl Server {
           end
         end
       end
-      assert.is_false(has_stale_hl, "Reattached note should NOT use HemisNoteStale highlight")
+      assert.is_false(has_stale_hl, "Reattached note should NOT use MnemosNoteStale highlight")
     end)
   end)
 
   describe("multiline notes", function()
     it("creates and displays multiline note", function()
       local env = get_demo_env()
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
       local done = false
       local connect_ok = false
       local multiline_text = "Config improvements:\n- Add validation\n- Support env vars"
@@ -1446,7 +1446,7 @@ impl Server {
   describe("full create-display-delete cycle", function()
     it("note appears after create and disappears after delete", function()
       local env = get_demo_env()
-      local display = require("hemis.display")
+      local display = require("mnemos.display")
       local done = false
       local connect_ok = false
       local note_id = nil

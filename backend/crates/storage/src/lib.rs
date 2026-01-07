@@ -142,10 +142,10 @@ fn check_and_migrate(conn: &Connection) -> Result<()> {
 
     if let Some(v) = db_version {
         if v > SCHEMA_VERSION {
-            // Database is from a newer version of hemis - fail before modifying anything
+            // Database is from a newer version of mnemos - fail before modifying anything
             bail!(
-                "Database schema version {} is newer than this version of hemis (schema {}). \
-                Please upgrade hemis or use a different database file.",
+                "Database schema version {} is newer than this version of mnemos (schema {}). \
+                Please upgrade mnemos or use a different database file.",
                 v,
                 SCHEMA_VERSION
             );

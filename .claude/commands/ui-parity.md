@@ -8,8 +8,8 @@ Analyze feature implementation across Emacs and Neovim to ensure consistent beha
 ## Instructions
 
 1. **Search for the feature** in both editors:
-   - Emacs: `ui/emacs/hemis.el`
-   - Neovim: `ui/neovim/lua/hemis/` directory
+   - Emacs: `ui/emacs/mnemos.el`
+   - Neovim: `ui/neovim/lua/mnemos/` directory
 
 2. **Compare implementations**:
    - How does each editor render the feature?
@@ -40,14 +40,14 @@ Analyze feature implementation across Emacs and Neovim to ensure consistent beha
 ## Key Files
 ```
 # Emacs
-ui/emacs/hemis.el               # Main plugin
-ui/emacs/tests/hemis-test.el    # Tests
+ui/emacs/mnemos.el               # Main plugin
+ui/emacs/tests/mnemos-test.el    # Tests
 
 # Neovim
-ui/neovim/lua/hemis/init.lua    # Main plugin
-ui/neovim/lua/hemis/display.lua # Note display
-ui/neovim/lua/hemis/rpc.lua     # Backend communication
-ui/neovim/lua/hemis/commands.lua # User commands
+ui/neovim/lua/mnemos/init.lua    # Main plugin
+ui/neovim/lua/mnemos/display.lua # Note display
+ui/neovim/lua/mnemos/rpc.lua     # Backend communication
+ui/neovim/lua/mnemos/commands.lua # User commands
 ui/neovim/tests/display_spec.lua
 ui/neovim/tests/integration_spec.lua
 ```

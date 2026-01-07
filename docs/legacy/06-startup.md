@@ -23,7 +23,7 @@ Steps:
     - Full model — slower, larger, more capable.
   - Download and verify.
   - Store under:
-    - `~/Library/Application Support/Hemis/models/<model-name>/`
+    - `~/Library/Application Support/Mnemos/models/<model-name>/`
 
 ## 6.3 LLM Runner Startup
 

@@ -1,5 +1,5 @@
--- Event client for Hemis backend (Unix socket push notifications)
-local config = require("hemis.config")
+-- Event client for Mnemos backend (Unix socket push notifications)
+local config = require("mnemos.config")
 
 local M = {}
 
@@ -15,8 +15,8 @@ M.reconnect_timer = nil
 M.handlers = {}
 
 -- Paths (must be async-safe - no vim.fn.* in callbacks)
-local function get_hemis_dir()
-  local custom = config.get("hemis_dir")
+local function get_mnemos_dir()
+  local custom = config.get("mnemos_dir")
   if custom then
     -- Expand ~ manually for async safety
     if custom:sub(1, 1) == "~" then
@@ -24,16 +24,16 @@ local function get_hemis_dir()
     end
     return custom
   end
-  -- Check HEMIS_DIR env var (used by demo automation)
-  local env_dir = os.getenv("HEMIS_DIR")
+  -- Check MNEMOS_DIR env var (used by demo automation)
+  local env_dir = os.getenv("MNEMOS_DIR")
   if env_dir then
     return env_dir
   end
-  return os.getenv("HOME") .. "/.hemis"
+  return os.getenv("HOME") .. "/.mnemos"
 end
 
 local function get_events_socket_path()
-  return get_hemis_dir() .. "/events.sock"
+  return get_mnemos_dir() .. "/events.sock"
 end
 
 -- Logging
@@ -42,7 +42,7 @@ local function log(level, msg)
   local cfg_level = levels[config.get("log_level")] or 3
   if levels[level] >= cfg_level then
     vim.schedule(function()
-      vim.notify("[hemis-events] " .. msg, vim.log.levels[level:upper()])
+      vim.notify("[mnemos-events] " .. msg, vim.log.levels[level:upper()])
     end)
   end
 end

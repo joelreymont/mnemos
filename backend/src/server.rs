@@ -1,10 +1,10 @@
-//! Unix domain socket server mode for the Hemis backend.
+//! Unix domain socket server mode for the Mnemos backend.
 //!
 //! The server:
-//! - Listens on ~/.hemis/hemis.sock
+//! - Listens on ~/.mnemos/mnemos.sock
 //! - Tracks connected clients with reference counting
 //! - Shuts down after 30 seconds with no connections
-//! - Supports the hemis/version endpoint for version checking
+//! - Supports the mnemos/version endpoint for version checking
 
 use std::fs;
 use std::io::{Read, Write};
@@ -43,11 +43,11 @@ pub struct Server {
 
 impl Server {
     /// Create a new server instance.
-    pub fn new(hemis_dir: PathBuf, db_path: String) -> Self {
+    pub fn new(mnemos_dir: PathBuf, db_path: String) -> Self {
         Self {
-            socket_path: hemis_dir.join("hemis.sock"),
-            events_socket_path: hemis_dir.join("events.sock"),
-            lock_path: hemis_dir.join("hemis.lock"),
+            socket_path: mnemos_dir.join("mnemos.sock"),
+            events_socket_path: mnemos_dir.join("events.sock"),
+            lock_path: mnemos_dir.join("mnemos.lock"),
             db_path,
             connections: Arc::new(AtomicUsize::new(0)),
             start_time: Instant::now(),
@@ -68,7 +68,7 @@ impl Server {
 
         // Create the socket
         let listener = UnixListener::bind(&self.socket_path)?;
-        info!("Hemis server listening on {}", self.socket_path.display());
+        info!("Mnemos server listening on {}", self.socket_path.display());
 
         // Write PID to lock file
         fs::write(
@@ -194,7 +194,7 @@ fn handle_request(
     // Try to parse to check for server-specific methods
     if let Ok(req) = rpc::parse_request(body) {
         match req.method.as_str() {
-            "hemis/version" => {
+            "mnemos/version" => {
                 let info = VersionInfo {
                     protocol_version: PROTOCOL_VERSION,
                     git_hash: GIT_HASH.to_string(),
@@ -203,7 +203,7 @@ fn handle_request(
                 };
                 return Response::result_from(req.id, info);
             }
-            "hemis/ready" => {
+            "mnemos/ready" => {
                 // Health check endpoint - verify all subsystems are ready
                 let mut ready = true;
                 let mut reason: Option<String> = None;

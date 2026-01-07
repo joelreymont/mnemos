@@ -1,4 +1,4 @@
--- Test runner for Hemis Neovim tests using plenary.busted
+-- Test runner for Mnemos Neovim tests using plenary.busted
 -- Usage: nvim --headless -u tests/minimal_init.lua -c "luafile tests/run.lua"
 --
 -- Exit codes:

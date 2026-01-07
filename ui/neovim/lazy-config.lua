@@ -1,17 +1,17 @@
--- Hemis: A Second Brain for Your Code
+-- Mnemos: A Second Brain for Your Code
 -- Development configuration for LazyVim
--- Symlink: ln -sf /Users/joel/Work/hemis/ui/neovim/lazy-config.lua ~/.config/nvim/lua/plugins/hemis.lua
+-- Symlink: ln -sf /Users/joel/Work/mnemos/ui/neovim/lazy-config.lua ~/.config/nvim/lua/plugins/mnemos.lua
 --
 -- Keymaps are registered by the plugin (keymaps = true), no need to duplicate here.
 -- which-key picks up the descriptions from vim.keymap.set's desc field.
 
 return {
   {
-    dir = "/Users/joel/Work/hemis/ui/neovim",
+    dir = "/Users/joel/Work/mnemos/ui/neovim",
     opts = {
-      backend = "/Users/joel/Work/hemis/zig-out/bin/hemis",
+      backend = "/Users/joel/Work/mnemos/zig-out/bin/mnemos",
       backend_env = {
-        HEMIS_DB_PATH = "/Users/joel/Work/hemis/hemis-notes.db",
+        MNEMOS_DB_PATH = "/Users/joel/Work/mnemos/mnemos-notes.db",
       },
       auto_refresh = true,
       keymaps = true,

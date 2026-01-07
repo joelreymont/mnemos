@@ -2,7 +2,7 @@
 
 ## 10.1 Purpose
 
-Embeddings let Hemis:
+Embeddings let Mnemos:
 
 - Find similar code snippets.
 - Connect notes and code semantically.

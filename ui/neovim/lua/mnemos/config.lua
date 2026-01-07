@@ -1,16 +1,16 @@
--- Configuration module for Hemis
+-- Configuration module for Mnemos
 local M = {}
 
 M.defaults = {
-  -- Path to hemis backend binary (auto-detected if nil)
+  -- Path to mnemos backend binary (auto-detected if nil)
   backend = nil,
 
-  -- Path to hemis config file (defaults to ~/.config/hemis/config.toml)
+  -- Path to mnemos config file (defaults to ~/.config/mnemos/config.toml)
   -- The config file sets db-path and ai-provider
   config_path = nil,
 
-  -- Hemis directory for socket/lock files (defaults to ~/.hemis)
-  hemis_dir = nil,
+  -- Mnemos directory for socket/lock files (defaults to ~/.mnemos)
+  mnemos_dir = nil,
 
   -- Auto-refresh notes on BufEnter
   auto_refresh = true,
@@ -41,8 +41,8 @@ function M.setup(opts)
   if not M.options.backend then
     local plugin_dir = debug.getinfo(1, "S").source:sub(2):match("(.*/)")
     local candidates = {
-      plugin_dir .. "../../../../target/release/hemis",
-      plugin_dir .. "../../../../target/debug/hemis",
+      plugin_dir .. "../../../../target/release/mnemos",
+      plugin_dir .. "../../../../target/debug/mnemos",
     }
     for _, path in ipairs(candidates) do
       local expanded = vim.fn.expand(path)

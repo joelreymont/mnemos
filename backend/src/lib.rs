@@ -276,7 +276,7 @@ fn read_line_range(path: &Path, start_line: usize, end_line: usize) -> std::io::
 pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Response {
     let id = req.id.clone();
     match req.method.as_str() {
-        "hemis/open-project" => {
+        "mnemos/open-project" => {
             if req
                 .params
                 .get("projectRoot")
@@ -288,7 +288,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 Response::error(id, INVALID_PARAMS, "missing projectRoot")
             }
         }
-        "hemis/display-config" => {
+        "mnemos/display-config" => {
             // Return display configuration for UIs (colors, icons, templates)
             // Single source of truth - UIs should use these values for consistency
             Response::result(id, json!({
@@ -304,11 +304,11 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 },
                 "templates": {
                     "displayLabel": "{shortId} {summary}",
-                    "hoverText": "hemis: {summary}"
+                    "hoverText": "mnemos: {summary}"
                 }
             }))
         }
-        "hemis/note-templates" => {
+        "mnemos/note-templates" => {
             // Return available note templates for structured note creation
             Response::result(id, json!({
                 "templates": [
@@ -345,7 +345,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 ]
             }))
         }
-        "hemis/suggest-tags" => {
+        "mnemos/suggest-tags" => {
             // Suggest tags based on code context for rapid note capture
             let file = req.params.get("file").and_then(|v| v.as_str());
             let content = req.params.get("content").and_then(|v| v.as_str());
@@ -407,7 +407,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
             tags.dedup();
             Response::result(id, json!({ "tags": tags }))
         }
-        "hemis/graph" => {
+        "mnemos/graph" => {
             // Return graph of notes and their edges for visualization
             let project_root_param = req.params.get("projectRoot").and_then(|v| v.as_str());
             let note_id = req.params.get("noteId").and_then(|v| v.as_str());
@@ -519,7 +519,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 "edges": filtered_edges
             }))
         }
-        "hemis/tasks" => {
+        "mnemos/tasks" => {
             // Scan indexed files for TODO/FIXME/HACK comments
             let project_root_param = req.params.get("projectRoot").and_then(|v| v.as_str());
             let limit = req.params.get("limit").and_then(|v| v.as_u64()).unwrap_or(100) as usize;
@@ -580,7 +580,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
 
             Response::result(id, json!({ "tasks": tasks }))
         }
-        "hemis/code-references" => {
+        "mnemos/code-references" => {
             // Extract code references (identifiers, calls, types) at a position
             // Uses node path to identify semantic context
             let file = req.params.get("file").and_then(|v| v.as_str());
@@ -637,7 +637,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 "nodePath": node_path
             }))
         }
-        "hemis/file-context" => {
+        "mnemos/file-context" => {
             // Return contextual suggestions when opening a file
             // Includes: notes for file, backlinks, stale notes, related notes
             let file = req.params.get("file").and_then(|v| v.as_str());
@@ -721,7 +721,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 }
             }))
         }
-        "hemis/explain-region" => {
+        "mnemos/explain-region" => {
             let file_param = req.params.get("file").and_then(|v| v.as_str());
             // Canonicalize path to resolve symlinks (e.g., /tmp -> /private/tmp on macOS)
             let file = file_param.map(canonical_path);
@@ -867,7 +867,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 Response::error(id, INVALID_PARAMS, "missing file")
             }
         }
-        "hemis/search" => {
+        "mnemos/search" => {
             let query = req
                 .params
                 .get("query")
@@ -945,7 +945,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
             }
         }
-        "hemis/index-project" => {
+        "mnemos/index-project" => {
             // projectRoot is optional - computed from file if not provided
             let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
             let file_param = req.params.get("file").and_then(|v| v.as_str());
@@ -1014,7 +1014,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                             let root_path = Path::new(root).to_path_buf();
                             std::thread::spawn(move || {
                                 if let Err(e) = ai_cli::warm_up_claude(&root_path) {
-                                    debug!("[hemis] Claude warm-up failed: {}", e);
+                                    debug!("[mnemos] Claude warm-up failed: {}", e);
                                 }
                             });
                         }
@@ -1081,7 +1081,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 Response::error(id, INVALID_PARAMS, "missing projectRoot")
             }
         }
-        "hemis/save-snapshot" => {
+        "mnemos/save-snapshot" => {
             if let Some(path) = req.params.get("path").and_then(|v| v.as_str()) {
                 let project_root = req.params.get("projectRoot").and_then(|v| v.as_str());
                 match snapshot::create(db, project_root).and_then(|payload| {
@@ -1101,7 +1101,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 Response::error(id, INVALID_PARAMS, "missing path")
             }
         }
-        "hemis/load-snapshot" => {
+        "mnemos/load-snapshot" => {
             // Size limit for snapshot files (10MB - reduced from 100MB to limit memory usage)
             const MAX_SNAPSHOT_SIZE: u64 = 10 * 1024 * 1024;
 
@@ -1138,13 +1138,13 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 Response::error(id, INVALID_PARAMS, "missing path")
             }
         }
-        "hemis/status" => {
+        "mnemos/status" => {
             let proj = req.params.get("projectRoot").and_then(|v| v.as_str());
             match storage::counts(db, proj) {
                 Ok(c) => {
                     // Build a human-readable status display with all info
                     let status_display = format!(
-                        "Hemis Status: OK\nProject: {}\nNotes: {}\nFiles: {}\nEmbeddings: {}",
+                        "Mnemos Status: OK\nProject: {}\nNotes: {}\nFiles: {}\nEmbeddings: {}",
                         proj.unwrap_or("None"),
                         c.notes,
                         c.files,
@@ -1168,7 +1168,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
             }
         }
-        "hemis/project-meta" => {
+        "mnemos/project-meta" => {
             // projectRoot is optional - computed from file if not provided
             let proj_param = req.params.get("projectRoot").and_then(|v| v.as_str());
             let file_param = req.params.get("file").and_then(|v| v.as_str());
@@ -1230,7 +1230,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 Response::error(id, INVALID_PARAMS, "missing projectRoot")
             }
         }
-        "hemis/buffer-context" => {
+        "mnemos/buffer-context" => {
             // Returns projectRoot, commit, blob, language for a file
             // UIs can drop their git shell calls and use this instead
             if let Some(file) = req.params.get("file").and_then(|v| v.as_str()) {
@@ -2097,7 +2097,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 Err(_) => Response::error(id, INTERNAL_ERROR, "operation failed"),
             }
         }
-        "hemis/summarize-file" => {
+        "mnemos/summarize-file" => {
             // Return file summary with stitched code snippets, note references, and backlinks
             let file = req.params.get("file").and_then(|v| v.as_str());
             let content = req.params.get("content").and_then(|v| v.as_str());
@@ -2177,7 +2177,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 Response::error(id, INVALID_PARAMS, "missing file or content")
             }
         }
-        "hemis/task-status" => {
+        "mnemos/task-status" => {
             // Get status of a background task by ID
             if let Some(task_id) = req.params.get("taskId").and_then(|v| v.as_str()) {
                 match jobs::job_queue().get_status(task_id) {
@@ -2188,7 +2188,7 @@ pub fn handle(req: Request, db: &Connection, parser: &mut ParserService) -> Resp
                 Response::error(id, INVALID_PARAMS, "missing taskId")
             }
         }
-        "hemis/task-list" => {
+        "mnemos/task-list" => {
             // List all tasks (optionally filtered by status)
             let status_filter = req.params.get("status").and_then(|v| v.as_str());
             let tasks = jobs::job_queue().list_tasks(status_filter);

@@ -1,4 +1,4 @@
-// Stubbed tests for Hemis VS Code extension
+// Stubbed tests for Mnemos VS Code extension
 // These tests use mocked RPC responses and run without a real backend
 
 import * as assert from 'assert';
@@ -169,9 +169,9 @@ suite('Stubbed Tests - No Backend Required', () => {
         ok: true,
         projectRoot: '/tmp/project',
         counts: { notes: 42, files: 100, edges: 5, embeddings: 0 },
-        statusDisplay: 'Hemis: 42 notes, 100 files indexed',
+        statusDisplay: 'Mnemos: 42 notes, 100 files indexed',
       };
-      assert.strictEqual(status.statusDisplay, 'Hemis: 42 notes, 100 files indexed');
+      assert.strictEqual(status.statusDisplay, 'Mnemos: 42 notes, 100 files indexed');
     });
   });
 

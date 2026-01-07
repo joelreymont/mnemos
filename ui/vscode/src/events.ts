@@ -52,7 +52,7 @@ export interface FileIndexedEvent {
   project: string;
 }
 
-export type HemisEvent =
+export type MnemosEvent =
   | NoteCreatedEvent
   | NoteUpdatedEvent
   | NoteDeletedEvent
@@ -62,8 +62,8 @@ export type HemisEvent =
   | FileIndexedEvent;
 
 /**
- * Client for receiving push events from the Hemis backend.
- * Connects to ~/.hemis/events.sock and emits typed events.
+ * Client for receiving push events from the Mnemos backend.
+ * Connects to ~/.mnemos/events.sock and emits typed events.
  */
 export class EventClient extends EventEmitter {
   private socket: net.Socket | null = null;
@@ -73,7 +73,7 @@ export class EventClient extends EventEmitter {
   private stopped = false;
 
   private getSocketPath(): string {
-    return path.join(getConfig().hemisDir, 'events.sock');
+    return path.join(getConfig().mnemosDir, 'events.sock');
   }
 
   /**
@@ -168,7 +168,7 @@ export class EventClient extends EventEmitter {
 
       if (line.trim()) {
         try {
-          const event: HemisEvent = JSON.parse(line);
+          const event: MnemosEvent = JSON.parse(line);
           this.handleEvent(event);
         } catch (err) {
           debug('Events: failed to parse - ' + line);
@@ -177,7 +177,7 @@ export class EventClient extends EventEmitter {
     }
   }
 
-  private handleEvent(event: HemisEvent): void {
+  private handleEvent(event: MnemosEvent): void {
     debug(`Events: ${event.type}`);
 
     // Emit typed event

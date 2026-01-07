@@ -34,19 +34,19 @@ export class RpcClient {
   private connecting = false;
 
   constructor() {
-    this.outputChannel = vscode.window.createOutputChannel('Hemis');
+    this.outputChannel = vscode.window.createOutputChannel('Mnemos');
   }
 
   private getSocketPath(): string {
-    return path.join(getConfig().hemisDir, 'hemis.sock');
+    return path.join(getConfig().mnemosDir, 'mnemos.sock');
   }
 
   private getLockPath(): string {
-    return path.join(getConfig().hemisDir, 'hemis.lock');
+    return path.join(getConfig().mnemosDir, 'mnemos.lock');
   }
 
   private getLogPath(): string {
-    return path.join(getConfig().hemisDir, 'hemis.log');
+    return path.join(getConfig().mnemosDir, 'mnemos.log');
   }
 
   private socketExists(): boolean {
@@ -69,11 +69,11 @@ export class RpcClient {
       if (tail.includes('newer than this version') || tail.includes('schema version')) {
         return `Database schema is incompatible.
 
-Your database was created by a newer version of Hemis.
-Please upgrade Hemis or use a different database file.
+Your database was created by a newer version of Mnemos.
+Please upgrade Mnemos or use a different database file.
 
 To use a fresh database:
-  rm ~/.hemis/hemis.db
+  rm ~/.mnemos/mnemos.db
 
 Check ${logPath} for details.`;
       }
@@ -116,18 +116,18 @@ ${tail}`;
     const config = getConfig();
     const backend = config.backend;
     if (!backend) {
-      throw new Error('Backend path not configured. Set hemis.backend in settings.');
+      throw new Error('Backend path not configured. Set mnemos.backend in settings.');
     }
 
-    // Ensure hemis dir exists
-    if (!fs.existsSync(config.hemisDir)) {
-      fs.mkdirSync(config.hemisDir, { recursive: true });
+    // Ensure mnemos dir exists
+    if (!fs.existsSync(config.mnemosDir)) {
+      fs.mkdirSync(config.mnemosDir, { recursive: true });
     }
 
     const env: Record<string, string | undefined> = { ...process.env };
-    env['HEMIS_DIR'] = config.hemisDir;
+    env['MNEMOS_DIR'] = config.mnemosDir;
     if (config.databasePath) {
-      env['HEMIS_DB_PATH'] = config.databasePath;
+      env['MNEMOS_DB_PATH'] = config.databasePath;
     }
 
     const logPath = this.getLogPath();
@@ -140,7 +140,7 @@ ${tail}`;
     });
 
     proc.unref();
-    this.outputChannel.appendLine('Started Hemis server');
+    this.outputChannel.appendLine('Started Mnemos server');
   }
 
   private async waitForSocket(timeoutMs: number): Promise<boolean> {
@@ -192,7 +192,7 @@ ${tail}`;
           const socket = await this.connectToSocket();
           this.setupSocket(socket);
           debug('Connection: connected to existing server');
-          this.outputChannel.appendLine('Connected to existing Hemis server');
+          this.outputChannel.appendLine('Connected to existing Mnemos server');
           return true;
         } catch {
           // Connection failed, might be stale socket
@@ -214,7 +214,7 @@ ${tail}`;
       // Need to start server
       if (!config.backend) {
         debug('Connection: no backend configured');
-        vscode.window.showErrorMessage('Hemis: Backend path not configured. Set hemis.backend in settings.');
+        vscode.window.showErrorMessage('Mnemos: Backend path not configured. Set mnemos.backend in settings.');
         return false;
       }
 
@@ -239,11 +239,11 @@ ${tail}`;
       const socket = await this.connectToSocket();
       this.setupSocket(socket);
       debug('Connection: connected to new server');
-      this.outputChannel.appendLine('Connected to Hemis server');
+      this.outputChannel.appendLine('Connected to Mnemos server');
 
       // Check version
       try {
-        const version = await this.request<{ protocolVersion: number; gitHash: string }>('hemis/version');
+        const version = await this.request<{ protocolVersion: number; gitHash: string }>('mnemos/version');
         debug(`Connection: version ${version.protocolVersion} (${version.gitHash})`);
         this.outputChannel.appendLine(`Backend version: ${version.protocolVersion} (${version.gitHash})`);
       } catch (err) {
@@ -255,7 +255,7 @@ ${tail}`;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       debug(`Connection: failed - ${message}`);
-      vscode.window.showErrorMessage(`Hemis: ${message}`);
+      vscode.window.showErrorMessage(`Mnemos: ${message}`);
       return false;
     } finally {
       this.connecting = false;

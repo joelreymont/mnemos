@@ -9,18 +9,18 @@ let logStream: fs.WriteStream | null = null;
 
 function getOutputChannel(): vscode.OutputChannel {
   if (!outputChannel) {
-    outputChannel = vscode.window.createOutputChannel('Hemis Debug');
+    outputChannel = vscode.window.createOutputChannel('Mnemos Debug');
   }
   return outputChannel;
 }
 
 function getLogStream(): fs.WriteStream {
   if (!logStream) {
-    const hemisDir = process.env.HEMIS_DIR || path.join(os.homedir(), '.hemis');
-    if (!fs.existsSync(hemisDir)) {
-      fs.mkdirSync(hemisDir, { recursive: true });
+    const mnemosDir = process.env.MNEMOS_DIR || path.join(os.homedir(), '.mnemos');
+    if (!fs.existsSync(mnemosDir)) {
+      fs.mkdirSync(mnemosDir, { recursive: true });
     }
-    const logPath = path.join(hemisDir, 'vscode-debug.log');
+    const logPath = path.join(mnemosDir, 'vscode-debug.log');
     logStream = fs.createWriteStream(logPath, { flags: 'a' });
   }
   return logStream;

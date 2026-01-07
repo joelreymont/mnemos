@@ -1,8 +1,8 @@
-(defpackage :hemis.core
+(defpackage :mnemos.core
   (:use :cl)
   (:export :log-info :log-error))
 
-(in-package :hemis.core)
+(in-package :mnemos.core)
 
 (defun log-info (fmt &rest args)
   (apply #'format *standard-output* (concatenate 'string "[INFO] " fmt "~%") args))

@@ -15,7 +15,7 @@ For each user action, Lisp:
    - `trace-call-chain`
    - `summarise-subsystem`
 3. Renders a `messages` array:
-   - System: stable instruction for Hemis’ persona and boundaries.
+   - System: stable instruction for Mnemos' persona and boundaries.
    - Context: code snippets and summaries.
    - User: the user’s question or command.
 
@@ -43,7 +43,7 @@ The LLM responds with a stream of events:
 Lisp:
 - For tokens: forwards them to the UI.
 - For tool calls:
-  - Executes the corresponding `hemis.tools` function.
+  - Executes the corresponding `mnemos.tools` function.
   - Sends a follow-up “tool result” message back to the model.
 - For completion:
   - Finalises the response and returns structured metadata (e.g., suggested notes, file locations).
@@ -53,7 +53,7 @@ Lisp:
 1. LLM:  
    `tool_call: { "name": "find-usages", "arguments": {"symbol": "parse-expression"} }`
 2. Lisp:
-   - Runs `hemis.index:find-usages`.
+   - Runs `mnemos.index:find-usages`.
    - Returns results as `tool_result` message to LLM:
      - file paths
      - line/column ranges

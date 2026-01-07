@@ -1,6 +1,6 @@
 # 4. Indexing and Project State
 
-Hemis builds a multi-layer index over your project.
+Mnemos builds a multi-layer index over your project.
 
 ## 4.1 Components
 
@@ -30,7 +30,7 @@ Hemis builds a multi-layer index over your project.
 
 ## 4.3 Project Snapshots
 
-Hemis may periodically write snapshots:
+Mnemos may periodically write snapshots:
 
 - Project metadata.
 - Index version and layout.

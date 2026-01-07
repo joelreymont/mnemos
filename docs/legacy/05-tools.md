@@ -42,7 +42,7 @@ A tool is a function from JSON arguments to JSON results.
 ```lisp
 (defun tool-find-usages (args)
   (let* ((symbol (gethash "symbol" args))
-         (results (hemis.index:find-usages symbol)))
+         (results (mnemos.index:find-usages symbol)))
     `(("status" . "ok")
       ("results" . ,results))))
 ```

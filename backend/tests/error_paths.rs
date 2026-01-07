@@ -1,4 +1,4 @@
-//! Error path tests for hemis backend.
+//! Error path tests for mnemos backend.
 //!
 //! Tests that verify correct behavior under error conditions:
 //! - Malformed inputs
@@ -33,8 +33,8 @@ fn malformed_node_path_no_panic() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -70,8 +70,8 @@ fn empty_text_accepted() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -107,8 +107,8 @@ fn whitespace_only_text_no_panic() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -148,8 +148,8 @@ fn multiple_notes_same_line_no_panic() -> anyhow::Result<()> {
         .to_string();
 
         let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-        let assert = cargo_bin_cmd!("hemis")
-            .env("HEMIS_DB_PATH", db.path())
+        let assert = cargo_bin_cmd!("mnemos")
+            .env("MNEMOS_DB_PATH", db.path())
             .write_stdin(input)
             .assert()
             .success();
@@ -181,8 +181,8 @@ fn get_nonexistent_note_returns_error() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -213,8 +213,8 @@ fn delete_nonexistent_note_is_idempotent() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -246,8 +246,8 @@ fn update_nonexistent_note_returns_error() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -281,8 +281,8 @@ fn negative_line_number_handled() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -318,8 +318,8 @@ fn very_large_line_number_handled() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();
@@ -348,8 +348,8 @@ fn unknown_method_returns_error() -> anyhow::Result<()> {
     .to_string();
 
     let input = format!("Content-Length: {}\r\n\r\n{}", req.len(), req);
-    let assert = cargo_bin_cmd!("hemis")
-        .env("HEMIS_DB_PATH", db.path())
+    let assert = cargo_bin_cmd!("mnemos")
+        .env("MNEMOS_DB_PATH", db.path())
         .write_stdin(input)
         .assert()
         .success();

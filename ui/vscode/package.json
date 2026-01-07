@@ -1,9 +1,9 @@
 {
-  "name": "hemis",
-  "displayName": "Hemis",
+  "name": "mnemos",
+  "displayName": "Mnemos",
   "description": "A second brain for your code - attach persistent notes to AST nodes",
   "version": "0.1.0",
-  "publisher": "hemis",
+  "publisher": "mnemos",
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -17,128 +17,128 @@
     "onLanguage:python",
     "onLanguage:go",
     "onLanguage:java",
-    "onCommand:hemis.addNote"
+    "onCommand:mnemos.addNote"
   ],
   "main": "./out/src/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "hemis.addNote",
-        "title": "Hemis: Add Note"
+        "command": "mnemos.addNote",
+        "title": "Mnemos: Add Note"
       },
       {
-        "command": "hemis.deleteNote",
-        "title": "Hemis: Delete Note"
+        "command": "mnemos.deleteNote",
+        "title": "Mnemos: Delete Note"
       },
       {
-        "command": "hemis.reattachNote",
-        "title": "Hemis: Reattach Stale Note"
+        "command": "mnemos.reattachNote",
+        "title": "Mnemos: Reattach Stale Note"
       },
       {
-        "command": "hemis.editNote",
-        "title": "Hemis: Edit Note"
+        "command": "mnemos.editNote",
+        "title": "Mnemos: Edit Note"
       },
       {
-        "command": "hemis.refreshNotes",
-        "title": "Hemis: Refresh Notes"
+        "command": "mnemos.refreshNotes",
+        "title": "Mnemos: Refresh Notes"
       },
       {
-        "command": "hemis.listNotes",
-        "title": "Hemis: List Notes"
+        "command": "mnemos.listNotes",
+        "title": "Mnemos: List Notes"
       },
       {
-        "command": "hemis.indexProject",
-        "title": "Hemis: Index Project"
+        "command": "mnemos.indexProject",
+        "title": "Mnemos: Index Project"
       },
       {
-        "command": "hemis.search",
-        "title": "Hemis: Search"
+        "command": "mnemos.search",
+        "title": "Mnemos: Search"
       },
       {
-        "command": "hemis.insertLink",
-        "title": "Hemis: Insert Note Link"
+        "command": "mnemos.insertLink",
+        "title": "Mnemos: Insert Note Link"
       },
       {
-        "command": "hemis.followLink",
-        "title": "Hemis: Follow Link"
+        "command": "mnemos.followLink",
+        "title": "Mnemos: Follow Link"
       },
       {
-        "command": "hemis.navigateBack",
-        "title": "Hemis: Navigate Back"
+        "command": "mnemos.navigateBack",
+        "title": "Mnemos: Navigate Back"
       },
       {
-        "command": "hemis.status",
-        "title": "Hemis: Show Status"
+        "command": "mnemos.status",
+        "title": "Mnemos: Show Status"
       },
       {
-        "command": "hemis.backlinks",
-        "title": "Hemis: Show Backlinks"
+        "command": "mnemos.backlinks",
+        "title": "Mnemos: Show Backlinks"
       },
       {
-        "command": "hemis.viewNote",
-        "title": "Hemis: View Note"
+        "command": "mnemos.viewNote",
+        "title": "Mnemos: View Note"
       },
       {
-        "command": "hemis.editNoteBuffer",
-        "title": "Hemis: Edit Note (Buffer)"
+        "command": "mnemos.editNoteBuffer",
+        "title": "Mnemos: Edit Note (Buffer)"
       },
       {
-        "command": "hemis.help",
-        "title": "Hemis: Help"
+        "command": "mnemos.help",
+        "title": "Mnemos: Help"
       },
       {
-        "command": "hemis.shutdown",
-        "title": "Hemis: Shutdown Backend"
+        "command": "mnemos.shutdown",
+        "title": "Mnemos: Shutdown Backend"
       },
       {
-        "command": "hemis.explainRegion",
-        "title": "Hemis: Explain Region (Copy for LLM)"
+        "command": "mnemos.explainRegion",
+        "title": "Mnemos: Explain Region (Copy for LLM)"
       },
       {
-        "command": "hemis.explainRegionAI",
-        "title": "Hemis: Explain Region (AI)"
+        "command": "mnemos.explainRegionAI",
+        "title": "Mnemos: Explain Region (AI)"
       },
       {
-        "command": "hemis.indexProjectAI",
-        "title": "Hemis: Index Project with AI"
+        "command": "mnemos.indexProjectAI",
+        "title": "Mnemos: Index Project with AI"
       },
       {
-        "command": "hemis.projectMeta",
-        "title": "Hemis: Project Info"
+        "command": "mnemos.projectMeta",
+        "title": "Mnemos: Project Info"
       },
       {
-        "command": "hemis.selectNote",
-        "title": "Hemis: Select Note"
+        "command": "mnemos.selectNote",
+        "title": "Mnemos: Select Note"
       },
       {
-        "command": "hemis.clearSelection",
-        "title": "Hemis: Clear Note Selection"
+        "command": "mnemos.clearSelection",
+        "title": "Mnemos: Clear Note Selection"
       }
     ],
     "configuration": {
-      "title": "Hemis",
+      "title": "Mnemos",
       "properties": {
-        "hemis.backend": {
+        "mnemos.backend": {
           "type": "string",
           "default": "",
-          "description": "Path to hemis backend binary. If empty, searches PATH."
+          "description": "Path to mnemos backend binary. If empty, searches PATH."
         },
-        "hemis.hemisDir": {
+        "mnemos.mnemosDir": {
           "type": "string",
           "default": "",
-          "description": "Directory for Hemis socket, lock, and log files. Defaults to ~/.hemis"
+          "description": "Directory for Mnemos socket, lock, and log files. Defaults to ~/.mnemos"
         },
-        "hemis.databasePath": {
+        "mnemos.databasePath": {
           "type": "string",
           "default": "",
-          "description": "Path to SQLite database. Defaults to ~/.hemis/hemis.db"
+          "description": "Path to SQLite database. Defaults to ~/.mnemos/mnemos.db"
         },
-        "hemis.autoRefresh": {
+        "mnemos.autoRefresh": {
           "type": "boolean",
           "default": true,
           "description": "Automatically refresh notes when opening files"
         },
-        "hemis.displayStyle": {
+        "mnemos.displayStyle": {
           "type": "string",
           "enum": [
             "full",
@@ -147,7 +147,7 @@
           "default": "full",
           "description": "Note display style: full (comment block) or minimal (inline marker)"
         },
-        "hemis.debug": {
+        "mnemos.debug": {
           "type": "string",
           "enum": [
             "off",
@@ -162,107 +162,107 @@
     "views": {
       "explorer": [
         {
-          "id": "hemisNotes",
-          "name": "Hemis Notes"
+          "id": "mnemosNotes",
+          "name": "Mnemos Notes"
         }
       ]
     },
     "keybindings": [
       {
-        "command": "hemis.addNote",
+        "command": "mnemos.addNote",
         "key": "ctrl+shift+h a",
         "mac": "cmd+shift+h a",
         "when": "editorTextFocus"
       },
       {
-        "command": "hemis.listNotes",
+        "command": "mnemos.listNotes",
         "key": "ctrl+shift+h l",
         "mac": "cmd+shift+h l"
       },
       {
-        "command": "hemis.refreshNotes",
+        "command": "mnemos.refreshNotes",
         "key": "ctrl+shift+h r",
         "mac": "cmd+shift+h r",
         "when": "editorTextFocus"
       },
       {
-        "command": "hemis.deleteNote",
+        "command": "mnemos.deleteNote",
         "key": "ctrl+shift+h d",
         "mac": "cmd+shift+h d",
         "when": "editorTextFocus"
       },
       {
-        "command": "hemis.reattachNote",
+        "command": "mnemos.reattachNote",
         "key": "ctrl+shift+h shift+r",
         "mac": "cmd+shift+h shift+r",
         "when": "editorTextFocus"
       },
       {
-        "command": "hemis.editNote",
+        "command": "mnemos.editNote",
         "key": "ctrl+shift+h e",
         "mac": "cmd+shift+h e",
         "when": "editorTextFocus"
       },
       {
-        "command": "hemis.search",
+        "command": "mnemos.search",
         "key": "ctrl+shift+h f",
         "mac": "cmd+shift+h f"
       },
       {
-        "command": "hemis.indexProject",
+        "command": "mnemos.indexProject",
         "key": "ctrl+shift+h p",
         "mac": "cmd+shift+h p"
       },
       {
-        "command": "hemis.insertLink",
+        "command": "mnemos.insertLink",
         "key": "ctrl+shift+h k",
         "mac": "cmd+shift+h k",
         "when": "editorTextFocus"
       },
       {
-        "command": "hemis.followLink",
+        "command": "mnemos.followLink",
         "key": "ctrl+shift+h ]",
         "mac": "cmd+shift+h ]",
         "when": "editorTextFocus"
       },
       {
-        "command": "hemis.navigateBack",
+        "command": "mnemos.navigateBack",
         "key": "ctrl+shift+h [",
         "mac": "cmd+shift+h [",
         "when": "editorTextFocus"
       },
       {
-        "command": "hemis.backlinks",
+        "command": "mnemos.backlinks",
         "key": "ctrl+shift+h b",
         "mac": "cmd+shift+h b",
         "when": "editorTextFocus"
       },
       {
-        "command": "hemis.viewNote",
+        "command": "mnemos.viewNote",
         "key": "ctrl+shift+h v",
         "mac": "cmd+shift+h v",
         "when": "editorTextFocus"
       },
       {
-        "command": "hemis.editNoteBuffer",
+        "command": "mnemos.editNoteBuffer",
         "key": "ctrl+shift+h shift+e",
         "mac": "cmd+shift+h shift+e",
         "when": "editorTextFocus"
       },
       {
-        "command": "hemis.explainRegion",
+        "command": "mnemos.explainRegion",
         "key": "ctrl+shift+h x",
         "mac": "cmd+shift+h x",
         "when": "editorTextFocus && editorHasSelection"
       },
       {
-        "command": "hemis.selectNote",
+        "command": "mnemos.selectNote",
         "key": "ctrl+shift+h s",
         "mac": "cmd+shift+h s",
         "when": "editorTextFocus"
       },
       {
-        "command": "hemis.clearSelection",
+        "command": "mnemos.clearSelection",
         "key": "ctrl+shift+h escape",
         "mac": "cmd+shift+h escape"
       }

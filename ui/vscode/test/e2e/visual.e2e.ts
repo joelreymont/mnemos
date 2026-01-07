@@ -13,14 +13,14 @@ import * as net from 'net';
 
 // Find backend binary
 function findBackend(): string | null {
-  const envBackend = process.env['HEMIS_BACKEND'];
+  const envBackend = process.env['MNEMOS_BACKEND'];
   if (envBackend && fs.existsSync(envBackend)) {
     return envBackend;
   }
   const extensionRoot = path.resolve(__dirname, '../../');
   const candidates = [
-    path.join(extensionRoot, '../../target/debug/hemis'),
-    path.join(extensionRoot, '../../target/release/hemis'),
+    path.join(extensionRoot, '../../target/debug/mnemos'),
+    path.join(extensionRoot, '../../target/release/mnemos'),
   ];
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
@@ -43,14 +43,14 @@ async function waitForSocket(socketPath: string, timeoutMs: number): Promise<boo
 }
 
 // Start backend server and wait for it to be ready
-async function startBackend(backend: string, hemisDir: string, dbPath: string): Promise<ChildProcess> {
+async function startBackend(backend: string, mnemosDir: string, dbPath: string): Promise<ChildProcess> {
   const env: Record<string, string> = {
     ...process.env as Record<string, string>,
-    HEMIS_DIR: hemisDir,
-    HEMIS_DB_PATH: dbPath,
+    MNEMOS_DIR: mnemosDir,
+    MNEMOS_DB_PATH: dbPath,
   };
 
-  const logPath = path.join(hemisDir, 'backend.log');
+  const logPath = path.join(mnemosDir, 'backend.log');
   const logFd = fs.openSync(logPath, 'a');
 
   const proc = spawn(backend, ['--serve'], {
@@ -60,7 +60,7 @@ async function startBackend(backend: string, hemisDir: string, dbPath: string): 
   });
 
   // Wait for socket to appear
-  const socketPath = path.join(hemisDir, 'hemis.sock');
+  const socketPath = path.join(mnemosDir, 'mnemos.sock');
   const ready = await waitForSocket(socketPath, 5000);
   if (!ready) {
     proc.kill();
@@ -111,12 +111,12 @@ test.beforeAll(async () => {
 
 test.beforeEach(async () => {
   // Create isolated test directory
-  testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hemis-playwright-'));
+  testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mnemos-playwright-'));
   const testFile = path.join(testDir, 'app.rs');
   fs.writeFileSync(testFile, DEMO_CODE);
 
   const backend = findBackend()!;
-  const dbPath = path.join(testDir, 'hemis.db');
+  const dbPath = path.join(testDir, 'mnemos.db');
 
   // Start backend server BEFORE VS Code
   console.log('Starting backend server...');
@@ -128,10 +128,10 @@ test.beforeEach(async () => {
   fs.mkdirSync(vscodeDir, { recursive: true });
 
   const settings = {
-    'hemis.backend': backend,
-    'hemis.hemisDir': testDir,
-    'hemis.databasePath': dbPath,
-    'hemis.debug': 'verbose',
+    'mnemos.backend': backend,
+    'mnemos.mnemosDir': testDir,
+    'mnemos.databasePath': dbPath,
+    'mnemos.debug': 'verbose',
   };
   fs.writeFileSync(path.join(vscodeDir, 'settings.json'), JSON.stringify(settings, null, 2));
 
@@ -140,9 +140,9 @@ test.beforeEach(async () => {
   // Set up environment
   const env: Record<string, string> = {
     ...process.env as Record<string, string>,
-    HEMIS_DIR: testDir,
-    HEMIS_DB_PATH: dbPath,
-    HEMIS_BACKEND: backend,
+    MNEMOS_DIR: testDir,
+    MNEMOS_DB_PATH: dbPath,
+    MNEMOS_BACKEND: backend,
   };
 
   // Launch VS Code with extension
@@ -257,7 +257,7 @@ test.describe('Demo Workflow E2E', () => {
     await window.waitForTimeout(2000);
 
     // Check status bar or try a command
-    await runCommand(window, 'Hemis: Show Status');
+    await runCommand(window, 'Mnemos:Show Status');
     await window.waitForTimeout(1000);
 
     // Take screenshot
@@ -269,7 +269,7 @@ test.describe('Demo Workflow E2E', () => {
     await gotoLine(window, 7);
 
     // Create a note
-    await runCommand(window, 'Hemis: Add Note');
+    await runCommand(window, 'Mnemos:Add Note');
     await typeInInputBox(window, 'Configuration loader function');
 
     // Wait for decoration to render
@@ -306,7 +306,7 @@ test.describe('Demo Workflow E2E', () => {
     await gotoLine(window, 7);
 
     // Create a note on line 7 (load_config function)
-    await runCommand(window, 'Hemis: Add Note');
+    await runCommand(window, 'Mnemos:Add Note');
     await typeInInputBox(window, 'Track position test');
     await window.waitForTimeout(1000);
 
@@ -317,7 +317,7 @@ test.describe('Demo Workflow E2E', () => {
     await window.waitForTimeout(500);
 
     // Trigger refresh
-    await runCommand(window, 'Hemis: Refresh Notes');
+    await runCommand(window, 'Mnemos:Refresh Notes');
     await window.waitForTimeout(2000);
 
     // Take screenshot showing updated position
@@ -333,7 +333,7 @@ test.describe('Demo Workflow E2E', () => {
     await gotoLine(window, 12); // fn new line
 
     // Create a note
-    await runCommand(window, 'Hemis: Add Note');
+    await runCommand(window, 'Mnemos:Add Note');
     await typeInInputBox(window, 'Constructor implementation');
     await window.waitForTimeout(1000);
 
@@ -347,7 +347,7 @@ test.describe('Demo Workflow E2E', () => {
     await window.waitForTimeout(500);
 
     // Trigger refresh to detect staleness
-    await runCommand(window, 'Hemis: Refresh Notes');
+    await runCommand(window, 'Mnemos:Refresh Notes');
     await window.waitForTimeout(2000);
 
     // Take screenshot showing stale state
@@ -363,7 +363,7 @@ test.describe('Demo Workflow E2E', () => {
     await gotoLine(window, 12);
 
     // Create a note
-    await runCommand(window, 'Hemis: Add Note');
+    await runCommand(window, 'Mnemos:Add Note');
     await typeInInputBox(window, 'Reattach test note');
     await window.waitForTimeout(1000);
 
@@ -375,7 +375,7 @@ test.describe('Demo Workflow E2E', () => {
     await window.keyboard.type('create');
     await window.waitForTimeout(500);
 
-    await runCommand(window, 'Hemis: Refresh Notes');
+    await runCommand(window, 'Mnemos:Refresh Notes');
     await window.waitForTimeout(1000);
 
     // Screenshot before reattach
@@ -383,7 +383,7 @@ test.describe('Demo Workflow E2E', () => {
 
     // Reattach the note
     await gotoLine(window, 12);
-    await runCommand(window, 'Hemis: Reattach Stale Note');
+    await runCommand(window, 'Mnemos:Reattach Stale Note');
     await window.waitForTimeout(2000);
 
     // Screenshot after reattach
@@ -399,7 +399,7 @@ test.describe('Demo Workflow E2E', () => {
     await gotoLine(window, 7);
 
     // Create a note
-    await runCommand(window, 'Hemis: Add Note');
+    await runCommand(window, 'Mnemos:Add Note');
     await typeInInputBox(window, 'Note to delete');
     await window.waitForTimeout(1000);
 
@@ -408,11 +408,11 @@ test.describe('Demo Workflow E2E', () => {
 
     // Delete the note
     await gotoLine(window, 7);
-    await runCommand(window, 'Hemis: Delete Note');
+    await runCommand(window, 'Mnemos:Delete Note');
     await window.waitForTimeout(1000);
 
     // Trigger refresh
-    await runCommand(window, 'Hemis: Refresh Notes');
+    await runCommand(window, 'Mnemos:Refresh Notes');
     await window.waitForTimeout(1000);
 
     // Screenshot without note
@@ -428,7 +428,7 @@ test.describe('Demo Workflow E2E', () => {
     await gotoLine(window, 7);
 
     // Create a multiline note
-    await runCommand(window, 'Hemis: Add Note');
+    await runCommand(window, 'Mnemos:Add Note');
     // Use Shift+Enter for newlines in input box, or just type multi-line text
     await window.keyboard.type('Config improvements:\n- Add validation\n- Support env vars');
     await window.keyboard.press('Enter');
@@ -447,17 +447,17 @@ test.describe('Demo Workflow E2E', () => {
 
     // Create a few notes
     await gotoLine(window, 1);
-    await runCommand(window, 'Hemis: Add Note');
+    await runCommand(window, 'Mnemos:Add Note');
     await typeInInputBox(window, 'Main function');
     await window.waitForTimeout(500);
 
     await gotoLine(window, 7);
-    await runCommand(window, 'Hemis: Add Note');
+    await runCommand(window, 'Mnemos:Add Note');
     await typeInInputBox(window, 'Config loader');
     await window.waitForTimeout(500);
 
     // List notes
-    await runCommand(window, 'Hemis: List Notes');
+    await runCommand(window, 'Mnemos:List Notes');
     await window.waitForTimeout(1000);
 
     // Screenshot showing note list
@@ -477,12 +477,12 @@ test.describe('Demo Workflow E2E', () => {
 
     // Create a note with searchable text
     await gotoLine(window, 7);
-    await runCommand(window, 'Hemis: Add Note');
+    await runCommand(window, 'Mnemos:Add Note');
     await typeInInputBox(window, 'Unique searchable content XYZ123');
     await window.waitForTimeout(1000);
 
     // Search for it
-    await runCommand(window, 'Hemis: Search');
+    await runCommand(window, 'Mnemos:Search');
     await window.waitForTimeout(500);
     await window.keyboard.type('XYZ123');
     await window.waitForTimeout(1000);
@@ -504,13 +504,13 @@ test.describe('Demo Workflow E2E', () => {
     await gotoLine(window, 7);
 
     // Create a note
-    await runCommand(window, 'Hemis: Add Note');
+    await runCommand(window, 'Mnemos:Add Note');
     await typeInInputBox(window, 'Original note text');
     await window.waitForTimeout(1000);
 
     // Edit the note
     await gotoLine(window, 7);
-    await runCommand(window, 'Hemis: Edit Note');
+    await runCommand(window, 'Mnemos:Edit Note');
     await window.waitForTimeout(500);
 
     // Clear and type new text
@@ -520,7 +520,7 @@ test.describe('Demo Workflow E2E', () => {
     await window.waitForTimeout(1000);
 
     // Refresh to see changes
-    await runCommand(window, 'Hemis: Refresh Notes');
+    await runCommand(window, 'Mnemos:Refresh Notes');
     await window.waitForTimeout(1000);
 
     // Screenshot showing edited note
@@ -536,13 +536,13 @@ test.describe('Demo Workflow E2E', () => {
     await gotoLine(window, 7);
 
     // Create a note
-    await runCommand(window, 'Hemis: Add Note');
+    await runCommand(window, 'Mnemos:Add Note');
     await typeInInputBox(window, 'Note for buffer editing');
     await window.waitForTimeout(1000);
 
     // Edit note in buffer
     await gotoLine(window, 7);
-    await runCommand(window, 'Hemis: Edit Note (Buffer)');
+    await runCommand(window, 'Mnemos:Edit Note (Buffer)');
     await window.waitForTimeout(2000);
 
     // Screenshot showing buffer editing
@@ -561,13 +561,13 @@ test.describe('Demo Workflow E2E', () => {
     await gotoLine(window, 7);
 
     // Create a note
-    await runCommand(window, 'Hemis: Add Note');
+    await runCommand(window, 'Mnemos:Add Note');
     await typeInInputBox(window, 'Note to view in detail');
     await window.waitForTimeout(1000);
 
     // View the note
     await gotoLine(window, 7);
-    await runCommand(window, 'Hemis: View Note');
+    await runCommand(window, 'Mnemos:View Note');
     await window.waitForTimeout(2000);
 
     // Screenshot showing note view
@@ -593,7 +593,7 @@ test.describe('Demo Workflow E2E', () => {
     await window.waitForTimeout(500);
 
     // Run explain region command
-    await runCommand(window, 'Hemis: Explain Region');
+    await runCommand(window, 'Mnemos:Explain Region');
     await window.waitForTimeout(1000);
 
     // Screenshot showing result
@@ -609,14 +609,14 @@ test.describe('Demo Workflow E2E', () => {
 
     // Create a note first (to have something to link to)
     await gotoLine(window, 7);
-    await runCommand(window, 'Hemis: Add Note');
+    await runCommand(window, 'Mnemos:Add Note');
     await typeInInputBox(window, 'Link target note');
     await window.waitForTimeout(1000);
 
     // Go to another line and insert a link
     await gotoLine(window, 1);
     await window.keyboard.press('End');
-    await runCommand(window, 'Hemis: Insert Note Link');
+    await runCommand(window, 'Mnemos:Insert Note Link');
     await window.waitForTimeout(500);
 
     // Search for the note we created
@@ -636,13 +636,13 @@ test.describe('Demo Workflow E2E', () => {
 
     // Create first note (the target)
     await gotoLine(window, 7);
-    await runCommand(window, 'Hemis: Add Note');
+    await runCommand(window, 'Mnemos:Add Note');
     await typeInInputBox(window, 'Target note for backlinks');
     await window.waitForTimeout(1000);
 
     // Create second note that links to the first
     await gotoLine(window, 1);
-    await runCommand(window, 'Hemis: Add Note');
+    await runCommand(window, 'Mnemos:Add Note');
     await window.waitForTimeout(300);
     // Insert a link reference in the note text
     await window.keyboard.type('See also: [[Target note][note-id]]');
@@ -651,7 +651,7 @@ test.describe('Demo Workflow E2E', () => {
 
     // Go back to first note and view backlinks
     await gotoLine(window, 7);
-    await runCommand(window, 'Hemis: Show Backlinks');
+    await runCommand(window, 'Mnemos:Show Backlinks');
     await window.waitForTimeout(1000);
 
     // Screenshot showing backlinks
@@ -668,20 +668,20 @@ test.describe('Demo Workflow E2E', () => {
     await gotoLine(window, 7);
 
     // Create a note
-    await runCommand(window, 'Hemis: Add Note');
+    await runCommand(window, 'Mnemos:Add Note');
     await typeInInputBox(window, 'Note to select');
     await window.waitForTimeout(1000);
 
     // Select the note
     await gotoLine(window, 7);
-    await runCommand(window, 'Hemis: Select Note');
+    await runCommand(window, 'Mnemos:Select Note');
     await window.waitForTimeout(1000);
 
     // Screenshot showing selection (status bar should show selected note)
     await window.screenshot({ path: path.join(testDir, 'select-note.png') });
 
     // Clear selection
-    await runCommand(window, 'Hemis: Clear Note Selection');
+    await runCommand(window, 'Mnemos:Clear Note Selection');
     await window.waitForTimeout(500);
 
     // Screenshot after clearing
@@ -693,7 +693,7 @@ test.describe('Demo Workflow E2E', () => {
   });
 
   test('help command shows documentation', async () => {
-    await runCommand(window, 'Hemis: Help');
+    await runCommand(window, 'Mnemos:Help');
     await window.waitForTimeout(2000);
 
     // Screenshot showing help
@@ -709,7 +709,7 @@ test.describe('Demo Workflow E2E', () => {
     // Open a file first so we have an editor visible
     await openFile(window, 'app.rs');
 
-    await runCommand(window, 'Hemis: Index Project');
+    await runCommand(window, 'Mnemos:Index Project');
     await window.waitForTimeout(3000);
 
     // Screenshot showing index result
@@ -722,11 +722,11 @@ test.describe('Demo Workflow E2E', () => {
 
   test('project info command', async () => {
     // First index the project
-    await runCommand(window, 'Hemis: Index Project');
+    await runCommand(window, 'Mnemos:Index Project');
     await window.waitForTimeout(2000);
 
     // Then view project info
-    await runCommand(window, 'Hemis: Project Info');
+    await runCommand(window, 'Mnemos:Project Info');
     await window.waitForTimeout(2000);
 
     // Screenshot showing project info
@@ -785,7 +785,7 @@ test.describe('Goto-Symbol E2E (Demo Driver Flow)', () => {
 
   test('GOTO-SYMBOL E2E: index/search finds fn load_config at correct line', async () => {
     // Use /tmp path to test symlink canonicalization (macOS: /tmp -> /private/tmp)
-    const socketPath = path.join(testDir, 'hemis.sock');
+    const socketPath = path.join(testDir, 'mnemos.sock');
     const fileContent = DEMO_CODE;
 
     // Step 1: Index the file (using non-canonical path)
@@ -808,7 +808,7 @@ test.describe('Goto-Symbol E2E (Demo Driver Flow)', () => {
   });
 
   test('GOTO-SYMBOL E2E: index/search finds impl Server at correct line', async () => {
-    const socketPath = path.join(testDir, 'hemis.sock');
+    const socketPath = path.join(testDir, 'mnemos.sock');
     const fileContent = DEMO_CODE;
 
     // Index the file
@@ -830,7 +830,7 @@ test.describe('Goto-Symbol E2E (Demo Driver Flow)', () => {
   });
 
   test('GOTO-SYMBOL E2E: index/search finds fn new at correct line', async () => {
-    const socketPath = path.join(testDir, 'hemis.sock');
+    const socketPath = path.join(testDir, 'mnemos.sock');
     const fileContent = DEMO_CODE;
 
     // Index the file
@@ -854,7 +854,7 @@ test.describe('Goto-Symbol E2E (Demo Driver Flow)', () => {
   test('GOTO-SYMBOL E2E: navigates to correct line in editor', async () => {
     await openFile(window, 'app.rs');
 
-    const socketPath = path.join(testDir, 'hemis.sock');
+    const socketPath = path.join(testDir, 'mnemos.sock');
     const fileContent = DEMO_CODE;
 
     // Index the file
@@ -886,11 +886,11 @@ test.describe('Goto-Symbol E2E (Demo Driver Flow)', () => {
   });
 });
 
-// Tests that require AI provider - skipped by default, run with HEMIS_AI_PROVIDER set
+// Tests that require AI provider - skipped by default, run with MNEMOS_AI_PROVIDER set
 test.describe('AI Features E2E', () => {
   // Skip entire suite if no AI provider configured
   test.beforeEach(async () => {
-    if (!process.env['HEMIS_AI_PROVIDER']) {
+    if (!process.env['MNEMOS_AI_PROVIDER']) {
       test.skip();
     }
   });
@@ -909,7 +909,7 @@ test.describe('AI Features E2E', () => {
     await window.waitForTimeout(500);
 
     // Run AI explain region command
-    await runCommand(window, 'Hemis: Explain Region (AI)');
+    await runCommand(window, 'Mnemos:Explain Region (AI)');
     // AI takes longer
     await window.waitForTimeout(10000);
 
@@ -926,7 +926,7 @@ test.describe('AI Features E2E', () => {
     await openFile(window, 'app.rs');
 
     // First, index the project
-    await runCommand(window, 'Hemis: Index Project');
+    await runCommand(window, 'Mnemos:Index Project');
     await window.waitForTimeout(3000);
 
     // Select Server::new method (lines 12-14 in our DEMO_CODE)
@@ -943,7 +943,7 @@ test.describe('AI Features E2E', () => {
     await window.screenshot({ path: path.join(testDir, 'demo-selection.png') });
 
     // Run AI explain region command
-    await runCommand(window, 'Hemis: Explain Region (AI)');
+    await runCommand(window, 'Mnemos:Explain Region (AI)');
 
     // Wait for AI to respond and note to be created (AI takes longer)
     await window.waitForTimeout(15000);
@@ -952,14 +952,14 @@ test.describe('AI Features E2E', () => {
     await window.screenshot({ path: path.join(testDir, 'demo-after-ai.png') });
 
     // Refresh notes to ensure decorations are updated
-    await runCommand(window, 'Hemis: Refresh Notes');
+    await runCommand(window, 'Mnemos:Refresh Notes');
     await window.waitForTimeout(2000);
 
     // Screenshot showing note decoration
     await window.screenshot({ path: path.join(testDir, 'demo-note-created.png') });
 
     // List notes to verify note was created
-    await runCommand(window, 'Hemis: List Notes');
+    await runCommand(window, 'Mnemos:List Notes');
     await window.waitForTimeout(1000);
 
     // Screenshot showing note list
@@ -988,11 +988,11 @@ test.describe('AI Features E2E', () => {
     await window.waitForTimeout(500);
 
     // Run AI explain region again for detailed explanation
-    await runCommand(window, 'Hemis: Explain Region (AI)');
+    await runCommand(window, 'Mnemos:Explain Region (AI)');
     await window.waitForTimeout(15000);
 
     // Refresh notes
-    await runCommand(window, 'Hemis: Refresh Notes');
+    await runCommand(window, 'Mnemos:Refresh Notes');
     await window.waitForTimeout(2000);
 
     // Screenshot showing second note
@@ -1000,7 +1000,7 @@ test.describe('AI Features E2E', () => {
 
     // Edit the note in buffer
     await gotoLine(window, 7);
-    await runCommand(window, 'Hemis: Edit Note (Buffer)');
+    await runCommand(window, 'Mnemos:Edit Note (Buffer)');
     await window.waitForTimeout(2000);
 
     // Screenshot showing buffer editing
@@ -1037,7 +1037,7 @@ test.describe('AI Features E2E', () => {
     await openFile(window, 'app.rs');
     await window.waitForTimeout(1000);
 
-    await runCommand(window, 'Hemis: Index Project with AI');
+    await runCommand(window, 'Mnemos:Index Project with AI');
     // AI indexing takes longer
     await window.waitForTimeout(15000);
 

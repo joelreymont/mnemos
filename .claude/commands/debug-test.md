@@ -3,12 +3,12 @@
 Debug a specific failing test with full context analysis.
 
 ## Arguments
-- `$ARGUMENTS` - The test name or pattern (e.g., "hemis-index-rust" or "notes/create")
+- `$ARGUMENTS` - The test name or pattern (e.g., "mnemos-index-rust" or "notes/create")
 
 ## Instructions
 
 1. **Identify the test file** based on the test name:
-   - Emacs tests: `ui/emacs/tests/hemis-test.el`
+   - Emacs tests: `ui/emacs/tests/mnemos-test.el`
    - Neovim display tests: `ui/neovim/tests/display_spec.lua`
    - Neovim integration tests: `ui/neovim/tests/integration_spec.lua`
 
@@ -37,12 +37,12 @@ Debug a specific failing test with full context analysis.
 
 ## Test File Locations
 ```
-ui/emacs/tests/hemis-test.el     # All Emacs tests
-ui/emacs/hemis.el                # Emacs plugin source
+ui/emacs/tests/mnemos-test.el     # All Emacs tests
+ui/emacs/mnemos.el                # Emacs plugin source
 
 ui/neovim/tests/display_spec.lua     # Display tests
 ui/neovim/tests/integration_spec.lua # Backend integration tests
 ui/neovim/tests/helpers.lua          # Test utilities
-ui/neovim/lua/hemis/display.lua      # Display source
-ui/neovim/lua/hemis/rpc.lua          # RPC client source
+ui/neovim/lua/mnemos/display.lua      # Display source
+ui/neovim/lua/mnemos/rpc.lua          # RPC client source
 ```

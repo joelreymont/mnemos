@@ -1,6 +1,6 @@
-# Hemis: A Second Brain for Your Code
+# Mnemos: A Second Brain for Your Code
 
-**Hemis = “a second brain for your code.”**
+**Mnemos = "a second brain for your code."**
 
 It is:
 
@@ -9,7 +9,7 @@ It is:
 - **LLM-powered** — Qwen / Llama / other local models provide deep reasoning.
 - **UI-rich** — Lauri + React present code, notes, backlinks, and conversations.
 
-Hemis is not “just another code assistant”. It is:
+Mnemos is not "just another code assistant". It is:
 
 - A code browser with memory.
 - A semantic layer over your entire project.

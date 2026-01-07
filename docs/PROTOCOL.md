@@ -1,6 +1,6 @@
-# Hemis Protocol v1 (JSON-RPC 2.0)
+# Mnemos Protocol v1 (JSON-RPC 2.0)
 
-Transport: **Unix domain socket** at `~/.hemis/hemis.sock`. Uses LSP-style `Content-Length` framing.
+Transport: **Unix domain socket** at `~/.mnemos/mnemos.sock`. Uses LSP-style `Content-Length` framing.
 Protocol: **JSON-RPC 2.0**.
 
 ## Note Object
@@ -58,29 +58,29 @@ Protocol: **JSON-RPC 2.0**.
 | `index/add-file` | Index a file's content |
 | `index/search` | Search indexed file content |
 
-### Hemis
+### Mnemos
 
 | Method | Description |
 |--------|-------------|
-| `hemis/status` | Get backend status (note/file counts) |
-| `hemis/search` | Combined search (notes + files) |
-| `hemis/index-project` | Index all project files |
-| `hemis/explain-region` | Get code context for a region |
-| `hemis/project-meta` | Get project metadata |
-| `hemis/open-project` | Set active project root |
-| `hemis/save-snapshot` | Save database snapshot |
-| `hemis/load-snapshot` | Load database snapshot |
-| `hemis/display-config` | Get display configuration |
-| `hemis/note-templates` | Get note templates |
-| `hemis/suggest-tags` | Suggest tags for a note |
-| `hemis/graph` | Get note link graph |
-| `hemis/tasks` | List background tasks |
-| `hemis/task-status` | Get task status |
-| `hemis/task-list` | List all tasks |
-| `hemis/code-references` | Find code references |
-| `hemis/file-context` | Get file context |
-| `hemis/buffer-context` | Get buffer context |
-| `hemis/summarize-file` | AI summarize file |
+| `mnemos/status` | Get backend status (note/file counts) |
+| `mnemos/search` | Combined search (notes + files) |
+| `mnemos/index-project` | Index all project files |
+| `mnemos/explain-region` | Get code context for a region |
+| `mnemos/project-meta` | Get project metadata |
+| `mnemos/open-project` | Set active project root |
+| `mnemos/save-snapshot` | Save database snapshot |
+| `mnemos/load-snapshot` | Load database snapshot |
+| `mnemos/display-config` | Get display configuration |
+| `mnemos/note-templates` | Get note templates |
+| `mnemos/suggest-tags` | Suggest tags for a note |
+| `mnemos/graph` | Get note link graph |
+| `mnemos/tasks` | List background tasks |
+| `mnemos/task-status` | Get task status |
+| `mnemos/task-list` | List all tasks |
+| `mnemos/code-references` | Find code references |
+| `mnemos/file-context` | Get file context |
+| `mnemos/buffer-context` | Get buffer context |
+| `mnemos/summarize-file` | AI summarize file |
 
 ## Example: Create Note
 

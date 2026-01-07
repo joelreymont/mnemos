@@ -3,12 +3,12 @@
 ## 8.1 Global
 
 ```text
-~/Library/Application Support/Hemis/
+~/Library/Application Support/Mnemos/
   models/
     qwen-32b-q4.gguf
     qwen-8b-q4.gguf
   logs/
-    hemis-backend.log
+    mnemos-backend.log
     llm-runner.log
   cache/
     embeddings-cache/
@@ -17,7 +17,7 @@
 ## 8.2 Per-Project
 
 ```text
-~/Library/Application Support/Hemis/projects/<project-id>/
+~/Library/Application Support/Mnemos/projects/<project-id>/
   config.toml
   ast/
     src__main.lisp.json

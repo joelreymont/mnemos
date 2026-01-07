@@ -1,16 +1,16 @@
--- Hemis: A Second Brain for Your Code
+-- Mnemos: A Second Brain for Your Code
 -- Neovim plugin for code-anchored notes
 
 local M = {}
 
 -- Re-export submodules
-M.rpc = require("hemis.rpc")
-M.notes = require("hemis.notes")
-M.display = require("hemis.display")
+M.rpc = require("mnemos.rpc")
+M.notes = require("mnemos.notes")
+M.display = require("mnemos.display")
 -- NOTE: treesitter module removed - server now handles anchor position, nodePath, and nodeTextHash
-M.commands = require("hemis.commands")
-M.config = require("hemis.config")
-M.events = require("hemis.events")
+M.commands = require("mnemos.commands")
+M.config = require("mnemos.config")
+M.events = require("mnemos.events")
 
 -- Find buffer by file path, handling path canonicalization
 -- Server sends canonicalized paths (e.g., /private/tmp/foo on macOS)

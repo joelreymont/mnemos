@@ -2,14 +2,14 @@
 
 ## Overview
 
-Add a Neovim frontend for Hemis using LazyVim conventions. The plugin will communicate with the same Rust backend over stdio JSON-RPC, providing feature parity with the Emacs UI.
+Add a Neovim frontend for Mnemos using LazyVim conventions. The plugin will communicate with the same Rust backend over stdio JSON-RPC, providing feature parity with the Emacs UI.
 
 ## Directory Structure
 
 ```
 ui/neovim/
   lua/
-    hemis/
+    mnemos/
       init.lua           # Plugin setup, public API
       rpc.lua            # JSON-RPC client (stdio, Content-Length framing)
       notes.lua          # Note CRUD operations
@@ -19,7 +19,7 @@ ui/neovim/
       telescope.lua      # Telescope integration (search, note linking)
       config.lua         # Configuration with defaults
   plugin/
-    hemis.lua            # Lazy-load entry point
+    mnemos.lua           # Lazy-load entry point
   README.md
 ```
 
@@ -27,7 +27,7 @@ ui/neovim/
 
 ### Phase 1: RPC Client
 
-**Files**: `lua/hemis/rpc.lua`, `lua/hemis/config.lua`
+**Files**: `lua/mnemos/rpc.lua`, `lua/mnemos/config.lua`
 
 **Features**:
 - Start backend process with `vim.fn.jobstart()`
@@ -47,15 +47,15 @@ M.request_sync(method, params)       -- Sync request (for simple cases)
 **Config**:
 ```lua
 {
-  backend = nil,  -- Path to hemis binary (auto-detect from plugin dir)
-  backend_env = { "HEMIS_DB_PATH=..." },
+  backend = nil,  -- Path to mnemos binary (auto-detect from plugin dir)
+  backend_env = { "MNEMOS_DB_PATH=..." },
   log_level = "warn",
 }
 ```
 
 ### Phase 2: Basic Notes
 
-**Files**: `lua/hemis/notes.lua`, `lua/hemis/display.lua`
+**Files**: `lua/mnemos/notes.lua`, `lua/mnemos/display.lua`
 
 **Features**:
 - Create note at cursor position
@@ -81,7 +81,7 @@ M.get(id)                 -- Get single note
 
 ### Phase 3: Tree-sitter Integration
 
-**Files**: `lua/hemis/treesitter.lua`
+**Files**: `lua/mnemos/treesitter.lua`
 
 **Features**:
 - Get Tree-sitter node at cursor
@@ -100,21 +100,21 @@ M.is_available()          -- Check if Tree-sitter is available for buffer
 
 ### Phase 4: Commands and Keybindings
 
-**Files**: `lua/hemis/commands.lua`, `plugin/hemis.lua`
+**Files**: `lua/mnemos/commands.lua`, `plugin/mnemos.lua`
 
 **User commands**:
 ```
-:HemisAddNote           -- Add note at cursor (opens input)
-:HemisListNotes         -- Open notes list for buffer
-:HemisRefresh           -- Refresh note display
-:HemisDeleteNote        -- Delete note at cursor
-:HemisEditNote          -- Edit note at cursor
-:HemisSearch <query>    -- Search notes/files
-:HemisIndexFile         -- Index current file
-:HemisIndexProject      -- Index all project files
-:HemisInsertLink        -- Insert note link
-:HemisStatus            -- Show backend status
-:HemisShutdown          -- Stop backend
+:MnemosAddNote          -- Add note at cursor (opens input)
+:MnemosListNotes        -- Open notes list for buffer
+:MnemosRefresh          -- Refresh note display
+:MnemosDeleteNote       -- Delete note at cursor
+:MnemosEditNote         -- Edit note at cursor
+:MnemosSearch <query>   -- Search notes/files
+:MnemosIndexFile        -- Index current file
+:MnemosIndexProject     -- Index all project files
+:MnemosInsertLink       -- Insert note link
+:MnemosStatus           -- Show backend status
+:MnemosShutdown         -- Stop backend
 ```
 
 **Default keybindings** (under `<leader>h`):
@@ -133,7 +133,7 @@ M.is_available()          -- Check if Tree-sitter is available for buffer
 
 ### Phase 5: Telescope Integration
 
-**Files**: `lua/hemis/telescope.lua`
+**Files**: `lua/mnemos/telescope.lua`
 
 **Features**:
 - Notes picker (list all notes, preview, jump to location)
@@ -160,7 +160,7 @@ M.note_links()      -- Insert note link
 
 **Buffer format**:
 ```
-Hemis notes for src/main.rs
+Mnemos notes for src/main.rs
 
   0 [a1b2c3d4] L10,C0
     This is the first note
@@ -184,7 +184,7 @@ Hemis notes for src/main.rs
 - Stale note indicators (different highlight when commit/blob mismatch)
 - Auto-refresh on BufEnter
 - Lazy loading (only start backend when needed)
-- Health check (`:checkhealth hemis`)
+- Health check (`:checkhealth mnemos`)
 - Which-key integration for keybinding hints
 
 ## Testing Strategy
@@ -199,13 +199,13 @@ Hemis notes for src/main.rs
 - Note CRUD operations
 - Search functionality
 
-**Test file**: `ui/neovim/tests/hemis_spec.lua`
+**Test file**: `ui/neovim/tests/mnemos_spec.lua`
 
 ## Dependencies
 
 **Required**:
 - Neovim 0.9+ (for native Tree-sitter, extmarks with virt_lines)
-- hemis backend binary
+- mnemos backend binary
 
 **Optional**:
 - telescope.nvim (for search/linking UI)
@@ -215,17 +215,17 @@ Hemis notes for src/main.rs
 ## Configuration Example
 
 ```lua
--- In LazyVim: lua/plugins/hemis.lua
+-- In LazyVim: lua/plugins/mnemos.lua
 return {
   {
-    dir = "~/Work/hemis/ui/neovim",
+    dir = "~/Work/mnemos/ui/neovim",
     dependencies = {
       "nvim-telescope/telescope.nvim",
     },
     opts = {
-      backend = "~/Work/hemis/target/debug/hemis",
+      backend = "~/Work/mnemos/target/debug/mnemos",
       backend_env = {
-        "HEMIS_DB_PATH=~/Work/hemis/hemis.db",
+        "MNEMOS_DB_PATH=~/Work/mnemos/mnemos.db",
       },
       auto_refresh = true,
       keymaps = {
@@ -233,9 +233,9 @@ return {
       },
     },
     keys = {
-      { "<leader>ha", "<cmd>HemisAddNote<cr>", desc = "Add note" },
-      { "<leader>hl", "<cmd>HemisListNotes<cr>", desc = "List notes" },
-      { "<leader>hs", "<cmd>HemisSearch<cr>", desc = "Search" },
+      { "<leader>ha", "<cmd>MnemosAddNote<cr>", desc = "Add note" },
+      { "<leader>hl", "<cmd>MnemosListNotes<cr>", desc = "List notes" },
+      { "<leader>hs", "<cmd>MnemosSearch<cr>", desc = "Search" },
     },
   },
 }

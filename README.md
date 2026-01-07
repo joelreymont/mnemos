@@ -1,6 +1,6 @@
-# Hemis: A Second Brain for Your Code
+# Mnemos: A Second Brain for Your Code
 
-Hemis attaches persistent notes to code locations, anchored to Tree-sitter nodes. Notes survive refactoring and are searchable across your project.
+Mnemos attaches persistent notes to code locations, anchored to Tree-sitter nodes. Notes survive refactoring and are searchable across your project.
 
 ## Features
 
@@ -17,12 +17,12 @@ Hemis attaches persistent notes to code locations, anchored to Tree-sitter nodes
 ```
 ┌─────────────┐                        ┌─────────────────────────────┐
 │   Emacs     │     Unix Socket        │                             │
-│   hemis.el  │◄──────────────────────►│                             │
+│   mnemos.el │◄──────────────────────►│                             │
 └─────────────┘                        │                             │
-               ~/.hemis/hemis.sock     │   Backend Server            │
+               ~/.mnemos/mnemos.sock   │   Backend Server            │
 ┌─────────────┐     Unix Socket        │   (Single Process)          │
 │   Neovim    │◄──────────────────────►│                             │
-│   hemis.lua │                        │   - Reference counting      │
+│   mnemos.lua│                        │   - Reference counting      │
 └─────────────┘                        │   - Grace period shutdown   │
                                        │   - Version checking        │
 ┌─────────────┐     Unix Socket        │                             │
@@ -32,8 +32,8 @@ Hemis attaches persistent notes to code locations, anchored to Tree-sitter nodes
                                                       ▼
                                                ┌─────────────┐
                                                │   SQLite    │
-                                               │  ~/.hemis/  │
-                                               │  hemis.db   │
+                                               │  ~/.mnemos/ │
+                                               │  mnemos.db  │
                                                └─────────────┘
 ```
 
@@ -41,12 +41,12 @@ All editors connect to a single backend process via Unix domain socket. The firs
 
 ## Database Location
 
-By default, Hemis stores notes in `~/.hemis/hemis.db`. This enables sharing notes across Emacs, Neovim, and VS Code simultaneously.
+By default, Mnemos stores notes in `~/.mnemos/mnemos.db`. This enables sharing notes across Emacs, Neovim, and VS Code simultaneously.
 
 To use a different location (e.g., for project-specific databases):
 
 ```bash
-export HEMIS_DB_PATH=/path/to/custom.db
+export MNEMOS_DB_PATH=/path/to/custom.db
 ```
 
 ## Quick Start
@@ -54,12 +54,12 @@ export HEMIS_DB_PATH=/path/to/custom.db
 ### Build the Backend
 
 ```bash
-git clone https://github.com/joelreymont/hemis
-cd hemis
+git clone https://github.com/joelreymont/mnemos
+cd mnemos
 cargo build --release
 ```
 
-The binary is at `target/release/hemis`.
+The binary is at `target/release/mnemos`.
 
 ### Installation
 
@@ -98,10 +98,10 @@ All editors use a consistent `<prefix> h` pattern:
 
 ## AI Features
 
-Hemis can use AI to generate code explanations. Set the provider:
+Mnemos can use AI to generate code explanations. Set the provider:
 
 ```bash
-export HEMIS_AI_PROVIDER=claude  # or codex, none
+export MNEMOS_AI_PROVIDER=claude  # or codex, none
 ```
 
 Use `<leader>hx` (visual mode) to explain selected code.
@@ -117,14 +117,14 @@ cd ui/neovim && nvim --headless -u tests/minimal_init.lua \
   -c "PlenaryBustedDirectory tests/ {minimal_init = 'tests/minimal_init.lua'}"
 
 # Emacs tests
-emacs -Q --batch -L ui/emacs -l hemis.el \
-  -L ui/emacs/tests -l hemis-test.el -f ert-run-tests-batch-and-exit
+emacs -Q --batch -L ui/emacs -l mnemos.el \
+  -L ui/emacs/tests -l mnemos-test.el -f ert-run-tests-batch-and-exit
 ```
 
 ## Project Structure
 
 ```
-hemis/
+mnemos/
   backend/              # Rust JSON-RPC server
     src/
     crates/
@@ -135,7 +135,7 @@ hemis/
       storage/          # SQLite helpers, migrations
       treesitter/       # Tree-sitter parsing
   ui/
-    emacs/              # Emacs client (hemis.el)
+    emacs/              # Emacs client (mnemos.el)
     neovim/             # Neovim client (lua)
     vscode/             # VS Code extension
   docs/
@@ -147,7 +147,7 @@ hemis/
 
 ## Protocol
 
-The backend speaks JSON-RPC 2.0 over Unix domain socket (`~/.hemis/hemis.sock`). See [docs/PROTOCOL.md](docs/PROTOCOL.md) for the full API.
+The backend speaks JSON-RPC 2.0 over Unix domain socket (`~/.mnemos/mnemos.sock`). See [docs/PROTOCOL.md](docs/PROTOCOL.md) for the full API.
 
 ## License
 

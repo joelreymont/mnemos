@@ -1,5 +1,5 @@
 -- Simple standalone e2e test for explain-region
--- Run: HEMIS_AI_PROVIDER=claude nvim --headless -u tests/minimal_init.lua -l tests/simple_e2e.lua
+-- Run: MNEMOS_AI_PROVIDER=claude nvim --headless -u tests/minimal_init.lua -l tests/simple_e2e.lua
 
 -- Set up paths
 local root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h")
@@ -17,12 +17,12 @@ for _, path in ipairs(plenary_paths) do
   end
 end
 
-print("=== Hemis E2E Test ===")
+print("=== Mnemos E2E Test ===")
 
 -- Check AI provider
-local ai_provider = vim.env.HEMIS_AI_PROVIDER
+local ai_provider = vim.env.MNEMOS_AI_PROVIDER
 if not ai_provider then
-  print("ERROR: HEMIS_AI_PROVIDER not set")
+  print("ERROR: MNEMOS_AI_PROVIDER not set")
   vim.cmd("cquit 1")
   return
 end
@@ -30,8 +30,8 @@ print("AI Provider: " .. ai_provider)
 
 -- Find backend
 local backend_paths = {
-  root .. "/../../target/release/hemis",
-  root .. "/../../target/debug/hemis",
+  root .. "/../../target/release/mnemos",
+  root .. "/../../target/debug/mnemos",
 }
 local backend = nil
 for _, path in ipairs(backend_paths) do
@@ -50,7 +50,7 @@ end
 print("Backend: " .. backend)
 
 -- Create temp directory
-local test_dir = vim.fn.tempname() .. "_hemis_e2e"
+local test_dir = vim.fn.tempname() .. "_mnemos_e2e"
 vim.fn.mkdir(test_dir, "p")
 print("Test dir: " .. test_dir)
 
@@ -69,18 +69,18 @@ if f then
 end
 print("Test file: " .. test_file)
 
--- Configure hemis
-local config = require("hemis.config")
+-- Configure mnemos
+local config = require("mnemos.config")
 config.setup({
   backend = backend,
-  hemis_dir = test_dir,
+  mnemos_dir = test_dir,
   auto_refresh = false,
   keymaps = false,
   log_level = "debug",
 })
 
 -- Start RPC
-local rpc = require("hemis.rpc")
+local rpc = require("mnemos.rpc")
 rpc.stop() -- Clean up any existing connection
 
 print("Starting RPC connection...")
@@ -107,10 +107,10 @@ end
 if connection_error then
   print("FAILED: " .. connection_error)
   -- Check log file
-  local log_file = test_dir .. "/hemis.log"
+  local log_file = test_dir .. "/mnemos.log"
   local lf = io.open(log_file, "r")
   if lf then
-    print("=== hemis.log ===")
+    print("=== mnemos.log ===")
     print(lf:read("*a"))
     lf:close()
   end
@@ -131,7 +131,7 @@ end
 -- Index project first (required before notes can be listed)
 print("\nIndexing project...")
 local index_done = false
-rpc.request("hemis/index-project", {
+rpc.request("mnemos/index-project", {
   projectRoot = test_dir,
 }, function(e, r)
   if e then
@@ -149,12 +149,12 @@ while not index_done and (vim.uv.now() - start_time) < 5000 do
 end
 
 -- Test explain-region RPC
-print("\nTesting hemis/explain-region with AI...")
+print("\nTesting mnemos/explain-region with AI...")
 local result = nil
 local err = nil
 local done = false
 
-rpc.request("hemis/explain-region", {
+rpc.request("mnemos/explain-region", {
   file = test_file,
   startLine = 2,
   endLine = 4,

@@ -21,20 +21,20 @@ for _, path in ipairs(plenary_paths) do
   end
 end
 
--- Configure hemis for testing
-vim.g.hemis_test_mode = true
+-- Configure mnemos for testing
+vim.g.mnemos_test_mode = true
 
 -- Find the backend binary relative to plugin root
 local backend_paths = {
-  root .. "/../../zig-out/bin/hemis",
-  root .. "/../../target/debug/hemis",
-  root .. "/../../target/release/hemis",
+  root .. "/../../zig-out/bin/mnemos",
+  root .. "/../../target/debug/mnemos",
+  root .. "/../../target/release/mnemos",
 }
 
 for _, path in ipairs(backend_paths) do
   local expanded = vim.fn.fnamemodify(path, ":p")
   if vim.fn.executable(expanded) == 1 then
-    vim.g.hemis_test_backend = expanded
+    vim.g.mnemos_test_backend = expanded
     break
   end
 end

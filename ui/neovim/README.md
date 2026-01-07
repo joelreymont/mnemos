@@ -1,6 +1,6 @@
-# Hemis Neovim UI
+# Mnemos Neovim UI
 
-Neovim plugin for Hemis - a second brain for your code.
+Neovim plugin for Mnemos - a second brain for your code.
 
 ## Features
 
@@ -13,16 +13,16 @@ Neovim plugin for Hemis - a second brain for your code.
 ## Requirements
 
 - Neovim 0.9+
-- hemis backend binary
+- mnemos backend binary
 
 ## Quick Start
 
 ```lua
 -- In lazy.nvim
 {
-  dir = "/path/to/hemis/ui/neovim",
+  dir = "/path/to/mnemos/ui/neovim",
   opts = {
-    backend = "/path/to/hemis/target/release/hemis",
+    backend = "/path/to/mnemos/target/release/mnemos",
   },
 }
 ```
@@ -43,7 +43,7 @@ nvim --headless -u tests/minimal_init.lua \
 ## Structure
 
 ```
-lua/hemis/
+lua/mnemos/
   init.lua        # Main module, setup()
   config.lua      # Configuration
   rpc.lua         # JSON-RPC client
@@ -51,7 +51,7 @@ lua/hemis/
   display.lua     # Virtual text rendering
   commands.lua    # Commands and keymaps
 plugin/
-  hemis.lua       # Entry point
+  mnemos.lua       # Entry point
 tests/
-  hemis_spec.lua  # Integration tests
+  mnemos_spec.lua  # Integration tests
 ```

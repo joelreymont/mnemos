@@ -1,16 +1,16 @@
-# Hemis Architecture
+# Mnemos Architecture
 
 ## Overview
 
 ```
 ┌─────────────┐                        ┌─────────────────────────────┐
 │   Emacs     │     Unix Socket        │                             │
-│   hemis.el  │◄──────────────────────►│                             │
+│   mnemos.el │◄──────────────────────►│                             │
 └─────────────┘                        │                             │
-               ~/.hemis/hemis.sock     │   Backend Server            │
+               ~/.mnemos/mnemos.sock   │   Backend Server            │
 ┌─────────────┐     Unix Socket        │   (Single Process)          │
 │   Neovim    │◄──────────────────────►│                             │
-│   hemis.lua │                        │   - Reference counting      │
+│   mnemos.lua│                        │   - Reference counting      │
 └─────────────┘                        │   - Grace period shutdown   │
                                        │   - Version checking        │
 ┌─────────────┐     Unix Socket        │                             │
@@ -20,16 +20,16 @@
                                                       ▼
                                                ┌─────────────┐
                                                │   SQLite    │
-                                               │  ~/.hemis/  │
-                                               │  hemis.db   │
+                                               │  ~/.mnemos/ │
+                                               │  mnemos.db  │
                                                └─────────────┘
 
 Files:
-  ~/.hemis/
-    hemis.db        # Database
-    hemis.sock      # Unix domain socket
-    hemis.lock      # PID file for startup coordination
-    hemis.log       # Server logs (optional)
+  ~/.mnemos/
+    mnemos.db       # Database
+    mnemos.sock     # Unix domain socket
+    mnemos.lock     # PID file for startup coordination
+    mnemos.log      # Server logs (optional)
     events.sock     # Event notifications socket
 ```
 
@@ -82,18 +82,18 @@ User reattaches → new nodeTextHash computed
 
 ### Neovim (lua)
 
-- `hemis/rpc.lua`: Socket connection, request/response handling
-- `hemis/notes.lua`: Note operations (create, list, search, etc.)
-- `hemis/commands.lua`: User commands, keybindings, display
-- `hemis/display.lua`: Virtual text rendering for notes
+- `mnemos/rpc.lua`: Socket connection, request/response handling
+- `mnemos/notes.lua`: Note operations (create, list, search, etc.)
+- `mnemos/commands.lua`: User commands, keybindings, display
+- `mnemos/display.lua`: Virtual text rendering for notes
 
 Selected note stored in `M.selected_note`, operations use this state.
 
 ### Emacs (elisp)
 
-- `hemis.el`: All-in-one package
+- `mnemos.el`: All-in-one package
 - Uses overlays for note display
-- `hemis-notes-mode` auto-enables in `prog-mode`
+- `mnemos-notes-mode` auto-enables in `prog-mode`
 - Keymap under `C-c h ...`
 
 ### VS Code (TypeScript)
@@ -103,19 +103,19 @@ Selected note stored in `M.selected_note`, operations use this state.
 
 ## AI Integration
 
-Optional AI features via `HEMIS_AI_PROVIDER` environment variable:
+Optional AI features via `MNEMOS_AI_PROVIDER` environment variable:
 
 - `claude`: Anthropic Claude API
 - `codex`: OpenAI Codex via CLI
 - `none`: Disabled (default)
 
 AI features:
-- `hemis/explain-region`: Generate explanation for code region
+- `mnemos/explain-region`: Generate explanation for code region
 - `notes/explain-and-create`: AI-generated note from code
 
 ## Event System
 
-Backend emits events via `~/.hemis/events.sock`:
+Backend emits events via `~/.mnemos/events.sock`:
 
 - `note-created`: New note created
 - `note-updated`: Note text/tags changed
@@ -135,8 +135,8 @@ cd ui/neovim && nvim --headless -u tests/minimal_init.lua \
   -c "PlenaryBustedDirectory tests/ {minimal_init = 'tests/minimal_init.lua'}"
 
 # Emacs tests (ERT)
-emacs -Q --batch -L ui/emacs -l hemis.el \
-  -L ui/emacs/tests -l hemis-test.el -f ert-run-tests-batch-and-exit
+emacs -Q --batch -L ui/emacs -l mnemos.el \
+  -L ui/emacs/tests -l mnemos-test.el -f ert-run-tests-batch-and-exit
 
 # VSCode tests
 cd ui/vscode && npm test

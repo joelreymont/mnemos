@@ -1,6 +1,6 @@
-# Hemis: A Second Brain for Your Code
+# Mnemos: A Second Brain for Your Code
 
-**Hemis = “a second brain for your code.”**
+**Mnemos = "a second brain for your code."**
 
 It is:
 
@@ -9,7 +9,7 @@ It is:
 - **LLM-powered** — Qwen / Llama / other local models provide deep reasoning.
 - **UI-rich** — Lauri + React present code, notes, backlinks, and conversations.
 
-Hemis is not “just another code assistant”. It is:
+Mnemos is not "just another code assistant". It is:
 
 - A code browser with memory.
 - A semantic layer over your entire project.
@@ -31,12 +31,12 @@ This spec describes:
 
 # 1. Architecture
 
-Hemis is a three-process architecture designed for interactive, local code intelligence.
+Mnemos is a three-process architecture designed for interactive, local code intelligence.
 
 ```text
 +---------------------+        JSON-RPC        +--------------------+       HTTP/JSON        +------------------+
 |   UI (Lauri +       | <--------------------> |   Lisp Backend     | <--------------------> |   LLM Runner     |
-|   React front-end)  |                        |  (Hemis Brain)     |                       | (Qwen / Llama)   |
+|   React front-end)  |                        |  (Mnemos Brain)     |                       | (Qwen / Llama)   |
 +---------------------+                        +--------------------+                       +------------------+
        ^                                                ^
        |                                                |
@@ -60,7 +60,7 @@ Hemis is a three-process architecture designed for interactive, local code intel
   - `compare-versions`
 - Streams partial responses from Lisp/LLM to the user.
 
-### Lisp Backend (Hemis Brain)
+### Lisp Backend (Mnemos Brain)
 - Maintains all long-lived state:
   - Project registry and configuration.
   - Symbol graph and AST cache.
@@ -101,19 +101,19 @@ Hemis is a three-process architecture designed for interactive, local code intel
 - Responsibilities:
   - Rendering code and semantic overlays.
   - Providing navigation (search, go-to-def, backlinks).
-  - Exposing conversational interface to Hemis.
+  - Exposing conversational interface to Mnemos.
   - Displaying streaming tokens from the LLM.
 
 ## 2.2 Lisp Backend Process
 
-Runs in a Common Lisp image (e.g., SBCL) and loads Hemis packages:
+Runs in a Common Lisp image (e.g., SBCL) and loads Mnemos packages:
 
-- `hemis.core`   — shared utilities and types.
-- `hemis.config` — configuration loading and validation.
-- `hemis.index`  — indexing, symbol graph, embeddings, notes.
-- `hemis.tools`  — tool implementations used by the LLM.
-- `hemis.llm`    — client for the LLM runner.
-- `hemis.server` — JSON-RPC server for the UI.
+- `mnemos.core`   — shared utilities and types.
+- `mnemos.config` — configuration loading and validation.
+- `mnemos.index`  — indexing, symbol graph, embeddings, notes.
+- `mnemos.tools`  — tool implementations used by the LLM.
+- `mnemos.llm`    — client for the LLM runner.
+- `mnemos.server` — JSON-RPC server for the UI.
 
 It also:
 - Connects to SLY/Slynk for live coding.
@@ -152,7 +152,7 @@ For each user action, Lisp:
    - `trace-call-chain`
    - `summarise-subsystem`
 3. Renders a `messages` array:
-   - System: stable instruction for Hemis’ persona and boundaries.
+   - System: stable instruction for Mnemos' persona and boundaries.
    - Context: code snippets and summaries.
    - User: the user’s question or command.
 
@@ -180,7 +180,7 @@ The LLM responds with a stream of events:
 Lisp:
 - For tokens: forwards them to the UI.
 - For tool calls:
-  - Executes the corresponding `hemis.tools` function.
+  - Executes the corresponding `mnemos.tools` function.
   - Sends a follow-up “tool result” message back to the model.
 - For completion:
   - Finalises the response and returns structured metadata (e.g., suggested notes, file locations).
@@ -190,7 +190,7 @@ Lisp:
 1. LLM:  
    `tool_call: { "name": "find-usages", "arguments": {"symbol": "parse-expression"} }`
 2. Lisp:
-   - Runs `hemis.index:find-usages`.
+   - Runs `mnemos.index:find-usages`.
    - Returns results as `tool_result` message to LLM:
      - file paths
      - line/column ranges
@@ -202,7 +202,7 @@ Lisp:
 
 # 4. Indexing and Project State
 
-Hemis builds a multi-layer index over your project.
+Mnemos builds a multi-layer index over your project.
 
 ## 4.1 Components
 
@@ -232,7 +232,7 @@ Hemis builds a multi-layer index over your project.
 
 ## 4.3 Project Snapshots
 
-Hemis may periodically write snapshots:
+Mnemos may periodically write snapshots:
 
 - Project metadata.
 - Index version and layout.
@@ -290,7 +290,7 @@ A tool is a function from JSON arguments to JSON results.
 ```lisp
 (defun tool-find-usages (args)
   (let* ((symbol (gethash "symbol" args))
-         (results (hemis.index:find-usages symbol)))
+         (results (mnemos.index:find-usages symbol)))
     `(("status" . "ok")
       ("results" . ,results))))
 ```
@@ -334,7 +334,7 @@ Steps:
     - Full model — slower, larger, more capable.
   - Download and verify.
   - Store under:
-    - `~/Library/Application Support/Hemis/models/<model-name>/`
+    - `~/Library/Application Support/Mnemos/models/<model-name>/`
 
 ## 6.3 LLM Runner Startup
 
@@ -391,11 +391,11 @@ Once minimal indexes exist, the system transitions to “ready”:
  type = "llama-cpp"
  host = "127.0.0.1"
  port = 4010
- model_path = "/Users/you/Library/Application Support/Hemis/models/qwen-32b-q4.gguf"
+ model_path = "/Users/you/Library/Application Support/Mnemos/models/qwen-32b-q4.gguf"
 
 [paths]
- models_dir = "/Users/you/Library/Application Support/Hemis/models"
- logs_dir = "/Users/you/Library/Application Support/Hemis/logs"
+ models_dir = "/Users/you/Library/Application Support/Mnemos/models"
+ logs_dir = "/Users/you/Library/Application Support/Mnemos/logs"
  ```
 
  ## 7.2 Project Configuration
@@ -422,12 +422,12 @@ Once minimal indexes exist, the system transitions to “ready”:
 ## 8.1 Global
 
 ```text
-~/Library/Application Support/Hemis/
+~/Library/Application Support/Mnemos/
   models/
     qwen-32b-q4.gguf
     qwen-8b-q4.gguf
   logs/
-    hemis-backend.log
+    mnemos-backend.log
     llm-runner.log
   cache/
     embeddings-cache/
@@ -436,7 +436,7 @@ Once minimal indexes exist, the system transitions to “ready”:
 ## 8.2 Per-Project
 
 ```text
-~/Library/Application Support/Hemis/projects/<project-id>/
+~/Library/Application Support/Mnemos/projects/<project-id>/
   config.toml
   ast/
     src__main.lisp.json
@@ -460,12 +460,12 @@ The UI and Lisp backend talk over JSON-RPC.
 
 ## 9.1 Example Methods
 
-- `hemis.open-project`
-- `hemis.list-files`
-- `hemis.get-file`
-- `hemis.explain-region`
-- `hemis.find-usages`
-- `hemis.search`
+- `mnemos.open-project`
+- `mnemos.list-files`
+- `mnemos.get-file`
+- `mnemos.explain-region`
+- `mnemos.find-usages`
+- `mnemos.search`
 
 ## 9.2 Example Request
 
@@ -473,7 +473,7 @@ The UI and Lisp backend talk over JSON-RPC.
 {
   "jsonrpc": "2.0",
   "id": 1,
-  "method": "hemis.explain-region",
+  "method": "mnemos.explain-region",
   "params": {
     "file": "src/main.lisp",
     "start": {"line": 10, "column": 0},
@@ -505,7 +505,7 @@ The UI and Lisp backend talk over JSON-RPC.
 
 ## 10.1 Purpose
 
-Embeddings let Hemis:
+Embeddings let Mnemos:
 
 - Find similar code snippets.
 - Connect notes and code semantically.

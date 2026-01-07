@@ -4,16 +4,16 @@ const process = std.process;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
-/// Get grammars directory (~/.config/hemis/grammars)
+/// Get grammars directory (~/.config/mnemos/grammars)
 fn getGrammarsDir(alloc: Allocator) ![]const u8 {
     if (process.getEnvVarOwned(alloc, "XDG_CONFIG_HOME")) |xdg| {
         defer alloc.free(xdg);
-        return try std.fmt.allocPrint(alloc, "{s}/hemis/grammars", .{xdg});
+        return try std.fmt.allocPrint(alloc, "{s}/mnemos/grammars", .{xdg});
     } else |_| {}
 
     if (process.getEnvVarOwned(alloc, "HOME")) |home| {
         defer alloc.free(home);
-        return try std.fmt.allocPrint(alloc, "{s}/.config/hemis/grammars", .{home});
+        return try std.fmt.allocPrint(alloc, "{s}/.config/mnemos/grammars", .{home});
     } else |_| {}
 
     return error.NoHomeDir;
@@ -97,8 +97,8 @@ pub fn run(alloc: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "fetch")) {
         if (args.len < 2) {
             printErr("error: 'grammar fetch' requires a grammar name\n", .{});
-            printErr("Usage: hemis grammar fetch <name>\n", .{});
-            printErr("       hemis grammar fetch --all\n", .{});
+            printErr("Usage: mnemos grammar fetch <name>\n", .{});
+            printErr("       mnemos grammar fetch --all\n", .{});
             process.exit(1);
         }
         if (mem.eql(u8, args[1], "--all")) {
@@ -109,8 +109,8 @@ pub fn run(alloc: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "build")) {
         if (args.len < 2) {
             printErr("error: 'grammar build' requires a grammar name\n", .{});
-            printErr("Usage: hemis grammar build <name>\n", .{});
-            printErr("       hemis grammar build --all\n", .{});
+            printErr("Usage: mnemos grammar build <name>\n", .{});
+            printErr("       mnemos grammar build --all\n", .{});
             process.exit(1);
         }
         if (mem.eql(u8, args[1], "--all")) {
@@ -127,10 +127,10 @@ pub fn run(alloc: Allocator, args: []const []const u8) !void {
 
 fn printHelp() void {
     const help =
-        \\hemis grammar - Manage tree-sitter grammars
+        \\mnemos grammar - Manage tree-sitter grammars
         \\
         \\USAGE:
-        \\    hemis grammar <COMMAND>
+        \\    mnemos grammar <COMMAND>
         \\
         \\COMMANDS:
         \\    list              List installed grammars
@@ -141,12 +141,12 @@ fn printHelp() void {
         \\    help              Show this help message
         \\
         \\EXAMPLES:
-        \\    hemis grammar fetch rust
-        \\    hemis grammar build rust
+        \\    mnemos grammar fetch rust
+        \\    mnemos grammar build rust
         \\
         \\LOCATIONS:
-        \\    Sources: ~/.config/hemis/grammars/sources/<name>/
-        \\    Built:   ~/.config/hemis/grammars/libtree-sitter-<name>.{dylib,so}
+        \\    Sources: ~/.config/mnemos/grammars/sources/<name>/
+        \\    Built:   ~/.config/mnemos/grammars/libtree-sitter-<name>.{dylib,so}
         \\
     ;
     fs.File.stdout().writeAll(help) catch {};
@@ -167,7 +167,7 @@ fn list(alloc: Allocator) !void {
 
     var dir = fs.openDirAbsolute(grammars_dir, .{ .iterate = true }) catch |err| {
         if (err == error.FileNotFound) {
-            print("  (none - run 'hemis grammar fetch <name>' then 'hemis grammar build <name>')\n", .{});
+            print("  (none - run 'mnemos grammar fetch <name>' then 'mnemos grammar build <name>')\n", .{});
             return;
         }
         printErr("error: could not open grammars directory: {s}\n", .{@errorName(err)});
@@ -290,11 +290,11 @@ fn fetch(alloc: Allocator, name: []const u8) !void {
 /// Fetch common grammars
 fn fetchAll(alloc: Allocator) !void {
     const common = [_][]const u8{
-        "rust",     "python",     "javascript", "typescript", "c",
-        "cpp",      "go",         "java",       "ruby",       "bash",
-        "json",     "yaml",       "toml",       "html",       "css",
-        "markdown", "zig",        "lua",        "swift",      "kotlin",
-        "elixir",   "haskell",    "ocaml",      "scala",      "php",
+        "rust",     "python",  "javascript", "typescript", "c",
+        "cpp",      "go",      "java",       "ruby",       "bash",
+        "json",     "yaml",    "toml",       "html",       "css",
+        "markdown", "zig",     "lua",        "swift",      "kotlin",
+        "elixir",   "haskell", "ocaml",      "scala",      "php",
     };
 
     var fetched: u32 = 0;
@@ -332,7 +332,7 @@ fn build(alloc: Allocator, name: []const u8) !void {
     // Check source exists
     fs.accessAbsolute(source_dir, .{}) catch {
         printErr("error: source not found for '{s}'\n", .{name});
-        printErr("Run 'hemis grammar fetch {s}' first\n", .{name});
+        printErr("Run 'mnemos grammar fetch {s}' first\n", .{name});
         process.exit(1);
     };
 
@@ -476,7 +476,7 @@ fn buildAll(alloc: Allocator) !void {
 
     var dir = fs.openDirAbsolute(sources_dir, .{ .iterate = true }) catch |err| {
         if (err == error.FileNotFound) {
-            print("No grammar sources found. Run 'hemis grammar fetch --all' first.\n", .{});
+            print("No grammar sources found. Run 'mnemos grammar fetch --all' first.\n", .{});
             return;
         }
         printErr("error: could not open {s}: {s}\n", .{ sources_dir, @errorName(err) });

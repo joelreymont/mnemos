@@ -1,11 +1,11 @@
 //! ai_cli: integration with Codex CLI and Claude Code CLI for analysis/explanation.
 //!
 //! This module shells out to local CLI tools instead of using hosted APIs,
-//! so Hemis never needs API keys.
+//! so Mnemos never needs API keys.
 //!
 //! Provider selection:
 //! - default: Codex CLI (`codex` on PATH)
-//! - set HEMIS_AI_PROVIDER=claude to use Claude CLI (`claude`)
+//! - set MNEMOS_AI_PROVIDER=claude to use Claude CLI (`claude`)
 //!
 //! All functions are best-effort: on failure, the caller can fall back to
 //! simpler behaviour (e.g. returning the raw snippet).
@@ -190,7 +190,7 @@ impl PersistentClaude {
     fn query(&mut self, prompt: &str) -> Result<String> {
         use std::io::{BufRead, Write};
 
-        debug!("[hemis] Sending query to persistent Claude...");
+        debug!("[mnemos] Sending query to persistent Claude...");
 
         // Send user message in stream-json format
         let msg = serde_json::json!({
@@ -203,7 +203,7 @@ impl PersistentClaude {
         writeln!(self.stdin, "{}", msg)?;
         self.stdin.flush()?;
 
-        debug!("[hemis] Query sent, waiting for response...");
+        debug!("[mnemos] Query sent, waiting for response...");
 
         // Read responses until we get the result message
         let start = Instant::now();
@@ -227,12 +227,12 @@ impl PersistentClaude {
                     // Parse JSON response
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
                         let msg_type = json.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
-                        debug!("[hemis] Claude message type: {}", msg_type);
+                        debug!("[mnemos] Claude message type: {}", msg_type);
 
                         // Check for result message (final response)
                         if msg_type == "result" {
                             if let Some(text) = json.get("result").and_then(|r| r.as_str()) {
-                                debug!("[hemis] Got result after {} lines, {} chars", line_count, text.len());
+                                debug!("[mnemos] Got result after {} lines, {} chars", line_count, text.len());
                                 return Ok(text.to_string());
                             }
                             // Check for error
@@ -273,12 +273,12 @@ fn get_persistent_claude(project_root: &Path) -> Result<std::sync::MutexGuard<'s
         None => true,
         Some(claude) => {
             if !claude.is_alive() {
-                debug!("[hemis] Claude process died, respawning...");
+                debug!("[mnemos] Claude process died, respawning...");
                 true
             } else if claude.project_root != project_root {
                 // Project changed - kill old process and spawn new one for isolation
                 debug!(
-                    "[hemis] Project changed ({} -> {}), respawning Claude...",
+                    "[mnemos] Project changed ({} -> {}), respawning Claude...",
                     claude.project_root.display(),
                     project_root.display()
                 );
@@ -290,7 +290,7 @@ fn get_persistent_claude(project_root: &Path) -> Result<std::sync::MutexGuard<'s
     };
 
     if needs_spawn {
-        debug!("[hemis] Spawning persistent Claude process for {}...", project_root.display());
+        debug!("[mnemos] Spawning persistent Claude process for {}...", project_root.display());
         *guard = Some(PersistentClaude::spawn(project_root)?);
     }
 
@@ -307,7 +307,7 @@ pub fn warm_up_claude(project_root: &Path) -> Result<()> {
     // Send a simple query to ensure Claude is fully initialized
     if let Some(claude) = guard.as_mut() {
         let _ = claude.query("Say OK")?;
-        debug!("[hemis] Claude process warmed up and ready");
+        debug!("[mnemos] Claude process warmed up and ready");
     }
 
     Ok(())
@@ -324,7 +324,7 @@ impl CliProvider {
     /// Detect provider from environment or availability.
     pub fn from_env() -> Option<CliProvider> {
         // Check env var first
-        if let Ok(v) = std::env::var("HEMIS_AI_PROVIDER") {
+        if let Ok(v) = std::env::var("MNEMOS_AI_PROVIDER") {
             let v = v.to_lowercase();
             if v == "claude" || v == "claude-cli" {
                 if is_available("claude") {
@@ -366,13 +366,13 @@ fn is_available(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Ensure `<project_root>/.hemis` exists with secure permissions and return its path.
-fn ensure_hemis_dir(project_root: &Path) -> Result<PathBuf> {
-    let hemis = project_root.join(".hemis");
-    fs::create_dir_all(&hemis).with_context(|| {
+/// Ensure `<project_root>/.mnemos` exists with secure permissions and return its path.
+fn ensure_mnemos_dir(project_root: &Path) -> Result<PathBuf> {
+    let mnemos = project_root.join(".mnemos");
+    fs::create_dir_all(&mnemos).with_context(|| {
         format!(
-            "failed to create .hemis directory at {}",
-            hemis.display()
+            "failed to create .mnemos directory at {}",
+            mnemos.display()
         )
     })?;
     // Set secure permissions (owner-only) on Unix
@@ -380,31 +380,31 @@ fn ensure_hemis_dir(project_root: &Path) -> Result<PathBuf> {
     {
         use std::os::unix::fs::PermissionsExt;
         let perms = std::fs::Permissions::from_mode(0o700);
-        fs::set_permissions(&hemis, perms).ok(); // Best-effort, don't fail if already set
+        fs::set_permissions(&mnemos, perms).ok(); // Best-effort, don't fail if already set
     }
-    Ok(hemis)
+    Ok(mnemos)
 }
 
-/// Return the contents of `<project_root>/.hemis/analysis.md` if present.
+/// Return the contents of `<project_root>/.mnemos/analysis.md` if present.
 pub fn load_analysis(project_root: &Path) -> Option<String> {
-    let path = project_root.join(".hemis").join("analysis.md");
+    let path = project_root.join(".mnemos").join("analysis.md");
     fs::read_to_string(&path).ok()
 }
 
 /// Check if analysis file exists.
 pub fn has_analysis(project_root: &Path) -> bool {
-    project_root.join(".hemis").join("analysis.md").exists()
+    project_root.join(".mnemos").join("analysis.md").exists()
 }
 
 /// Run repository analysis via the configured CLI provider and persist
-/// `.hemis/analysis.md`. Returns the provider used.
+/// `.mnemos/analysis.md`. Returns the provider used.
 pub fn analyze_repo(project_root: &Path) -> Result<CliProvider> {
     let provider = CliProvider::from_env()
         .ok_or_else(|| anyhow!("no AI CLI available (codex or claude)"))?;
 
-    let hemis_dir = ensure_hemis_dir(project_root)?;
+    let mnemos_dir = ensure_mnemos_dir(project_root)?;
 
-    let prompt = r#"You are Hemis, an assistant analyzing this codebase.
+    let prompt = r#"You are Mnemos, an assistant analyzing this codebase.
 
 Goal: produce a concise analysis document in Markdown format that will help
 explain code regions to developers. Be information-dense but readable.
@@ -454,7 +454,7 @@ Output ONLY the Markdown document. Do not wrap in code blocks.
     // Clean up the output (remove any markdown code block wrappers)
     let cleaned = clean_markdown_output(&output);
 
-    let path = hemis_dir.join("analysis.md");
+    let path = mnemos_dir.join("analysis.md");
     fs::write(&path, cleaned.as_bytes())
         .with_context(|| format!("failed to write {}", path.display()))?;
 
@@ -519,7 +519,7 @@ pub fn explain_region(
 
     let prompt = if detailed {
         format!(
-            r#"You are Hemis, an assistant embedded in a codebase-aware tool.
+            r#"You are Mnemos, an assistant embedded in a codebase-aware tool.
 
 {analysis_section}Explain the following code region in detail. Your response will be stored as a code note.
 
@@ -547,7 +547,7 @@ Be thorough but focused. Output plain text only, no markdown.
         )
     } else {
         format!(
-            r#"You are Hemis, an assistant embedded in a codebase-aware tool.
+            r#"You are Mnemos, an assistant embedded in a codebase-aware tool.
 
 {analysis_section}Explain the following code region. Your response will be stored as a code note.
 
@@ -602,7 +602,7 @@ fn run_codex(project_root: &Path, prompt: &str) -> Result<String> {
 
     // Create unique temp file for output since codex prints progress/diagnostics to stdout
     let tmp_dir = std::env::temp_dir();
-    let output_path = tmp_dir.join(format!("hemis-codex-{}.txt", uuid::Uuid::new_v4()));
+    let output_path = tmp_dir.join(format!("mnemos-codex-{}.txt", uuid::Uuid::new_v4()));
     let _temp_guard = TempFileGuard(output_path.clone());
 
     // Build safe environment (minimal variables)
@@ -662,42 +662,42 @@ fn run_codex(project_root: &Path, prompt: &str) -> Result<String> {
 /// Helper: run Claude Code CLI with a prompt in the given project root.
 /// Uses persistent process for fast response times after first call.
 fn run_claude(project_root: &Path, prompt: &str) -> Result<String> {
-    debug!("[hemis] run_claude: starting...");
+    debug!("[mnemos] run_claude: starting...");
 
     // Acquire concurrency guard (limits parallel AI calls and rate limiting)
     let _concurrency_guard = AiCallGuard::try_acquire()?;
-    debug!("[hemis] run_claude: acquired concurrency guard");
+    debug!("[mnemos] run_claude: acquired concurrency guard");
 
     // Validate project root
     let safe_project_root = validate_project_root(project_root)?;
-    debug!("[hemis] run_claude: validated project root");
+    debug!("[mnemos] run_claude: validated project root");
 
     // Try persistent process first
-    debug!("[hemis] run_claude: trying to get persistent claude...");
+    debug!("[mnemos] run_claude: trying to get persistent claude...");
     if let Ok(mut guard) = get_persistent_claude(&safe_project_root) {
-        debug!("[hemis] run_claude: got persistent claude mutex");
+        debug!("[mnemos] run_claude: got persistent claude mutex");
         if let Some(claude) = guard.as_mut() {
-            debug!("[hemis] run_claude: sending query to persistent claude...");
+            debug!("[mnemos] run_claude: sending query to persistent claude...");
             match claude.query(prompt) {
                 Ok(result) => {
-                    debug!("[hemis] run_claude: persistent query succeeded ({} chars)", result.len());
+                    debug!("[mnemos] run_claude: persistent query succeeded ({} chars)", result.len());
                     return Ok(result);
                 }
                 Err(e) => {
                     // Process died or failed, will respawn on next call
-                    debug!("[hemis] Persistent claude failed: {}, falling back to one-shot", e);
+                    debug!("[mnemos] Persistent claude failed: {}, falling back to one-shot", e);
                     *guard = None;
                 }
             }
         } else {
-            debug!("[hemis] run_claude: no persistent claude in mutex");
+            debug!("[mnemos] run_claude: no persistent claude in mutex");
         }
     } else {
-        debug!("[hemis] run_claude: failed to get persistent claude mutex");
+        debug!("[mnemos] run_claude: failed to get persistent claude mutex");
     }
 
     // Fallback: one-shot process (slower but more reliable)
-    debug!("[hemis] run_claude: falling back to one-shot mode");
+    debug!("[mnemos] run_claude: falling back to one-shot mode");
     run_claude_oneshot(&safe_project_root, prompt)
 }
 
@@ -817,8 +817,8 @@ mod tests {
     #[test]
     #[serial(env)]
     fn provider_from_env_respects_disabled() {
-        std::env::set_var("HEMIS_AI_PROVIDER", "none");
+        std::env::set_var("MNEMOS_AI_PROVIDER", "none");
         assert!(CliProvider::from_env().is_none());
-        std::env::remove_var("HEMIS_AI_PROVIDER");
+        std::env::remove_var("MNEMOS_AI_PROVIDER");
     }
 }

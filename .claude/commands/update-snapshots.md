@@ -12,8 +12,8 @@ Before updating snapshots, verify the change is intentional:
 
 ### Step 2: Update Neovim Snapshots
 ```bash
-cd /Users/joel/Work/hemis/ui/neovim
-HEMIS_UPDATE_SNAPSHOTS=1 HEMIS_TEST_BACKEND=/Users/joel/Work/hemis/target/debug/hemis \
+cd /Users/joel/Work/mnemos/ui/neovim
+MNEMOS_UPDATE_SNAPSHOTS=1 MNEMOS_TEST_BACKEND=/Users/joel/Work/mnemos/target/debug/mnemos \
   nvim --headless -u tests/minimal_init.lua -c "luafile tests/run.lua" 2>&1
 ```
 
@@ -29,8 +29,8 @@ Verify each changed snapshot:
 
 ### Step 4: Run Tests Without Update Flag
 ```bash
-cd /Users/joel/Work/hemis/ui/neovim
-HEMIS_TEST_BACKEND=/Users/joel/Work/hemis/target/debug/hemis \
+cd /Users/joel/Work/mnemos/ui/neovim
+MNEMOS_TEST_BACKEND=/Users/joel/Work/mnemos/target/debug/mnemos \
   nvim --headless -u tests/minimal_init.lua -c "luafile tests/run.lua" 2>&1
 ```
 

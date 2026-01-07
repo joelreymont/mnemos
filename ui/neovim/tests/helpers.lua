@@ -1,8 +1,8 @@
--- Test helpers for Hemis Neovim plugin
+-- Test helpers for Mnemos Neovim plugin
 local M = {}
 
--- Namespace for hemis extmarks
-local NS_NAME = "hemis"
+-- Namespace for mnemos extmarks
+local NS_NAME = "mnemos"
 
 -- Create a test buffer with content
 function M.setup_test_buffer(content)
@@ -17,7 +17,7 @@ end
 -- Clean up test state
 function M.cleanup()
   -- Stop any RPC connections to avoid state leaking between tests
-  local ok, rpc = pcall(require, "hemis.rpc")
+  local ok, rpc = pcall(require, "mnemos.rpc")
   if ok and rpc.stop then
     rpc.stop()
   end
@@ -34,7 +34,7 @@ end
 -- Returns detailed virt_lines/virt_text structure for snapshot testing
 function M.capture_display_state(buf)
   buf = buf or vim.api.nvim_get_current_buf()
-  local display = require("hemis.display")
+  local display = require("mnemos.display")
   local ns = display.ns_id
   local marks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })
 
@@ -118,7 +118,7 @@ end
 
 -- Mock RPC for unit tests
 function M.mock_rpc(responses)
-  local rpc = require("hemis.rpc")
+  local rpc = require("mnemos.rpc")
   local original_request = rpc.request
 
   rpc.request = function(method, params, callback)
@@ -224,13 +224,13 @@ function M.save_snapshot(name, content)
 end
 
 -- Assert state matches snapshot
--- Set HEMIS_UPDATE_SNAPSHOTS=1 to update/create snapshots
+-- Set MNEMOS_UPDATE_SNAPSHOTS=1 to update/create snapshots
 -- Without this env var, missing snapshots FAIL (must be committed first)
 function M.assert_snapshot(name, state)
   local serialized = M.serialize_state(state)
   local existing = M.load_snapshot(name)
 
-  if vim.env.HEMIS_UPDATE_SNAPSHOTS == "1" then
+  if vim.env.MNEMOS_UPDATE_SNAPSHOTS == "1" then
     -- Update mode - create or overwrite snapshot
     M.save_snapshot(name, serialized)
     if existing == nil then
@@ -243,7 +243,7 @@ function M.assert_snapshot(name, state)
 
   if existing == nil then
     -- Snapshot missing and not in update mode - FAIL
-    error("Snapshot missing: " .. name .. "\nRun with HEMIS_UPDATE_SNAPSHOTS=1 to create it")
+    error("Snapshot missing: " .. name .. "\nRun with MNEMOS_UPDATE_SNAPSHOTS=1 to create it")
   end
 
   -- Compare
@@ -257,7 +257,7 @@ function M.assert_snapshot(name, state)
     table.insert(diff_lines, "Actual:")
     table.insert(diff_lines, serialized)
     table.insert(diff_lines, "")
-    table.insert(diff_lines, "Run with HEMIS_UPDATE_SNAPSHOTS=1 to update")
+    table.insert(diff_lines, "Run with MNEMOS_UPDATE_SNAPSHOTS=1 to update")
     error(table.concat(diff_lines, "\n"))
   end
 
@@ -315,14 +315,14 @@ function M.serialize_screen(screen)
 end
 
 -- Assert screen matches snapshot
--- Set HEMIS_UPDATE_SNAPSHOTS=1 to update/create snapshots
+-- Set MNEMOS_UPDATE_SNAPSHOTS=1 to update/create snapshots
 -- Without this env var, missing snapshots FAIL (must be committed first)
 function M.assert_screen_snapshot(name)
   local screen = M.capture_screen()
   local serialized = M.serialize_screen(screen)
   local existing = M.load_snapshot(name .. ".screen")
 
-  if vim.env.HEMIS_UPDATE_SNAPSHOTS == "1" then
+  if vim.env.MNEMOS_UPDATE_SNAPSHOTS == "1" then
     -- Update mode - create or overwrite snapshot
     M.save_snapshot(name .. ".screen", serialized)
     if existing == nil then
@@ -335,12 +335,12 @@ function M.assert_screen_snapshot(name)
 
   if existing == nil then
     -- Snapshot missing and not in update mode - FAIL
-    error("Screen snapshot missing: " .. name .. "\nRun with HEMIS_UPDATE_SNAPSHOTS=1 to create it")
+    error("Screen snapshot missing: " .. name .. "\nRun with MNEMOS_UPDATE_SNAPSHOTS=1 to create it")
   end
 
   -- Compare
   if serialized ~= existing then
-    error("Screen snapshot mismatch for: " .. name .. "\n\nExpected:\n" .. existing .. "\n\nActual:\n" .. serialized .. "\n\nRun with HEMIS_UPDATE_SNAPSHOTS=1 to update")
+    error("Screen snapshot mismatch for: " .. name .. "\n\nExpected:\n" .. existing .. "\n\nActual:\n" .. serialized .. "\n\nRun with MNEMOS_UPDATE_SNAPSHOTS=1 to update")
   end
 
   return true

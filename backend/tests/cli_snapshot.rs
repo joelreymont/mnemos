@@ -3,12 +3,12 @@
 use std::process::Command;
 use tempfile::TempDir;
 
-fn hemis_binary() -> String {
+fn mnemos_binary() -> String {
     // Use debug binary from target directory
-    std::env::var("CARGO_BIN_EXE_hemis").unwrap_or_else(|_| {
-        // Fall back to target/debug/hemis
+    std::env::var("CARGO_BIN_EXE_mnemos").unwrap_or_else(|_| {
+        // Fall back to target/debug/mnemos
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
-        format!("{}/target/debug/hemis", manifest_dir.trim_end_matches("/backend"))
+        format!("{}/target/debug/mnemos", manifest_dir.trim_end_matches("/backend"))
     })
 }
 
@@ -20,12 +20,12 @@ fn cli_save_snapshot_creates_file() {
     let db_path = tmp.path().join("test.db");
 
     // Run save-snapshot command
-    let output = Command::new(hemis_binary())
-        .env("HEMIS_DB_PATH", db_path.to_str().unwrap())
+    let output = Command::new(mnemos_binary())
+        .env("MNEMOS_DB_PATH", db_path.to_str().unwrap())
         .arg("--save-snapshot")
         .arg(snapshot_path.to_str().unwrap())
         .output()
-        .expect("failed to run hemis");
+        .expect("failed to run mnemos");
 
     // Check command succeeded
     assert!(output.status.success(), "save-snapshot failed: {}", String::from_utf8_lossy(&output.stderr));
@@ -72,12 +72,12 @@ fn cli_load_snapshot_restores_data() {
     std::fs::write(&snapshot_path, serde_json::to_string_pretty(&snapshot_content).unwrap()).unwrap();
 
     // Run load-snapshot command
-    let output = Command::new(hemis_binary())
-        .env("HEMIS_DB_PATH", db_path.to_str().unwrap())
+    let output = Command::new(mnemos_binary())
+        .env("MNEMOS_DB_PATH", db_path.to_str().unwrap())
         .arg("--load-snapshot")
         .arg(snapshot_path.to_str().unwrap())
         .output()
-        .expect("failed to run hemis");
+        .expect("failed to run mnemos");
 
     // Check command succeeded
     assert!(output.status.success(), "load-snapshot failed: {}", String::from_utf8_lossy(&output.stderr));
@@ -107,12 +107,12 @@ fn cli_save_and_load_roundtrip() {
     }
 
     // Save snapshot from db1
-    let output = Command::new(hemis_binary())
-        .env("HEMIS_DB_PATH", db1_path.to_str().unwrap())
+    let output = Command::new(mnemos_binary())
+        .env("MNEMOS_DB_PATH", db1_path.to_str().unwrap())
         .arg("--save-snapshot")
         .arg(snapshot_path.to_str().unwrap())
         .output()
-        .expect("failed to run hemis save");
+        .expect("failed to run mnemos save");
 
     assert!(output.status.success(), "save failed: {}", String::from_utf8_lossy(&output.stderr));
 
@@ -122,12 +122,12 @@ fn cli_save_and_load_roundtrip() {
     assert_eq!(json["counts"]["notes"], 1, "Should have 1 note in snapshot");
 
     // Load snapshot into db2
-    let output = Command::new(hemis_binary())
-        .env("HEMIS_DB_PATH", db2_path.to_str().unwrap())
+    let output = Command::new(mnemos_binary())
+        .env("MNEMOS_DB_PATH", db2_path.to_str().unwrap())
         .arg("--load-snapshot")
         .arg(snapshot_path.to_str().unwrap())
         .output()
-        .expect("failed to run hemis load");
+        .expect("failed to run mnemos load");
 
     assert!(output.status.success(), "load failed: {}", String::from_utf8_lossy(&output.stderr));
 
@@ -143,12 +143,12 @@ fn cli_load_snapshot_nonexistent_file_fails() {
     let db_path = tmp.path().join("test.db");
 
     // Run load-snapshot with nonexistent file
-    let output = Command::new(hemis_binary())
-        .env("HEMIS_DB_PATH", db_path.to_str().unwrap())
+    let output = Command::new(mnemos_binary())
+        .env("MNEMOS_DB_PATH", db_path.to_str().unwrap())
         .arg("--load-snapshot")
         .arg("/nonexistent/path/snapshot.json")
         .output()
-        .expect("failed to run hemis");
+        .expect("failed to run mnemos");
 
     // Should fail
     assert!(!output.status.success(), "load-snapshot should fail for nonexistent file");
@@ -164,12 +164,12 @@ fn cli_load_snapshot_invalid_json_fails() {
     std::fs::write(&snapshot_path, "not valid json {{{").unwrap();
 
     // Run load-snapshot
-    let output = Command::new(hemis_binary())
-        .env("HEMIS_DB_PATH", db_path.to_str().unwrap())
+    let output = Command::new(mnemos_binary())
+        .env("MNEMOS_DB_PATH", db_path.to_str().unwrap())
         .arg("--load-snapshot")
         .arg(snapshot_path.to_str().unwrap())
         .output()
-        .expect("failed to run hemis");
+        .expect("failed to run mnemos");
 
     // Should fail
     assert!(!output.status.success(), "load-snapshot should fail for invalid JSON");

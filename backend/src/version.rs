@@ -5,9 +5,9 @@ use serde::Serialize;
 pub const PROTOCOL_VERSION: u32 = 1;
 
 /// Git commit hash embedded at build time.
-pub const GIT_HASH: &str = env!("HEMIS_GIT_HASH");
+pub const GIT_HASH: &str = env!("MNEMOS_GIT_HASH");
 
-/// Version info returned by hemis/version endpoint.
+/// Version info returned by mnemos/version endpoint.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionInfo {

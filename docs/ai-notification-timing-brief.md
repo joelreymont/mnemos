@@ -2,7 +2,7 @@
 
 ## Project Background
 
-**Hemis** is a code annotation system that lets developers attach persistent notes to specific lines of code. Notes are anchored to AST nodes via tree-sitter, so they survive code refactoring. The system has:
+**Mnemos** is a code annotation system that lets developers attach persistent notes to specific lines of code. Notes are anchored to AST nodes via tree-sitter, so they survive code refactoring. The system has:
 
 - **Backend**: A Rust JSON-RPC server that manages notes in SQLite, handles tree-sitter parsing, and integrates with AI providers (Claude, etc.)
 - **UI Clients**: Neovim, VSCode, Emacs plugins that display notes as virtual text/overlays
@@ -27,9 +27,9 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Rust Backend                               │
 ├─────────────────────────────────────────────────────────────────┤
-│  RPC Socket: ~/.hemis/rpc.sock                                  │
-│  Event Socket: ~/.hemis/events.sock                             │
-│  Database: ~/.hemis/hemis.db (SQLite)                           │
+│  RPC Socket: ~/.mnemos/rpc.sock                                 │
+│  Event Socket: ~/.mnemos/events.sock                            │
+│  Database: ~/.mnemos/mnemos.db (SQLite)                         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -326,7 +326,7 @@ Even though extmarks exist in memory:
 
 ## Reproduction Steps
 
-1. Open a Rust file in Neovim with Hemis plugin
+1. Open a Rust file in Neovim with Mnemos plugin
 2. Select 3-4 lines of code in visual mode
 3. Press `<leader>hx` to trigger explain_region
 4. Observe: "AI thinking..." appears
@@ -339,20 +339,20 @@ Even though extmarks exist in memory:
 
 - Neovim 0.10+
 - macOS (Darwin 25.1.0)
-- Hemis backend (Rust, built with cargo)
-- AI provider: Claude (via HEMIS_AI_PROVIDER=claude)
-- Demo runner: hemis-demo (Swift)
+- Mnemos backend (Rust, built with cargo)
+- AI provider: Claude (via MNEMOS_AI_PROVIDER=claude)
+- Demo runner: mnemos-demo (Swift)
 
 ## Files Involved
 
 | File | Purpose |
 |------|---------|
-| `ui/neovim/lua/hemis/commands.lua` | explain_region(), refresh_sync(), wait_for_extmarks() |
-| `ui/neovim/lua/hemis/display.lua` | render_notes(), extmark creation |
-| `ui/neovim/lua/hemis/init.lua` | Event handler registration |
-| `ui/neovim/lua/hemis/events.lua` | Unix socket event client |
-| `ui/neovim/lua/hemis/notes.lua` | RPC wrappers |
-| `ui/neovim/lua/hemis/rpc.lua` | JSON-RPC client |
+| `ui/neovim/lua/mnemos/commands.lua` | explain_region(), refresh_sync(), wait_for_extmarks() |
+| `ui/neovim/lua/mnemos/display.lua` | render_notes(), extmark creation |
+| `ui/neovim/lua/mnemos/init.lua` | Event handler registration |
+| `ui/neovim/lua/mnemos/events.lua` | Unix socket event client |
+| `ui/neovim/lua/mnemos/notes.lua` | RPC wrappers |
+| `ui/neovim/lua/mnemos/rpc.lua` | JSON-RPC client |
 | `backend/src/lib.rs` | RPC handlers |
 | `backend/src/display.rs` | formattedLines computation |
 | `backend/src/events.rs` | Event broadcaster |

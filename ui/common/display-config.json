@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "description": "Display configuration for Hemis note rendering across editors",
+  "description": "Display configuration for Mnemos note rendering across editors",
 
   "note_format": {
     "wrap_width": 70,
@@ -36,22 +36,22 @@
 
   "highlight_groups": {
     "neovim": {
-      "HemisNote": { "fg": "#87ceeb", "italic": true },
-      "HemisNoteId": { "fg": "#6c757d" },
-      "HemisNoteStale": { "fg": "#cc6666", "italic": true },
-      "HemisNoteLink": { "fg": "#98c379", "underline": true }
+      "MnemosNote": { "fg": "#87ceeb", "italic": true },
+      "MnemosNoteId": { "fg": "#6c757d" },
+      "MnemosNoteStale": { "fg": "#cc6666", "italic": true },
+      "MnemosNoteLink": { "fg": "#98c379", "underline": true }
     },
     "emacs": {
-      "hemis-note-face": { "foreground": "#87ceeb", "slant": "italic" },
-      "hemis-note-id-face": { "foreground": "#6c757d" },
-      "hemis-note-stale-face": { "foreground": "#cc6666", "slant": "italic" },
-      "hemis-note-link-face": { "foreground": "#98c379", "underline": true }
+      "mnemos-note-face": { "foreground": "#87ceeb", "slant": "italic" },
+      "mnemos-note-id-face": { "foreground": "#6c757d" },
+      "mnemos-note-stale-face": { "foreground": "#cc6666", "slant": "italic" },
+      "mnemos-note-link-face": { "foreground": "#98c379", "underline": true }
     },
     "vscode": {
-      "hemis.note": { "color": "#87ceeb", "fontStyle": "italic" },
-      "hemis.noteId": { "color": "#6c757d" },
-      "hemis.noteStale": { "color": "#cc6666", "fontStyle": "italic" },
-      "hemis.noteLink": { "color": "#98c379", "textDecoration": "underline" }
+      "mnemos.note": { "color": "#87ceeb", "fontStyle": "italic" },
+      "mnemos.noteId": { "color": "#6c757d" },
+      "mnemos.noteStale": { "color": "#cc6666", "fontStyle": "italic" },
+      "mnemos.noteLink": { "color": "#98c379", "textDecoration": "underline" }
     }
   },
 

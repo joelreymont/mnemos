@@ -197,7 +197,7 @@ fn call_embedder(text: &str) -> Result<Vec<f32>> {
     if text.is_empty() {
         return Err(anyhow!("empty text"));
     }
-    if let Ok(url) = env::var("HEMIS_EMBED_URL") {
+    if let Ok(url) = env::var("MNEMOS_EMBED_URL") {
         // Validate URL before making request (SSRF protection)
         validate_embedder_url(&url)?;
 
@@ -207,7 +207,7 @@ fn call_embedder(text: &str) -> Result<Vec<f32>> {
         }
         // Cap timeout to prevent resource exhaustion (max 30 seconds)
         const MAX_TIMEOUT_MS: u64 = 30_000;
-        let timeout = env::var("HEMIS_EMBED_TIMEOUT_MS")
+        let timeout = env::var("MNEMOS_EMBED_TIMEOUT_MS")
             .ok()
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(5_000)

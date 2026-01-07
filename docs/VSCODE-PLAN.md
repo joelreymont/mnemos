@@ -2,7 +2,7 @@
 
 ## Overview
 
-Create a VS Code extension for Hemis that communicates with the same Rust backend, providing feature parity with Emacs and Neovim UIs.
+Create a VS Code extension for Mnemos that communicates with the same Rust backend, providing feature parity with Emacs and Neovim UIs.
 
 ## Directory Structure
 
@@ -49,19 +49,19 @@ ui/vscode/
 **Configuration** (package.json contributes.configuration):
 ```json
 {
-  "hemis.backend": {
+  "mnemos.backend": {
     "type": "string",
-    "description": "Path to hemis backend binary"
+    "description": "Path to mnemos backend binary"
   },
-  "hemis.databasePath": {
+  "mnemos.databasePath": {
     "type": "string",
-    "description": "Path to SQLite database (defaults to ~/.hemis/hemis.db)"
+    "description": "Path to SQLite database (defaults to ~/.mnemos/mnemos.db)"
   },
-  "hemis.autoRefresh": {
+  "mnemos.autoRefresh": {
     "type": "boolean",
     "default": true
   },
-  "hemis.displayStyle": {
+  "mnemos.displayStyle": {
     "type": "string",
     "enum": ["full", "minimal"],
     "default": "full"
@@ -69,18 +69,18 @@ ui/vscode/
 }
 ```
 
-**Note**: The database defaults to `~/.hemis/hemis.db`, enabling sharing notes with Emacs and Neovim.
+**Note**: The database defaults to `~/.mnemos/mnemos.db`, enabling sharing notes with Emacs and Neovim.
 
 ### Phase 2: Basic Notes CRUD
 
 **Files**: `src/notes.ts`, `src/commands.ts`
 
 **Commands** (package.json contributes.commands):
-- `hemis.addNote` - Add note at cursor
-- `hemis.deleteNote` - Delete note at cursor
-- `hemis.editNote` - Edit note at cursor
-- `hemis.refreshNotes` - Refresh display
-- `hemis.listNotes` - Show notes panel
+- `mnemos.addNote` - Add note at cursor
+- `mnemos.deleteNote` - Delete note at cursor
+- `mnemos.editNote` - Edit note at cursor
+- `mnemos.refreshNotes` - Refresh display
+- `mnemos.listNotes` - Show notes panel
 
 **Features**:
 - Create note at cursor position
@@ -136,7 +136,7 @@ const noteDecoration = vscode.window.createTextEditorDecorationType({
 
 **TreeView structure**:
 ```
-HEMIS NOTES
+MNEMOS NOTES
   ├── main.rs
   │   ├── [a1b2] L10 - Note about function
   │   └── [c3d4] L25 - Another note
@@ -160,9 +160,9 @@ HEMIS NOTES
 ### Phase 7: Search and Indexing
 
 **Commands**:
-- `hemis.indexFile` - Index current file
-- `hemis.indexProject` - Index workspace
-- `hemis.search` - Search notes and files
+- `mnemos.indexFile` - Index current file
+- `mnemos.indexProject` - Index workspace
+- `mnemos.search` - Search notes and files
 
 **Search UI**:
 - Quick pick for search results
@@ -172,7 +172,7 @@ HEMIS NOTES
 ### Phase 8: Note Linking
 
 **Commands**:
-- `hemis.insertLink` - Insert link to another note
+- `mnemos.insertLink` - Insert link to another note
 
 **Features**:
 - Quick pick to search notes
@@ -220,8 +220,8 @@ test/
 
 ```json
 {
-  "name": "hemis",
-  "displayName": "Hemis",
+  "name": "mnemos",
+  "displayName": "Mnemos",
   "description": "A second brain for your code",
   "version": "0.1.0",
   "engines": { "vscode": "^1.80.0" },
@@ -231,7 +231,7 @@ test/
     "onLanguage:typescript",
     "onLanguage:javascript",
     "onLanguage:python",
-    "onCommand:hemis.addNote"
+    "onCommand:mnemos.addNote"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -239,13 +239,13 @@ test/
     "configuration": {...},
     "views": {
       "explorer": [{
-        "id": "hemisNotes",
-        "name": "Hemis Notes"
+        "id": "mnemosNotes",
+        "name": "Mnemos Notes"
       }]
     },
     "keybindings": [
-      { "command": "hemis.addNote", "key": "ctrl+shift+h a" },
-      { "command": "hemis.listNotes", "key": "ctrl+shift+h l" }
+      { "command": "mnemos.addNote", "key": "ctrl+shift+h a" },
+      { "command": "mnemos.listNotes", "key": "ctrl+shift+h l" }
     ]
   }
 }

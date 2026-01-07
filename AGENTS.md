@@ -1,6 +1,6 @@
-# Hemis
+# Mnemos
 
-Zig rewrite of hemis backend. Rust version on `rust` branch.
+Zig rewrite of mnemos backend. Rust version on `rust` branch.
 
 ## Build
 
@@ -43,13 +43,13 @@ std.Io Event Loop
 
 `notes/` create,get,update,delete,list-for-file,list-by-node,list-project,search,backlinks,reattach,buffer-update
 `index/` add-file,search
-`hemis/` search,status,index-project,list-files,get-file,explain-region,project-meta,open-project,save-snapshot,load-snapshot,shutdown
+`mnemos/` search,status,index-project,list-files,get-file,explain-region,project-meta,open-project,save-snapshot,load-snapshot,shutdown
 
 ## Conventions
 
 - Staleness: `nodeTextHash`=SHA256, search +/-20 lines
 - AI: Persistent subprocess (claude/codex), newline-delimited JSON
-- Tree-sitter: Dynamic grammars only, `hemis grammar build`
+- Tree-sitter: Dynamic grammars only, `mnemos grammar build`
 - Target: Zig 0.16 / nightly for std.Io async
 
 ## Editor Plugins
@@ -61,5 +61,5 @@ Located in `ui/`:
 
 ## Demo Driver
 
-`cd ../hemis-demo && swift run hemis-demo <script> --show-labels`
+`cd ../mnemos-demo && swift run mnemos-demo <script> --show-labels`
 See `.claude/rules/demo-permission.md` for permission requirements.

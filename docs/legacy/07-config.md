@@ -16,11 +16,11 @@
  type = "llama-cpp"
  host = "127.0.0.1"
  port = 4010
- model_path = "/Users/you/Library/Application Support/Hemis/models/qwen-32b-q4.gguf"
+ model_path = "/Users/you/Library/Application Support/Mnemos/models/qwen-32b-q4.gguf"
 
 [paths]
- models_dir = "/Users/you/Library/Application Support/Hemis/models"
- logs_dir = "/Users/you/Library/Application Support/Hemis/logs"
+ models_dir = "/Users/you/Library/Application Support/Mnemos/models"
+ logs_dir = "/Users/you/Library/Application Support/Mnemos/logs"
  ```
 
  ## 7.2 Project Configuration

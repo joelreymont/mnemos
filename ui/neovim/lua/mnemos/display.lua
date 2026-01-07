@@ -1,21 +1,21 @@
--- Note display module for Hemis
+-- Note display module for Mnemos
 --
 -- Note positions are computed server-side when content is provided.
 -- This module renders notes at server-computed displayLine positions.
 -- Server provides formattedLines with comment prefix and text wrapping.
-local config = require("hemis.config")
+local config = require("mnemos.config")
 
 local M = {}
 
 -- Namespace for extmarks
-M.ns_id = vim.api.nvim_create_namespace("hemis_notes")
+M.ns_id = vim.api.nvim_create_namespace("mnemos_notes")
 
 -- Highlight groups
 local function setup_highlights()
-  vim.api.nvim_set_hl(0, "HemisNote", { fg = "#4682B4", italic = true, default = true })
-  vim.api.nvim_set_hl(0, "HemisNoteStale", { fg = "#808080", italic = true, default = true })
-  vim.api.nvim_set_hl(0, "HemisNoteMarker", { fg = "#4682B4", bold = true, default = true })
-  vim.api.nvim_set_hl(0, "HemisNoteSelected", { fg = "#FFD700", italic = true, bold = true, default = true })
+  vim.api.nvim_set_hl(0, "MnemosNote", { fg = "#4682B4", italic = true, default = true })
+  vim.api.nvim_set_hl(0, "MnemosNoteStale", { fg = "#808080", italic = true, default = true })
+  vim.api.nvim_set_hl(0, "MnemosNoteMarker", { fg = "#4682B4", bold = true, default = true })
+  vim.api.nvim_set_hl(0, "MnemosNoteSelected", { fg = "#FFD700", italic = true, bold = true, default = true })
 end
 
 setup_highlights()
@@ -29,11 +29,11 @@ local function format_note_lines(note, is_selected)
   -- Determine highlight: selected > stale > normal
   local hl
   if is_selected then
-    hl = "HemisNoteSelected"
+    hl = "MnemosNoteSelected"
   elseif (note.iconHint or note.icon_hint) == "stale" or note.stale then
-    hl = "HemisNoteStale"
+    hl = "MnemosNoteStale"
   else
-    hl = "HemisNote"
+    hl = "MnemosNote"
   end
 
   -- Backend returns formattedLines (camelCase)
@@ -91,11 +91,11 @@ function M.render_note(bufnr, note, display_line, is_stale, is_selected)
     local marker = note.displayMarker or note.display_marker or "[note]"
     local hl
     if is_selected then
-      hl = "HemisNoteSelected"
+      hl = "MnemosNoteSelected"
     elseif (note_with_stale.iconHint or note_with_stale.icon_hint) == "stale" or note_with_stale.stale then
-      hl = "HemisNoteStale"
+      hl = "MnemosNoteStale"
     else
-      hl = "HemisNoteMarker"
+      hl = "MnemosNoteMarker"
     end
     return vim.api.nvim_buf_set_extmark(bufnr, M.ns_id, line, 0, {
       virt_text = { { marker, hl } },

@@ -36,7 +36,6 @@ fn writeJsonEscaped(writer: anytype, s: []const u8) !void {
 /// Protocol: newline-delimited JSON
 /// Send: {"prompt": "...", "id": "..."}
 /// Receive: {"response": "...", "id": "...", "done": bool}
-
 /// AI provider type
 pub const Provider = enum {
     claude,
@@ -49,7 +48,6 @@ pub const Provider = enum {
         };
     }
 };
-
 
 /// AI subprocess manager
 pub const AI = struct {
@@ -469,7 +467,6 @@ test "AI multiple deinit safe" {
     ai.deinit();
     // Should not crash on double deinit if properly guarded
 }
-
 
 test "writeJsonEscaped long string" {
     const alloc = std.testing.allocator;
