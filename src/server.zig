@@ -144,7 +144,7 @@ const Server = struct {
         var poll_fds: [MAX_CLIENTS + 2]posix.pollfd = undefined;
         var watcher_poll_idx: ?usize = null;
 
-        while (!shutdown_requested) {
+        while (!shutdown_requested.load(.acquire) and !rpc.isShutdownRequested()) {
             // Build poll set
             poll_fds[0] = .{
                 .fd = self.listen_fd,
@@ -256,12 +256,12 @@ fn getMnemosDir(alloc: Allocator) ![]const u8 {
     return error.NoHomeDir;
 }
 
-/// Global flag for shutdown signal
-var shutdown_requested: bool = false;
+/// Global flag for shutdown signal (atomic for signal handler safety)
+var shutdown_requested = std.atomic.Value(bool).init(false);
 
 /// Signal handler for clean shutdown
 fn handleShutdown(_: c_int) callconv(.c) void {
-    shutdown_requested = true;
+    shutdown_requested.store(true, .release);
 }
 
 /// Run the server with default paths
@@ -338,7 +338,7 @@ test "getMnemosDir with env" {
 test "signal handler setup" {
     // Verify signal handler is set up correctly
     _ = handleShutdown;
-    _ = shutdown_requested;
+    _ = shutdown_requested.load(.acquire);
 }
 
 test "getSocketPath returns path" {
@@ -358,7 +358,7 @@ test "getSocketPath returns path" {
 
 test "shutdown_requested initial value" {
     // Should start as false
-    try std.testing.expect(!shutdown_requested);
+    try std.testing.expect(!shutdown_requested.load(.acquire));
 }
 
 test "Client struct fd assignment" {
@@ -420,10 +420,10 @@ test "getMnemosDir creates directory" {
 }
 
 test "handleShutdown sets flag" {
-    shutdown_requested = false;
+    shutdown_requested.store(false, .release);
     handleShutdown(0);
-    try std.testing.expect(shutdown_requested);
-    shutdown_requested = false;
+    try std.testing.expect(shutdown_requested.load(.acquire));
+    shutdown_requested.store(false, .release);
 }
 
 test "Client buffer size" {
@@ -450,15 +450,15 @@ test "Client stream not null" {
 }
 
 test "handleShutdown with different signals" {
-    shutdown_requested = false;
+    shutdown_requested.store(false, .release);
     handleShutdown(2); // SIGINT
-    try std.testing.expect(shutdown_requested);
+    try std.testing.expect(shutdown_requested.load(.acquire));
 
-    shutdown_requested = false;
+    shutdown_requested.store(false, .release);
     handleShutdown(15); // SIGTERM
-    try std.testing.expect(shutdown_requested);
+    try std.testing.expect(shutdown_requested.load(.acquire));
 
-    shutdown_requested = false;
+    shutdown_requested.store(false, .release);
 }
 
 test "MAX_CLIENTS is power of 2" {
@@ -497,11 +497,11 @@ test "getMnemosDir path format" {
 }
 
 test "shutdown_requested can be toggled" {
-    shutdown_requested = false;
-    try std.testing.expect(!shutdown_requested);
-    shutdown_requested = true;
-    try std.testing.expect(shutdown_requested);
-    shutdown_requested = false;
+    shutdown_requested.store(false, .release);
+    try std.testing.expect(!shutdown_requested.load(.acquire));
+    shutdown_requested.store(true, .release);
+    try std.testing.expect(shutdown_requested.load(.acquire));
+    shutdown_requested.store(false, .release);
 }
 
 test "Client fd is posix fd type" {

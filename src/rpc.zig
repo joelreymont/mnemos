@@ -14,6 +14,9 @@ const git = @import("git.zig");
 const treesitter = @import("treesitter.zig");
 const ai = @import("ai.zig");
 
+/// Maximum allowed Content-Length to prevent DoS attacks (10 MB)
+const MAX_CONTENT_LENGTH: usize = 10 * 1024 * 1024;
+
 /// Parsed JSON-RPC request
 const ParsedRequest = struct {
     parsed: std.json.Parsed(std.json.Value),
@@ -199,6 +202,9 @@ pub const Stream = struct {
                 const cl_str = mem.trim(u8, header[cl_start..][0..cl_end], " \t");
                 const content_len = std.fmt.parseInt(usize, cl_str, 10) catch return error.InvalidHeader;
 
+                // Reject requests with Content-Length exceeding limit (DoS protection)
+                if (content_len > MAX_CONTENT_LENGTH) return error.ContentTooLarge;
+
                 const body_start = header_end + 4;
                 const total_needed = body_start + content_len;
 
@@ -370,12 +376,26 @@ fn handleStatus(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![
 fn handleVersion(alloc: Allocator, _: ParsedRequest, _: ?*storage.Database) ![]const u8 {
     return jsonStringify(alloc, .{
         .version = "0.1.0",
+        .protocolVersion = 1,
         .language = "zig",
+        .gitHash = "dev", // TODO: inject at build time
     });
 }
 
-fn handleShutdown(_: Allocator, _: ParsedRequest, _: ?*storage.Database) ![]const u8 {
-    std.process.exit(0);
+/// Flag to signal graceful shutdown (set by handleShutdown)
+var shutdown_flag = std.atomic.Value(bool).init(false);
+
+/// Check if shutdown was requested via RPC
+pub fn isShutdownRequested() bool {
+    return shutdown_flag.load(.acquire);
+}
+
+fn handleShutdown(alloc: Allocator, _: ParsedRequest, _: ?*storage.Database) ![]const u8 {
+    // Set shutdown flag - server loop will check this and exit gracefully
+    shutdown_flag.store(true, .release);
+    return jsonStringify(alloc, .{
+        .status = "shutting_down",
+    });
 }
 
 fn handleNotesCreate(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {

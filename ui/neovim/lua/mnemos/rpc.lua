@@ -59,7 +59,18 @@ end
 
 -- Async-safe helpers (no vim.fn.* - safe to call in libuv callbacks)
 local function mkdir_p(dir)
-  os.execute(string.format('mkdir -p "%s"', dir))
+  -- Use libuv for safe directory creation (no shell injection risk)
+  local uv = vim.uv or vim.loop
+  local parts = {}
+  for part in dir:gmatch("[^/]+") do
+    table.insert(parts, part)
+  end
+  local current = dir:sub(1, 1) == "/" and "/" or ""
+  for _, part in ipairs(parts) do
+    current = current .. part
+    uv.fs_mkdir(current, 493) -- 0755 in octal = 493 decimal
+    current = current .. "/"
+  end
 end
 
 local function file_exists(path)
@@ -74,9 +85,7 @@ local function is_executable(path)
   return stat.type == "file" and math.floor(stat.mode / 64) % 2 == 1
 end
 
-local function shell_escape(s)
-  return "'" .. s:gsub("'", "'\\''") .. "'"
-end
+-- shell_escape removed: no longer needed since we use libuv spawn instead of os.execute
 
 -- Read last N lines from log file for startup error messages
 local function read_log_tail(max_lines)
@@ -232,8 +241,12 @@ end
 
 -- Check if a process with given PID is alive
 local function process_alive(pid)
-  local ok = os.execute("kill -0 " .. pid .. " 2>/dev/null")
-  return ok == 0 or ok == true
+  -- Use libuv to send signal 0 (no shell injection risk)
+  local uv = vim.uv or vim.loop
+  local ok, _ = pcall(function()
+    return uv.kill(pid, 0) == 0
+  end)
+  return ok
 end
 
 -- Read PID from lock file
@@ -257,10 +270,17 @@ local function try_acquire_lock()
   -- Ensure directory exists before trying to create lock
   mkdir_p(mnemos_dir)
   local lock_path = get_lock_path()
-  -- Use O_CREAT | O_EXCL via shell
-  local cmd = string.format('set -C; echo %d > "%s" 2>/dev/null', vim.uv.os_getpid(), lock_path)
-  local ok = os.execute(cmd)
-  return ok == 0 or ok == true
+  local uv = vim.uv or vim.loop
+  -- O_WRONLY=1, O_CREAT=64, O_EXCL=128 -> 193 for atomic create-if-not-exists
+  local fd, err = uv.fs_open(lock_path, "wx", 420) -- "wx" = O_WRONLY|O_CREAT|O_EXCL, 420 = 0644
+  if not fd then
+    return false -- Lock already exists or error
+  end
+  -- Write our PID to the lock file
+  local pid_str = tostring(uv.os_getpid()) .. "\n"
+  uv.fs_write(fd, pid_str, 0)
+  uv.fs_close(fd)
+  return true
 end
 
 -- Remove lock file
@@ -287,26 +307,45 @@ local function start_server()
   -- Ensure mnemos directory exists
   mkdir_p(mnemos_dir)
 
-  -- Build command with optional --config flag
+  -- Build args array (no shell escaping needed with spawn)
+  local args = { "--serve" }
   local config_path = config.get("config_path")
-  local config_arg = ""
   if config_path then
-    config_arg = " --config " .. shell_escape(config_path)
+    table.insert(args, "--config")
+    table.insert(args, config_path)
   end
 
-  -- Start server in background (detached)
-  -- Must set MNEMOS_DIR so backend uses the same socket path we're expecting
-  -- Use env command to ensure the env var is properly set
-  local cmd = string.format(
-    "env MNEMOS_DIR=%s %s --serve%s >> %s/mnemos.log 2>&1 &",
-    shell_escape(mnemos_dir),
-    shell_escape(backend),
-    config_arg,
-    shell_escape(mnemos_dir)
-  )
-  log("debug", "Starting server: " .. cmd)
-  os.execute(cmd)
+  -- Open log file for output redirection
+  local uv = vim.uv or vim.loop
+  local log_path = get_log_path()
+  local log_fd = uv.fs_open(log_path, "a", 420) -- append mode, 0644
+  if not log_fd then
+    log("error", "Failed to open log file: " .. log_path)
+    return false
+  end
 
+  -- Start server using libuv spawn (no shell injection risk)
+  -- detached=true makes it survive parent exit
+  local handle, pid = uv.spawn(backend, {
+    args = args,
+    env = { "MNEMOS_DIR=" .. mnemos_dir },
+    detached = true,
+    stdio = { nil, log_fd, log_fd }, -- stdin=nil, stdout=log, stderr=log
+  }, function(code, signal)
+    -- Process exited callback (will be called when server stops)
+  end)
+
+  uv.fs_close(log_fd)
+
+  if not handle then
+    log("error", "Failed to spawn backend: " .. tostring(pid))
+    return false
+  end
+
+  -- Unref the handle so it doesn't prevent Neovim from exiting
+  handle:unref()
+
+  log("debug", "Started server with PID: " .. tostring(pid))
   log("info", "Started backend server")
   return true
 end

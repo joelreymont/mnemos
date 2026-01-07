@@ -1,6 +1,6 @@
 ;;; mnemos.el --- Mnemos: a second brain for your code  -*- lexical-binding: t; -*-
 
-;; Emacs frontend for the Mnemos Rust backend (protocol v2).
+;; Emacs frontend for the Mnemos Zig backend (protocol v1).
 ;; - JSON-RPC 2.0 over stdio
 ;; - Notes minor mode with stickies as overlays
 ;; - Notes list buffer
@@ -53,7 +53,7 @@
   :type 'integer
   :group 'mnemos)
 
-(defcustom mnemos-debug t
+(defcustom mnemos-debug nil
   "When non-nil, log debug information to *Mnemos Debug* buffer.
 Set to t for basic logging, or 'verbose for detailed RPC payloads."
   :type '(choice (const :tag "Off" nil)
