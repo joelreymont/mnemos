@@ -315,6 +315,7 @@ test "basic" {
     _ = @import("ai.zig");
     _ = @import("treesitter.zig");
     _ = @import("grammar.zig");
+    _ = @import("proptest.zig");
 }
 
 test "config default values" {

@@ -13,7 +13,7 @@ const process = std.process;
 const Allocator = mem.Allocator;
 
 /// Write JSON-escaped string (escapes quotes, backslashes, control chars)
-fn writeJsonEscaped(writer: anytype, s: []const u8) !void {
+pub fn writeJsonEscaped(writer: anytype, s: []const u8) !void {
     for (s) |c| {
         switch (c) {
             '"' => try writer.writeAll("\\\""),
