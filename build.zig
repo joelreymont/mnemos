@@ -47,6 +47,22 @@ pub fn build(b: *std.Build) void {
     });
     test_mod.addOptions("build_options", options);
 
+    // Add quickcheck module for property-based testing
+    const quickcheck_mod = b.createModule(.{
+        .root_source_file = b.path("src/util/quickcheck.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    test_mod.addImport("quickcheck", quickcheck_mod);
+
+    // Add ohsnap module for snapshot testing
+    if (b.lazyDependency("ohsnap", .{
+        .target = target,
+        .optimize = optimize,
+    })) |ohsnap_dep| {
+        test_mod.addImport("ohsnap", ohsnap_dep.module("ohsnap"));
+    }
+
     const exe_unit_tests = b.addTest(.{
         .root_module = test_mod,
     });

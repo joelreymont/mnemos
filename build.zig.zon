@@ -3,10 +3,15 @@
     .version = "0.0.0",
     .fingerprint = 0x44347ca7296df53b,
     .minimum_zig_version = "0.14.0",
-    .dependencies = .{},
+    .dependencies = .{
+        .ohsnap = .{
+            .path = "deps/ohsnap",
+        },
+    },
     .paths = .{
         "build.zig",
         "build.zig.zon",
         "src",
+        "deps",
     },
 }
