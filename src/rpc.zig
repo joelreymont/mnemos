@@ -13,6 +13,7 @@ const storage = @import("storage.zig");
 const git = @import("git.zig");
 const treesitter = @import("treesitter.zig");
 const ai = @import("ai.zig");
+const build_options = @import("build_options");
 
 /// Maximum allowed Content-Length to prevent DoS attacks (10 MB)
 const MAX_CONTENT_LENGTH: usize = 10 * 1024 * 1024;
@@ -378,7 +379,7 @@ fn handleVersion(alloc: Allocator, _: ParsedRequest, _: ?*storage.Database) ![]c
         .version = "0.1.0",
         .protocolVersion = 1,
         .language = "zig",
-        .gitHash = "dev", // TODO: inject at build time
+        .gitHash = build_options.git_hash,
     });
 }
 
@@ -1583,7 +1584,7 @@ fn makeErrorId(alloc: Allocator, id: std.json.Value, code: i32, message: []const
     , .{ id_str, code, message }) catch &.{};
 }
 
-fn makeErrorJson(alloc: Allocator, id: ?[]const u8, code: i32, message: []const u8) []u8 {
+pub fn makeErrorJson(alloc: Allocator, id: ?[]const u8, code: i32, message: []const u8) []u8 {
     const id_str = id orelse "null";
     return std.fmt.allocPrint(alloc,
         \\{{"jsonrpc":"2.0","id":{s},"error":{{"code":{d},"message":"{s}"}}}}

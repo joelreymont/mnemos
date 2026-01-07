@@ -265,6 +265,7 @@ local function read_lock_pid()
 end
 
 -- Try to acquire lock file (returns true if acquired)
+-- Note: Does NOT write PID - caller must call write_lock_pid() after starting server
 local function try_acquire_lock()
   local mnemos_dir = get_mnemos_dir()
   -- Ensure directory exists before trying to create lock
@@ -276,11 +277,20 @@ local function try_acquire_lock()
   if not fd then
     return false -- Lock already exists or error
   end
-  -- Write our PID to the lock file
-  local pid_str = tostring(uv.os_getpid()) .. "\n"
-  uv.fs_write(fd, pid_str, 0)
   uv.fs_close(fd)
   return true
+end
+
+-- Write server PID to lock file (called after server starts)
+local function write_lock_pid(pid)
+  local lock_path = get_lock_path()
+  local uv = vim.uv or vim.loop
+  local fd = uv.fs_open(lock_path, "w", 420)
+  if fd then
+    local pid_str = tostring(pid) .. "\n"
+    uv.fs_write(fd, pid_str, 0)
+    uv.fs_close(fd)
+  end
 end
 
 -- Remove lock file
@@ -339,7 +349,7 @@ local function start_server()
 
   if not handle then
     log("error", "Failed to spawn backend: " .. tostring(pid))
-    return false
+    return nil
   end
 
   -- Unref the handle so it doesn't prevent Neovim from exiting
@@ -347,7 +357,7 @@ local function start_server()
 
   log("debug", "Started server with PID: " .. tostring(pid))
   log("info", "Started backend server")
-  return true
+  return pid  -- Return server PID so caller can write to lock file
 end
 
 -- Wait for socket to appear
@@ -472,12 +482,16 @@ function M.ensure_connected_start_server(callback)
   -- Try to acquire lock
   if try_acquire_lock() then
     -- We acquired the lock, start the server
-    if not start_server() then
+    local server_pid = start_server()
+    if not server_pid then
       remove_lock()
       M.connecting = false
       callback("Failed to start server")
       return
     end
+
+    -- Write server PID to lock file for stale detection
+    write_lock_pid(server_pid)
 
     -- Wait for socket to appear
     wait_for_socket(5000, function(appeared)

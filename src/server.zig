@@ -118,7 +118,14 @@ const Server = struct {
         var stream = client.stream orelse return;
 
         const request = stream.readRequest(self.alloc) catch |err| {
-            if (err == error.EndOfStream or err == error.BrokenPipe or err == error.ConnectionResetByPeer) {
+            if (err == error.ContentTooLarge) {
+                // Send error response for oversized request
+                const error_response = rpc.makeErrorJson(self.alloc, null, -32600, "Request too large (max 10MB)");
+                defer self.alloc.free(error_response);
+                stream.writeResponse(error_response) catch {};
+                posix.close(client.fd);
+                slot.* = null;
+            } else if (err == error.EndOfStream or err == error.BrokenPipe or err == error.ConnectionResetByPeer) {
                 posix.close(client.fd);
                 slot.* = null;
             }
