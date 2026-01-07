@@ -546,11 +546,11 @@ fn getTimestamp(buf: *[32]u8) []const u8 {
 pub fn searchFiles(db: *Database, alloc: Allocator, query: []const u8) ![]File {
     var stmt = try db.prepare(
         \\SELECT path, content, content_hash, indexed_at FROM files
-        \\WHERE path LIKE ?1 ORDER BY indexed_at DESC
+        \\WHERE path LIKE ?1 ESCAPE '\' ORDER BY indexed_at DESC
     );
     defer stmt.deinit();
 
-    const pattern = try std.fmt.allocPrint(alloc, "%{s}%", .{query});
+    const pattern = try escapeLikePattern(alloc, query);
     defer alloc.free(pattern);
 
     try stmt.bindText(1, pattern);

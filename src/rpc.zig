@@ -1001,10 +1001,26 @@ fn handleBufferContext(alloc: Allocator, req: ParsedRequest, db: ?*storage.Datab
 
     const note_count: i64 = storage.countNotes(database) catch 0;
 
-    return try std.fmt.allocPrint(alloc,
-        \\{{"file":"{s}","noteCount":{d}}}
-    , .{ file, note_count });
+    return jsonStringify(alloc, .{ .file = file, .noteCount = note_count });
 }
+
+/// Graph node for visualization
+const GraphNode = struct {
+    id: []const u8,
+    label: []const u8,
+};
+
+/// Empty edge placeholder for graph
+const GraphEdge = struct {
+    from: []const u8 = "",
+    to: []const u8 = "",
+};
+
+/// Graph response
+const GraphResponse = struct {
+    nodes: []const GraphNode,
+    edges: []const GraphEdge = &.{},
+};
 
 fn handleGraph(alloc: Allocator, _: ParsedRequest, db: ?*storage.Database) ![]const u8 {
     const database = db orelse return error.NoDatabaseConnection;
@@ -1012,19 +1028,14 @@ fn handleGraph(alloc: Allocator, _: ParsedRequest, db: ?*storage.Database) ![]co
     const notes = try storage.listProjectNotes(database, alloc);
     defer storage.freeNotes(alloc, notes);
 
-    var buf: std.ArrayList(u8) = .{};
-    try buf.appendSlice(alloc, "{\"nodes\":[");
-    for (notes, 0..) |note, i| {
-        if (i > 0) try buf.appendSlice(alloc, ",");
-        const item = try std.fmt.allocPrint(alloc,
-            \\{{"id":"{s}","label":"{s}"}}
-        , .{ note.id, note.file_path });
-        defer alloc.free(item);
-        try buf.appendSlice(alloc, item);
-    }
-    try buf.appendSlice(alloc, "],\"edges\":[]}");
+    const nodes = try alloc.alloc(GraphNode, notes.len);
+    defer alloc.free(nodes);
 
-    return buf.toOwnedSlice(alloc);
+    for (notes, 0..) |note, i| {
+        nodes[i] = .{ .id = note.id, .label = note.file_path };
+    }
+
+    return jsonStringify(alloc, GraphResponse{ .nodes = nodes });
 }
 
 fn handleTasks(alloc: Allocator, _: ParsedRequest, _: ?*storage.Database) ![]const u8 {
@@ -1035,9 +1046,7 @@ fn handleTaskStatus(alloc: Allocator, req: ParsedRequest, _: ?*storage.Database)
     const task_id = req.getString("taskId") orelse
         return error.MissingTaskId;
 
-    return try std.fmt.allocPrint(alloc,
-        \\{{"taskId":"{s}","status":"unknown"}}
-    , .{task_id});
+    return jsonStringify(alloc, .{ .taskId = task_id, .status = "unknown" });
 }
 
 fn handleTaskList(alloc: Allocator, _: ParsedRequest, _: ?*storage.Database) ![]const u8 {
@@ -1069,9 +1078,7 @@ fn handleIndexAddFile(alloc: Allocator, req: ParsedRequest, db: ?*storage.Databa
 
     try storage.addFile(database, file_path, content, &hash_hex);
 
-    return try std.fmt.allocPrint(alloc,
-        \\{{"file":"{s}","contentHash":"{s}"}}
-    , .{ file_path, &hash_hex });
+    return jsonStringify(alloc, .{ .file = file_path, .contentHash = &hash_hex });
 }
 
 const SearchHitResponse = struct {
@@ -1214,6 +1221,13 @@ fn handleNotesHistory(alloc: Allocator, req: ParsedRequest, db: ?*storage.Databa
     return jsonStringify(alloc, NoteHistoryResponse{ .noteId = id });
 }
 
+/// Get version response
+const GetVersionResponse = struct {
+    noteId: []const u8,
+    version: i64,
+    content: ?[]const u8 = null,
+};
+
 fn handleNotesGetVersion(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
     _ = db;
     const id = req.getString("id") orelse
@@ -1221,10 +1235,15 @@ fn handleNotesGetVersion(alloc: Allocator, req: ParsedRequest, db: ?*storage.Dat
     const version = req.getInt("version") orelse
         return error.MissingVersion;
 
-    return try std.fmt.allocPrint(alloc,
-        \\{{"noteId":"{s}","version":{d},"content":null}}
-    , .{ id, version });
+    return jsonStringify(alloc, GetVersionResponse{ .noteId = id, .version = version });
 }
+
+/// Restore version response
+const RestoreVersionResponse = struct {
+    noteId: []const u8,
+    restoredVersion: i64,
+    ok: bool = false,
+};
 
 fn handleNotesRestoreVersion(alloc: Allocator, req: ParsedRequest, db: ?*storage.Database) ![]const u8 {
     _ = db;
@@ -1233,9 +1252,7 @@ fn handleNotesRestoreVersion(alloc: Allocator, req: ParsedRequest, db: ?*storage
     const version = req.getInt("version") orelse
         return error.MissingVersion;
 
-    return try std.fmt.allocPrint(alloc,
-        \\{{"noteId":"{s}","restoredVersion":{d},"ok":false}}
-    , .{ id, version });
+    return jsonStringify(alloc, RestoreVersionResponse{ .noteId = id, .restoredVersion = version });
 }
 
 const LinkSuggestionItem = struct {
