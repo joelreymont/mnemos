@@ -12,7 +12,6 @@ import {
   getBacklinks,
   shutdown,
   explainRegion,
-  getNoteAtCursor,
   getNoteAtCursorWithPicker,
   getProjectRoot,
   getProjectMeta,
