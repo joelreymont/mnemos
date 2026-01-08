@@ -338,6 +338,8 @@ MNEMOS_BACKEND=./zig-out/bin/mnemos emacs -batch -L ui/emacs -l ui/emacs/tests/m
 cd ui/neovim && nvim --headless -u tests/minimal_init.lua -c "luafile tests/run.lua"
 ```
 
+Optional: set `MNEMOS_AI_STUB=1` to use a deterministic AI response for e2e tests.
+
 ### VS Code
 
 ```bash

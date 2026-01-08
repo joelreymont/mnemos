@@ -16,6 +16,9 @@ const rpc = @import("rpc.zig");
 
 /// Timeout for AI provider responses (5 minutes)
 const AI_TIMEOUT_MS: i32 = 5 * 60 * 1000;
+const AI_STUB_ENV = "MNEMOS_AI_STUB";
+
+var stub_logged = false;
 
 /// Write JSON-escaped string (escapes quotes, backslashes, control chars)
 pub fn writeJsonEscaped(writer: anytype, s: []const u8) !void {
@@ -53,6 +56,33 @@ pub const Provider = enum {
         };
     }
 };
+
+fn aiStubEnabled(alloc: Allocator) bool {
+    if (process.getEnvVarOwned(alloc, AI_STUB_ENV)) |val| {
+        defer alloc.free(val);
+        if (val.len == 0) return false;
+        if (std.ascii.eqlIgnoreCase(val, "0") or std.ascii.eqlIgnoreCase(val, "false")) return false;
+        return true;
+    } else |_| {}
+    return false;
+}
+
+fn stubProvider(alloc: Allocator) Provider {
+    if (process.getEnvVarOwned(alloc, "MNEMOS_AI_PROVIDER")) |raw| {
+        defer alloc.free(raw);
+        switch (parseProviderEnv(raw)) {
+            .claude => return .claude,
+            .codex => return .codex,
+            .auto, .none => {},
+        }
+    } else |_| {}
+    return .codex;
+}
+
+fn aiStubResponse(alloc: Allocator, prompt: []const u8) ![]const u8 {
+    _ = prompt;
+    return alloc.dupe(u8, "Stub AI response.");
+}
 
 /// Timeout for subprocess shutdown (in nanoseconds)
 const SHUTDOWN_TIMEOUT_NS: u64 = 5 * std.time.ns_per_s;
@@ -394,8 +424,15 @@ pub fn askWithProvider(alloc: Allocator, code: []const u8, user_prompt: []const 
     , .{ user_prompt, code });
     defer alloc.free(prompt);
 
-    const provider = detectProvider(alloc) orelse return error.NoProviderAvailable;
-    const response = switch (provider) {
+    const stub = aiStubEnabled(alloc);
+    const provider = if (stub) stubProvider(alloc) else detectProvider(alloc) orelse return error.NoProviderAvailable;
+    if (stub and !stub_logged) {
+        stub_logged = true;
+        std.log.warn("AI stub enabled via {s}", .{AI_STUB_ENV});
+    }
+    const response = if (stub)
+        try aiStubResponse(alloc, prompt)
+    else switch (provider) {
         .claude => try runProvider(alloc, "claude", prompt),
         .codex => try runProvider(alloc, "codex", prompt),
     };

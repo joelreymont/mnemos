@@ -41,6 +41,11 @@ _G.print = function(...)
 end
 
 -- Run tests
+if vim.env.MNEMOS_AI_STUB == nil then
+  vim.env.MNEMOS_AI_STUB = "1"
+  print("MNEMOS_AI_STUB=1 (set to 0 to use real AI)")
+end
+
 local max_duration_ms = tonumber(vim.env.MNEMOS_TEST_TIMEOUT_MS) or 600000
 
 harness.test_directory(test_root, {
