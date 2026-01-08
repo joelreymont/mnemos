@@ -1139,9 +1139,11 @@ fn detectRipgrep(alloc: Allocator) ?[]const u8 {
     defer alloc.free(result.stdout);
 
     if (result.term.Exited == 0 and result.stdout.len > 0) {
-        // Trim trailing newline
-        const path = mem.trimRight(u8, result.stdout, "\n");
-        return alloc.dupe(u8, path) catch null;
+        // Trim all whitespace (newlines, spaces, etc.)
+        const path = mem.trim(u8, result.stdout, &std.ascii.whitespace);
+        if (path.len > 0) {
+            return alloc.dupe(u8, path) catch null;
+        }
     }
     return null;
 }
