@@ -7,6 +7,7 @@
 -- - AI provider configured: MNEMOS_AI_PROVIDER=claude or config.toml
 
 local helpers = require("tests.helpers")
+local ai_timeout_ms = tonumber(vim.env.MNEMOS_AI_TEST_TIMEOUT_MS) or 300000
 
 -- Helper to set up test environment with AI enabled
 local function get_ai_test_env()
@@ -120,10 +121,10 @@ describe("explain_region end-to-end", function()
       end)
     end)
 
-    -- Wait for AI response (up to 120 seconds)
+    -- Wait for AI response (configurable timeout)
     -- Check periodically for notes to appear
     local start_time = vim.uv.now()
-    local timeout_ms = 120000
+    local timeout_ms = ai_timeout_ms
 
     while not test_done and (vim.uv.now() - start_time) < timeout_ms do
       -- Process libuv events
@@ -205,8 +206,8 @@ describe("explain_region end-to-end", function()
       end)
     end)
 
-    -- Wait up to 120 seconds for AI response
-    helpers.wait_for(function() return done end, 120000)
+    -- Wait up to configured timeout for AI response
+    helpers.wait_for(function() return done end, ai_timeout_ms)
     env.cleanup()
 
     assert.is_nil(err_result, "RPC should not error: " .. vim.inspect(err_result))
@@ -267,8 +268,8 @@ describe("explain_region end-to-end", function()
       end)
     end)
 
-    -- Wait for the full flow (up to 120 seconds)
-    helpers.wait_for(function() return explanation_done end, 120000)
+    -- Wait for the full flow (up to configured timeout)
+    helpers.wait_for(function() return explanation_done end, ai_timeout_ms)
 
     env.cleanup()
 
