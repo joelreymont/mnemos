@@ -51,9 +51,11 @@ harness.test_directory(test_root, {
 local uv = vim.uv or vim.loop
 local check_timer = uv.new_timer()
 local check_count = 0
-local max_checks = 600 -- 60 seconds max
+local check_interval_ms = 100
+local max_duration_ms = tonumber(vim.env.MNEMOS_TEST_TIMEOUT_MS) or 300000
+local max_checks = math.floor(max_duration_ms / check_interval_ms)
 
-check_timer:start(100, 100, function()
+check_timer:start(check_interval_ms, check_interval_ms, function()
   check_count = check_count + 1
 
   -- Check messages for completion
