@@ -400,13 +400,16 @@ suite('Integration Test Suite', () => {
     assert.ok(created.id, 'Note should be created');
 
     // Search for the note using notes/search (used by link insertion)
-    const results = await client.request<Array<{ id: string; text: string; summary?: string }>>('notes/search', {
+    const results = await client.request<
+      Array<{ id: string; text: string; summary?: string }> | { notes: Array<{ id: string; text: string; summary?: string }> }
+    >('notes/search', {
       query: 'Unique searchable',
     });
 
-    assert.ok(Array.isArray(results), 'Search should return array');
-    assert.ok(results.length >= 1, 'Should find at least one note');
-    assert.ok(results.some(r => r.id === created.id), 'Should find the created note');
+    const notes = Array.isArray(results) ? results : results.notes;
+    assert.ok(Array.isArray(notes), 'Search should return array');
+    assert.ok(notes.length >= 1, 'Should find at least one note');
+    assert.ok(notes.some(r => r.id === created.id), 'Should find the created note');
   });
 
   test('RPC client can query backlinks', async function() {
