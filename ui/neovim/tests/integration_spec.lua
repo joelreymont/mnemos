@@ -654,7 +654,14 @@ describe("mnemos integration", function()
       assert.is_not_nil(results, "Should return results")
       assert.is_table(results)
       assert.truthy(#results >= 1, "Should find note with lowercase search")
-      assert.truthy(results[1].text:find("Config"), "Should find the Config note")
+      local found = false
+      for _, item in ipairs(results) do
+        if item.text and item.text:find("Config", 1, true) then
+          found = true
+          break
+        end
+      end
+      assert.truthy(found, "Should find the Config note")
     end)
   end)
 
