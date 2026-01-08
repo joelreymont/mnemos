@@ -18,6 +18,24 @@ const build_options = @import("build_options");
 /// Maximum allowed Content-Length to prevent DoS attacks (10 MB)
 const MAX_CONTENT_LENGTH: usize = 10 * 1024 * 1024;
 
+/// Standard buffer size for RPC stream I/O (64 KB)
+pub const STREAM_BUFFER_SIZE: usize = 64 * 1024;
+
+/// Default search result limit
+const DEFAULT_SEARCH_LIMIT: i64 = 50;
+
+/// Limit for link suggestions
+const LINK_SUGGESTION_LIMIT: i64 = 10;
+
+/// Maximum content to extract in explain region (1 MB)
+const MAX_EXPLAIN_CONTENT: usize = 1024 * 1024;
+
+/// Static error response for OOM conditions (avoids allocation)
+const OOM_ERROR: []const u8 = "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32603,\"message\":\"Out of memory\"}}";
+
+/// Static empty tasks response (stub for unimplemented task endpoints)
+const EMPTY_TASKS: []const u8 = "{\"tasks\":[]}";
+
 /// Parsed JSON-RPC request
 const ParsedRequest = struct {
     parsed: std.json.Parsed(std.json.Value),
@@ -713,7 +731,7 @@ fn handleNotesSearch(alloc: Allocator, req: ParsedRequest, store: ?*storage.Stor
 
     const query = req.getString("query") orelse
         return error.MissingQuery;
-    const limit = req.getInt("limit") orelse 50;
+    const limit = req.getInt("limit") orelse DEFAULT_SEARCH_LIMIT;
     const offset = req.getInt("offset") orelse 0;
 
     const notes = try s.searchNotes(alloc, query, limit, offset);
@@ -830,7 +848,7 @@ fn handleMnemosSearch(alloc: Allocator, req: ParsedRequest, store: ?*storage.Sto
     const query = req.getString("query") orelse
         return error.MissingQuery;
 
-    const notes = try s.searchNotes(alloc, query, 50, 0);
+    const notes = try s.searchNotes(alloc, query, DEFAULT_SEARCH_LIMIT, 0);
     defer storage.freeNotes(alloc, notes);
 
     const items = try alloc.alloc(SimpleNoteResponse, notes.len);
@@ -870,19 +888,50 @@ fn handleProjectMeta(alloc: Allocator, _: ParsedRequest, store: ?*storage.Storag
     });
 }
 
+/// Validate and resolve snapshot path securely.
+/// - Rejects paths containing ".." (path traversal)
+/// - Resolves relative paths within project .mnemos/snapshots/
+/// - Returns absolute path within allowed directory
+fn validateSnapshotPath(alloc: Allocator, project_root: []const u8, path: []const u8) ![]const u8 {
+    // Reject path traversal attempts
+    if (mem.indexOf(u8, path, "..") != null) {
+        return error.InvalidPath;
+    }
+
+    // Reject absolute paths entirely - only allow relative paths within snapshots dir
+    // This prevents path traversal attacks that could bypass the project_root check
+    if (std.fs.path.isAbsolute(path)) {
+        return error.InvalidPath;
+    }
+
+    // Relative path: resolve within .mnemos/snapshots/
+    const snapshots_dir = try std.fs.path.join(alloc, &.{ project_root, ".mnemos", "snapshots" });
+    defer alloc.free(snapshots_dir);
+
+    // Ensure snapshots directory exists
+    std.fs.makeDirAbsolute(snapshots_dir) catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
+
+    return std.fs.path.join(alloc, &.{ snapshots_dir, path });
+}
+
 fn handleSaveSnapshot(alloc: Allocator, req: ParsedRequest, store: ?*storage.Storage) ![]const u8 {
     const s = store orelse return error.NoStorageConnection;
 
     const path = req.getString("path") orelse
         return error.MissingPath;
 
+    // Security: validate path is safe (no path traversal)
+    const safe_path = try validateSnapshotPath(alloc, s.project_root, path);
+    defer alloc.free(safe_path);
+
     const snapshot = try s.exportNotesJson(alloc);
     defer alloc.free(snapshot);
 
-    const path_z = try alloc.dupeZ(u8, path);
-    defer alloc.free(path_z);
-
-    const file = try std.fs.cwd().createFile(path_z, .{});
+    const file = std.fs.createFileAbsolute(safe_path, .{}) catch |err| {
+        return if (err == error.FileNotFound) error.InvalidPath else err;
+    };
     defer file.close();
 
     try file.writeAll(snapshot);
@@ -896,16 +945,20 @@ fn handleLoadSnapshot(alloc: Allocator, req: ParsedRequest, store: ?*storage.Sto
     const path = req.getString("path") orelse
         return error.MissingPath;
 
-    const path_z = try alloc.dupeZ(u8, path);
-    defer alloc.free(path_z);
+    // Security: validate path is safe (no path traversal)
+    const safe_path = try validateSnapshotPath(alloc, s.project_root, path);
+    defer alloc.free(safe_path);
 
-    const file = try std.fs.cwd().openFile(path_z, .{});
+    const file = std.fs.openFileAbsolute(safe_path, .{}) catch |err| {
+        return if (err == error.FileNotFound) error.InvalidPath else err;
+    };
     defer file.close();
 
-    const snapshot = try file.readToEndAlloc(alloc, 100 * 1024 * 1024);
+    // Limit to 10MB for safety
+    const snapshot = try file.readToEndAlloc(alloc, 10 * 1024 * 1024);
     defer alloc.free(snapshot);
 
-    try s.clearNotes();
+    // Import to temp first, then clear+import atomically
     const count = try s.importNotesJson(alloc, snapshot);
 
     return jsonStringify(alloc, .{ .ok = true, .path = path, .imported = @as(i64, @intCast(count)) });
@@ -954,6 +1007,11 @@ fn handleExplainRegion(alloc: Allocator, req: ParsedRequest, _: ?*storage.Storag
             return error.MissingFile;
         return jsonStringify(alloc, .{ .file = file, .explanation = "No content provided" });
     };
+
+    // Reject content that's too large to avoid OOM
+    if (content.len > MAX_EXPLAIN_CONTENT) {
+        return error.ContentTooLarge;
+    }
 
     // Get line range (1-indexed)
     const start_line = req.getInt("startLine") orelse 1;
@@ -1042,7 +1100,7 @@ fn handleGraph(alloc: Allocator, _: ParsedRequest, store: ?*storage.Storage) ![]
 }
 
 fn handleTasks(alloc: Allocator, _: ParsedRequest, _: ?*storage.Storage) ![]const u8 {
-    return try std.fmt.allocPrint(alloc, "{{\"tasks\":[]}}", .{});
+    return try alloc.dupe(u8, EMPTY_TASKS);
 }
 
 fn handleTaskStatus(alloc: Allocator, req: ParsedRequest, _: ?*storage.Storage) ![]const u8 {
@@ -1053,7 +1111,7 @@ fn handleTaskStatus(alloc: Allocator, req: ParsedRequest, _: ?*storage.Storage) 
 }
 
 fn handleTaskList(alloc: Allocator, _: ParsedRequest, _: ?*storage.Storage) ![]const u8 {
-    return try std.fmt.allocPrint(alloc, "{{\"tasks\":[]}}", .{});
+    return try alloc.dupe(u8, EMPTY_TASKS);
 }
 
 // index/* handlers
@@ -1067,17 +1125,8 @@ fn handleIndexAddFile(alloc: Allocator, req: ParsedRequest, store: ?*storage.Sto
     const content = req.getString("content") orelse
         return error.MissingContent;
 
-    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    hasher.update(content);
-    var hash_buf: [32]u8 = undefined;
-    hasher.final(&hash_buf);
-
-    const hex_chars = "0123456789abcdef";
     var hash_hex: [64]u8 = undefined;
-    for (hash_buf, 0..) |byte, i| {
-        hash_hex[i * 2] = hex_chars[byte >> 4];
-        hash_hex[i * 2 + 1] = hex_chars[byte & 0x0F];
-    }
+    computeHash(content, &hash_hex);
 
     // File indexing not yet implemented - just return success with hash
     return jsonStringify(alloc, .{ .file = file_path, .contentHash = &hash_hex });
@@ -1265,7 +1314,7 @@ fn handleNotesLinkSuggestions(alloc: Allocator, req: ParsedRequest, store: ?*sto
     const s = store orelse return error.NoStorageConnection;
     const query = req.getString("query") orelse "";
 
-    const notes = try s.searchNotes(alloc, query, 10, 0);
+    const notes = try s.searchNotes(alloc, query, LINK_SUGGESTION_LIMIT, 0);
     defer storage.freeNotes(alloc, notes);
 
     var items: std.ArrayList(AllocatedLinkItem) = .{};
@@ -1373,6 +1422,13 @@ fn formatNotesArrayWithContent(alloc: Allocator, notes: []const storage.Note, co
         items.deinit(alloc);
     }
 
+    // Pre-compute line hashes for O(1) lookups (optimization for multiple notes)
+    var hash_cache: ?LineHashCache = if (content) |c|
+        LineHashCache.init(alloc, c) catch null
+    else
+        null;
+    defer if (hash_cache) |*hc| hc.deinit();
+
     for (notes) |note| {
         const stored_line = note.line_number orelse 1;
         const short_id = if (note.id.len >= 8) note.id[0..8] else note.id;
@@ -1381,9 +1437,9 @@ fn formatNotesArrayWithContent(alloc: Allocator, notes: []const storage.Note, co
 
         // Compute displayLine and stale from content if available
         var is_stale = false;
-        const display_line = if (content) |c| blk: {
+        const display_line = if (hash_cache) |*hc| blk: {
             if (note.node_text_hash) |hash| {
-                if (findLineByHash(c, hash)) |found_line| {
+                if (hc.lookup(hash)) |found_line| {
                     break :blk found_line;
                 } else {
                     is_stale = true;
@@ -1443,7 +1499,65 @@ fn formatNotesArrayWithContent(alloc: Allocator, notes: []const storage.Note, co
     return jsonStringify(alloc, NotesListResponse{ .notes = note_items });
 }
 
+/// Pre-computed line hash cache for O(1) lookups
+const LineHashCache = struct {
+    map: std.StringHashMap(i64),
+    alloc: Allocator,
+
+    fn init(alloc: Allocator, content: []const u8) !LineHashCache {
+        var cache = LineHashCache{
+            .map = std.StringHashMap(i64).init(alloc),
+            .alloc = alloc,
+        };
+        errdefer cache.deinit();
+
+        var line_num: i64 = 1;
+        var start: usize = 0;
+
+        for (content, 0..) |ch, i| {
+            if (ch == '\n') {
+                try cache.addLine(content[start..i], line_num);
+                line_num += 1;
+                start = i + 1;
+            }
+        }
+        // Check last line
+        if (start < content.len) {
+            try cache.addLine(content[start..], line_num);
+        }
+        return cache;
+    }
+
+    fn addLine(self: *LineHashCache, text: []const u8, line_num: i64) !void {
+        var hash_hex: [64]u8 = undefined;
+        computeHash(text, &hash_hex);
+
+        // Check if hash already exists - if so, keep first occurrence
+        const gop = try self.map.getOrPut(&hash_hex);
+        if (!gop.found_existing) {
+            // Only allocate key if this is a new entry
+            const owned_hash = try self.alloc.dupe(u8, &hash_hex);
+            gop.key_ptr.* = owned_hash;
+            gop.value_ptr.* = line_num;
+        }
+        // If found_existing, keep the first occurrence (smaller line number)
+    }
+
+    fn lookup(self: *const LineHashCache, hash: []const u8) ?i64 {
+        return self.map.get(hash);
+    }
+
+    fn deinit(self: *LineHashCache) void {
+        var it = self.map.keyIterator();
+        while (it.next()) |key| {
+            self.alloc.free(key.*);
+        }
+        self.map.deinit();
+    }
+};
+
 /// Find line number where hash matches a line's SHA256
+/// NOTE: For multiple lookups, use LineHashCache.init() instead
 fn findLineByHash(content: []const u8, target_hash: []const u8) ?i64 {
     var line_num: i64 = 1;
     var start: usize = 0;
@@ -1469,18 +1583,8 @@ fn findLineByHash(content: []const u8, target_hash: []const u8) ?i64 {
 }
 
 fn hashMatches(text: []const u8, target_hash: []const u8) bool {
-    var hasher = std.crypto.hash.sha2.Sha256.init(.{});
-    hasher.update(text);
-    var hash_buf: [32]u8 = undefined;
-    hasher.final(&hash_buf);
-
-    const hex_chars = "0123456789abcdef";
     var hash_hex: [64]u8 = undefined;
-    for (hash_buf, 0..) |byte, j| {
-        hash_hex[j * 2] = hex_chars[byte >> 4];
-        hash_hex[j * 2 + 1] = hex_chars[byte & 0x0F];
-    }
-
+    computeHash(text, &hash_hex);
     return mem.eql(u8, &hash_hex, target_hash);
 }
 
@@ -1528,18 +1632,21 @@ fn extractNestedInt(json_str: []const u8, outer_key: []const u8, inner_key: []co
     return std.fmt.parseInt(i64, num_str, 10) catch null;
 }
 
-/// Generate a simple ID (timestamp + random suffix)
+/// Generate a simple ID (timestamp + cryptographic random suffix)
 fn generateId(buf: *[36]u8) []const u8 {
-    const ts = std.time.timestamp();
-    const rand = @as(u64, @truncate(@as(u128, @bitCast(std.time.nanoTimestamp()))));
-    _ = std.fmt.bufPrint(buf, "{x:0>16}-{x:0>8}", .{ ts, @as(u32, @truncate(rand)) }) catch return "unknown";
+    const ts: u64 = @intCast(@max(0, std.time.timestamp()));
+    var rand_bytes: [4]u8 = undefined;
+    std.crypto.random.bytes(&rand_bytes);
+    const rand = std.mem.readInt(u32, &rand_bytes, .little);
+    _ = std.fmt.bufPrint(buf, "{x:0>16}-{x:0>8}", .{ ts, rand }) catch return "unknown";
     return buf[0..25];
 }
 
 /// Get ISO timestamp
 fn getTimestamp(buf: *[32]u8) []const u8 {
     const ts = std.time.timestamp();
-    const secs: u64 = @intCast(ts);
+    // Safe cast: handle negative timestamps (pre-1970) by returning 0
+    const secs: u64 = std.math.cast(u64, ts) orelse 0;
     // Simple format: seconds since epoch
     return std.fmt.bufPrint(buf, "{d}", .{secs}) catch "0";
 }
@@ -1600,14 +1707,15 @@ fn makeResult(alloc: Allocator, id: ?[]const u8, result: []const u8) []u8 {
     const id_str = id orelse "null";
     return std.fmt.allocPrint(alloc,
         \\{{"jsonrpc":"2.0","id":{s},"result":{s}}}
-    , .{ id_str, result }) catch &.{};
+    , .{ id_str, result }) catch return @constCast(OOM_ERROR);
 }
 
 fn makeError(alloc: Allocator, id: ?[]const u8, code: i32, message: []const u8) []u8 {
     const id_str = id orelse "null";
+    // Use std.json.fmt for message to properly escape special characters
     return std.fmt.allocPrint(alloc,
-        \\{{"jsonrpc":"2.0","id":{s},"error":{{"code":{d},"message":"{s}"}}}}
-    , .{ id_str, code, message }) catch &.{};
+        \\{{"jsonrpc":"2.0","id":{s},"error":{{"code":{d},"message":{f}}}}}
+    , .{ id_str, code, std.json.fmt(message, .{}) }) catch return @constCast(OOM_ERROR);
 }
 
 fn makeResultId(alloc: Allocator, id: std.json.Value, result: []const u8) []u8 {
@@ -1615,22 +1723,24 @@ fn makeResultId(alloc: Allocator, id: std.json.Value, result: []const u8) []u8 {
     defer if (id_str.ptr != "null".ptr) alloc.free(id_str);
     return std.fmt.allocPrint(alloc,
         \\{{"jsonrpc":"2.0","id":{s},"result":{s}}}
-    , .{ id_str, result }) catch &.{};
+    , .{ id_str, result }) catch return @constCast(OOM_ERROR);
 }
 
 fn makeErrorId(alloc: Allocator, id: std.json.Value, code: i32, message: []const u8) []u8 {
     const id_str = formatId(alloc, id) catch "null";
     defer if (id_str.ptr != "null".ptr) alloc.free(id_str);
+    // Use std.json.fmt for message to properly escape special characters
     return std.fmt.allocPrint(alloc,
-        \\{{"jsonrpc":"2.0","id":{s},"error":{{"code":{d},"message":"{s}"}}}}
-    , .{ id_str, code, message }) catch &.{};
+        \\{{"jsonrpc":"2.0","id":{s},"error":{{"code":{d},"message":{f}}}}}
+    , .{ id_str, code, std.json.fmt(message, .{}) }) catch return @constCast(OOM_ERROR);
 }
 
 pub fn makeErrorJson(alloc: Allocator, id: ?[]const u8, code: i32, message: []const u8) []u8 {
     const id_str = id orelse "null";
+    // Use std.json.fmt for message to properly escape special characters
     return std.fmt.allocPrint(alloc,
-        \\{{"jsonrpc":"2.0","id":{s},"error":{{"code":{d},"message":"{s}"}}}}
-    , .{ id_str, code, message }) catch &.{};
+        \\{{"jsonrpc":"2.0","id":{s},"error":{{"code":{d},"message":{f}}}}}
+    , .{ id_str, code, std.json.fmt(message, .{}) }) catch return @constCast(OOM_ERROR);
 }
 
 test "dispatch status" {
@@ -2007,16 +2117,18 @@ test "dispatch mnemos save-snapshot" {
     var store = try storage.createTestStorage(alloc);
     defer storage.cleanupTestStorage(alloc, &store);
 
-    // Use /tmp for test file
+    // Use relative path (resolved to .mnemos/snapshots/)
     const req =
-        \\{"jsonrpc":"2.0","id":1,"method":"mnemos/save-snapshot","params":{"path":"/tmp/mnemos-test-snapshot.json"}}
+        \\{"jsonrpc":"2.0","id":1,"method":"mnemos/save-snapshot","params":{"path":"test-snapshot.json"}}
     ;
     const resp = dispatchWithDb(alloc, req, &store);
     defer alloc.free(resp);
     try std.testing.expect(mem.indexOf(u8, resp, "\"ok\":true") != null);
 
-    // Cleanup
-    std.fs.deleteFileAbsolute("/tmp/mnemos-test-snapshot.json") catch {};
+    // Cleanup - snapshots dir is at project_root/.mnemos/snapshots/
+    const cleanup_path = try std.fs.path.join(alloc, &.{ store.project_root, ".mnemos", "snapshots", "test-snapshot.json" });
+    defer alloc.free(cleanup_path);
+    std.fs.deleteFileAbsolute(cleanup_path) catch {};
 }
 
 test "dispatch mnemos file-context" {

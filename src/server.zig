@@ -12,13 +12,14 @@ const Allocator = mem.Allocator;
 const rpc = @import("rpc.zig");
 const storage = @import("storage.zig");
 const watcher = @import("watcher.zig");
+const paths = @import("paths.zig");
 
 const MAX_CLIENTS = 32;
 
 /// Client connection state
 const Client = struct {
     fd: posix.fd_t,
-    buf: [64 * 1024]u8 = undefined,
+    buf: [rpc.STREAM_BUFFER_SIZE]u8 = undefined,
     stream: ?rpc.Stream = null,
 
     fn init(fd: posix.fd_t) Client {
@@ -39,7 +40,9 @@ const Server = struct {
 
     fn init(alloc: Allocator, socket_path: []const u8, project_root: []const u8) !Server {
         // Initialize storage
-        const store = try storage.Storage.init(alloc, project_root);
+        var store = try storage.Storage.init(alloc, project_root);
+        errdefer store.deinit();
+
         // Remove stale socket
         fs.deleteFileAbsolute(socket_path) catch {};
 
@@ -80,8 +83,6 @@ const Server = struct {
 
     /// Start watching a directory for file changes
     pub fn watchDirectory(self: *Server, path: []const u8) !void {
-        if (self.file_watcher) |w| w.deinit();
-
         const callback = struct {
             fn cb(event: watcher.FileEvent, userdata: ?*anyopaque) void {
                 _ = userdata;
@@ -93,7 +94,10 @@ const Server = struct {
             }
         }.cb;
 
-        self.file_watcher = try watcher.Watcher.init(self.alloc, path, callback, null);
+        // Create new watcher first, only replace old one on success
+        const new_watcher = try watcher.Watcher.init(self.alloc, path, callback, null);
+        if (self.file_watcher) |w| w.deinit();
+        self.file_watcher = new_watcher;
     }
 
     fn acceptClient(self: *Server) !void {
@@ -107,7 +111,8 @@ const Server = struct {
             }
         }
 
-        // No slots available
+        // No slots available - log warning and close connection
+        std.log.warn("Max clients ({d}) reached, dropping connection", .{MAX_CLIENTS});
         posix.close(client_fd);
     }
 
@@ -225,43 +230,7 @@ const Server = struct {
     }
 };
 
-/// Get socket path (prefer MNEMOS_DIR, then XDG_RUNTIME_DIR, fallback to ~/.mnemos)
-fn getSocketPath(alloc: Allocator) ![]const u8 {
-    // Try MNEMOS_DIR first (for tests and custom setups)
-    if (std.process.getEnvVarOwned(alloc, "MNEMOS_DIR")) |mnemos_dir| {
-        defer alloc.free(mnemos_dir);
-        return try std.fmt.allocPrint(alloc, "{s}/mnemos.sock", .{mnemos_dir});
-    } else |_| {}
-
-    // Try XDG_RUNTIME_DIR
-    if (std.process.getEnvVarOwned(alloc, "XDG_RUNTIME_DIR")) |runtime_dir| {
-        defer alloc.free(runtime_dir);
-        return try std.fmt.allocPrint(alloc, "{s}/mnemos.sock", .{runtime_dir});
-    } else |_| {}
-
-    // Fallback to ~/.mnemos/mnemos.sock
-    const mnemos_dir = try getMnemosDir(alloc);
-    defer alloc.free(mnemos_dir);
-    return try std.fmt.allocPrint(alloc, "{s}/mnemos.sock", .{mnemos_dir});
-}
-
-/// Get mnemos directory, creating if needed
-fn getMnemosDir(alloc: Allocator) ![]const u8 {
-    if (std.process.getEnvVarOwned(alloc, "MNEMOS_DIR")) |dir| {
-        return dir;
-    } else |_| {}
-
-    if (std.process.getEnvVarOwned(alloc, "HOME")) |home| {
-        defer alloc.free(home);
-        const path = try std.fmt.allocPrint(alloc, "{s}/.mnemos", .{home});
-        fs.makeDirAbsolute(path) catch |err| {
-            if (err != error.PathAlreadyExists) return err;
-        };
-        return path;
-    } else |_| {}
-
-    return error.NoHomeDir;
-}
+// Path resolution functions moved to paths.zig
 
 /// Global flag for shutdown signal (atomic for signal handler safety)
 var shutdown_requested = std.atomic.Value(bool).init(false);
@@ -273,7 +242,7 @@ fn handleShutdown(_: c_int) callconv(.c) void {
 
 /// Run the server with default paths
 pub fn run(alloc: Allocator) !void {
-    const socket_path = try getSocketPath(alloc);
+    const socket_path = try paths.getSocketPath(alloc);
     defer alloc.free(socket_path);
 
     try runWithPaths(alloc, socket_path, ".");
@@ -327,9 +296,9 @@ test "getMnemosDir with env" {
     const alloc = testing.allocator;
 
     // Test getMnemosDir returns a path
-    const dir = getMnemosDir(alloc) catch |err| {
+    const dir = paths.getMnemosDir(alloc) catch |err| {
         // HOME might not be set in test environment
-        if (err == error.NoHomeDir) return;
+        if (err == paths.PathError.NoHomeDir) return;
         return err;
     };
     defer alloc.free(dir);
@@ -346,9 +315,9 @@ test "getSocketPath returns path" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    const path = getSocketPath(alloc) catch |err| {
+    const path = paths.getSocketPath(alloc) catch |err| {
         // May fail if HOME not set
-        if (err == error.NoHomeDir) return;
+        if (err == paths.PathError.NoHomeDir) return;
         return err;
     };
     defer alloc.free(path);
@@ -372,7 +341,7 @@ test "Client struct fd assignment" {
 test "Client struct has buffer" {
     const testing = std.testing;
     const client = Client.init(0);
-    try testing.expect(client.buf.len == 64 * 1024);
+    try testing.expect(client.buf.len == rpc.STREAM_BUFFER_SIZE);
 }
 
 test "MAX_CLIENTS value" {
@@ -398,8 +367,8 @@ test "getSocketPath contains sock extension" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    const path = getSocketPath(alloc) catch |err| {
-        if (err == error.NoHomeDir) return;
+    const path = paths.getSocketPath(alloc) catch |err| {
+        if (err == paths.PathError.NoHomeDir) return;
         return err;
     };
     defer alloc.free(path);
@@ -411,8 +380,8 @@ test "getMnemosDir creates directory" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    const dir = getMnemosDir(alloc) catch |err| {
-        if (err == error.NoHomeDir) return;
+    const dir = paths.getMnemosDir(alloc) catch |err| {
+        if (err == paths.PathError.NoHomeDir) return;
         return err;
     };
     defer alloc.free(dir);
@@ -430,7 +399,7 @@ test "handleShutdown sets flag" {
 test "Client buffer size" {
     const client = Client.init(5);
     try std.testing.expect(client.buf.len > 0);
-    try std.testing.expect(client.buf.len == 64 * 1024);
+    try std.testing.expect(client.buf.len == rpc.STREAM_BUFFER_SIZE);
 }
 
 test "Client init with various fds" {
@@ -473,8 +442,8 @@ test "getSocketPath path format" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    const path = getSocketPath(alloc) catch |err| {
-        if (err == error.NoHomeDir) return;
+    const path = paths.getSocketPath(alloc) catch |err| {
+        if (err == paths.PathError.NoHomeDir) return;
         return err;
     };
     defer alloc.free(path);
@@ -487,8 +456,8 @@ test "getMnemosDir path format" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    const dir = getMnemosDir(alloc) catch |err| {
-        if (err == error.NoHomeDir) return;
+    const dir = paths.getMnemosDir(alloc) catch |err| {
+        if (err == paths.PathError.NoHomeDir) return;
         return err;
     };
     defer alloc.free(dir);

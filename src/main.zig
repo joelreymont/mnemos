@@ -3,7 +3,6 @@ const fs = std.fs;
 const posix = std.posix;
 const mem = std.mem;
 const process = std.process;
-const build_options = @import("build_options");
 
 const Allocator = mem.Allocator;
 
@@ -11,9 +10,8 @@ const server = @import("server.zig");
 const rpc = @import("rpc.zig");
 const storage = @import("storage.zig");
 const grammar = @import("grammar.zig");
-
-const VERSION = "0.1.0";
-const GIT_HASH = build_options.git_hash;
+const paths = @import("paths.zig");
+const version = @import("version.zig");
 
 const Mode = enum {
     stdio,
@@ -112,76 +110,76 @@ fn parseArgs(alloc: Allocator) !Config {
     return config;
 }
 
+/// Config file JSON schema
+const FileConfig = struct {
+    socket_path: ?[]const u8 = null,
+    project_root: ?[]const u8 = null,
+    db_path: ?[]const u8 = null,
+};
+
 fn loadConfigFile(alloc: Allocator, config: *Config) !void {
-    const config_path = getConfigPath(alloc) catch return;
+    const config_path = paths.getConfigPath(alloc) catch |err| {
+        std.log.debug("Could not determine config path: {}", .{err});
+        return;
+    };
     defer alloc.free(config_path);
 
-    const file = fs.openFileAbsolute(config_path, .{}) catch return;
+    const file = fs.openFileAbsolute(config_path, .{}) catch |err| {
+        // FileNotFound is normal - config file is optional
+        if (err != error.FileNotFound) {
+            std.log.warn("Failed to open config file {s}: {}", .{ config_path, err });
+        }
+        return;
+    };
     defer file.close();
 
-    const content = file.readToEndAlloc(alloc, 1024 * 1024) catch return;
+    const content = file.readToEndAlloc(alloc, 1024 * 1024) catch |err| {
+        std.log.warn("Failed to read config file {s}: {}", .{ config_path, err });
+        return;
+    };
     defer alloc.free(content);
 
-    var parsed = std.json.parseFromSlice(
-        std.json.Value,
+    const parsed = std.json.parseFromSlice(
+        FileConfig,
         alloc,
         content,
-        .{},
-    ) catch return;
+        .{ .ignore_unknown_fields = true },
+    ) catch |err| {
+        std.log.warn("Failed to parse config file {s}: {}", .{ config_path, err });
+        return;
+    };
     defer parsed.deinit();
 
-    const root = parsed.value.object;
+    const file_config = parsed.value;
 
-    if (root.get("socket_path")) |val| {
-        if (val == .string and config.socket_path == null) {
-            config.socket_path = try alloc.dupe(u8, val.string);
+    // Only apply file config values if not already set via command line
+    if (file_config.socket_path) |path| {
+        if (config.socket_path == null) {
+            config.socket_path = try alloc.dupe(u8, path);
         }
     }
 
-    if (root.get("project_root")) |val| {
-        if (val == .string and config.project_root == null) {
-            config.project_root = try alloc.dupe(u8, val.string);
+    if (file_config.project_root) |path| {
+        if (config.project_root == null) {
+            config.project_root = try alloc.dupe(u8, path);
         }
     }
 
-    if (root.get("db_path")) |val| {
-        if (val == .string and config.db_path == null) {
-            config.db_path = try alloc.dupe(u8, val.string);
+    if (file_config.db_path) |path| {
+        if (config.db_path == null) {
+            config.db_path = try alloc.dupe(u8, path);
         }
     }
 }
 
-fn getConfigPath(alloc: Allocator) ![]const u8 {
-    if (process.getEnvVarOwned(alloc, "XDG_CONFIG_HOME")) |xdg_config| {
-        defer alloc.free(xdg_config);
-        return try std.fmt.allocPrint(alloc, "{s}/mnemos/config.json", .{xdg_config});
-    } else |_| {}
-
-    if (process.getEnvVarOwned(alloc, "HOME")) |home| {
-        defer alloc.free(home);
-        return try std.fmt.allocPrint(alloc, "{s}/.config/mnemos/config.json", .{home});
-    } else |_| {}
-
-    return error.NoHomeDir;
-}
+// getConfigPath moved to paths.zig
 
 fn getSocketPath(alloc: Allocator, config: *const Config) ![]const u8 {
     if (config.socket_path) |path| {
         return try alloc.dupe(u8, path);
     }
-
-    // Check MNEMOS_DIR first (for tests and custom setups)
-    if (process.getEnvVarOwned(alloc, "MNEMOS_DIR")) |mnemos_dir| {
-        defer alloc.free(mnemos_dir);
-        return try std.fmt.allocPrint(alloc, "{s}/mnemos.sock", .{mnemos_dir});
-    } else |_| {}
-
-    if (process.getEnvVarOwned(alloc, "XDG_RUNTIME_DIR")) |runtime_dir| {
-        defer alloc.free(runtime_dir);
-        return try std.fmt.allocPrint(alloc, "{s}/mnemos.sock", .{runtime_dir});
-    } else |_| {}
-
-    return try std.fmt.allocPrint(alloc, "/tmp/mnemos.sock", .{});
+    // Delegate to paths module for consistent behavior
+    return paths.getSocketPath(alloc);
 }
 
 fn getDbPath(alloc: Allocator, config: *const Config) ![]const u8 {
@@ -225,7 +223,7 @@ fn runStdio(alloc: Allocator, config: *const Config) !void {
     const stdin_fd = fs.File.stdin().handle;
     const stdout_fd = fs.File.stdout().handle;
 
-    var buf: [64 * 1024]u8 = undefined;
+    var buf: [rpc.STREAM_BUFFER_SIZE]u8 = undefined;
     var stream = rpc.Stream.init(stdin_fd, stdout_fd, &buf);
 
     while (true) {
@@ -301,7 +299,7 @@ fn printHelp() void {
 }
 
 fn printVersion() void {
-    const version_str = "Mnemos v" ++ VERSION ++ " (" ++ GIT_HASH ++ ")\n";
+    const version_str = "Mnemos v" ++ version.full ++ "\n";
     fs.File.stdout().writeAll(version_str) catch {};
 }
 
@@ -333,12 +331,17 @@ test "mode enum values" {
 }
 
 test "version constant" {
-    try std.testing.expect(VERSION.len > 0);
-    try std.testing.expect(mem.indexOf(u8, VERSION, ".") != null);
+    try std.testing.expect(version.semver.len > 0);
+    try std.testing.expect(mem.indexOf(u8, version.semver, ".") != null);
 }
 
 test "git hash constant" {
-    try std.testing.expect(GIT_HASH.len > 0);
+    try std.testing.expect(version.git_hash.len > 0);
+}
+
+test "full version string" {
+    try std.testing.expect(version.full.len > 0);
+    try std.testing.expect(mem.indexOf(u8, version.full, "(") != null);
 }
 
 test "config deinit frees allocated fields" {
@@ -391,8 +394,8 @@ test "getConfigPath returns valid path" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
-    const path = getConfigPath(alloc) catch |err| {
-        if (err == error.NoHomeDir) return;
+    const path = paths.getConfigPath(alloc) catch |err| {
+        if (err == paths.PathError.NoHomeDir) return;
         return err;
     };
     defer alloc.free(path);

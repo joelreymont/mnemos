@@ -11,6 +11,10 @@ const posix = std.posix;
 const process = std.process;
 
 const Allocator = mem.Allocator;
+const rpc = @import("rpc.zig");
+
+/// Timeout for AI provider responses (5 minutes)
+const AI_TIMEOUT_MS: i32 = 5 * 60 * 1000;
 
 /// Write JSON-escaped string (escapes quotes, backslashes, control chars)
 pub fn writeJsonEscaped(writer: anytype, s: []const u8) !void {
@@ -49,6 +53,40 @@ pub const Provider = enum {
     }
 };
 
+/// Timeout for subprocess shutdown (in nanoseconds)
+const SHUTDOWN_TIMEOUT_NS: u64 = 5 * std.time.ns_per_s;
+
+/// Wait for a child process with timeout, force kill if necessary
+fn waitWithTimeout(child: *process.Child, timeout_ns: u64) void {
+    const start = std.time.Instant.now() catch {
+        // Fallback to blocking wait if we can't get time
+        _ = child.wait() catch {};
+        return;
+    };
+
+    // Poll for exit with WNOHANG
+    while (true) {
+        const elapsed = (std.time.Instant.now() catch return).since(start);
+        if (elapsed >= timeout_ns) {
+            // Timeout reached, force kill
+            _ = posix.kill(child.id, posix.SIG.KILL) catch {};
+            _ = child.wait() catch {};
+            return;
+        }
+
+        // Try non-blocking wait - check if process has already exited
+        // Note: Child.wait() blocks, so we use kill with signal 0 to check if process exists
+        if (posix.kill(child.id, 0)) {
+            // Process still exists, sleep briefly then retry
+            std.Thread.sleep(10 * std.time.ns_per_ms);
+        } else |_| {
+            // Process no longer exists
+            _ = child.wait() catch {};
+            return;
+        }
+    }
+}
+
 /// AI subprocess manager
 pub const AI = struct {
     alloc: Allocator,
@@ -56,7 +94,7 @@ pub const AI = struct {
     child: ?process.Child = null,
     stdin_fd: ?posix.fd_t = null,
     stdout_fd: ?posix.fd_t = null,
-    read_buf: [64 * 1024]u8 = undefined,
+    read_buf: [rpc.STREAM_BUFFER_SIZE]u8 = undefined,
     read_len: usize = 0,
     write_buf: std.ArrayList(u8),
 
@@ -109,8 +147,8 @@ pub const AI = struct {
             }
             self.stdin_fd = null;
 
-            // Wait for process to exit (with timeout would be better)
-            _ = child.wait() catch {};
+            // Wait for process to exit with timeout
+            waitWithTimeout(child, SHUTDOWN_TIMEOUT_NS);
 
             // Close stdout
             if (child.stdout) |stdout| {
@@ -132,17 +170,38 @@ pub const AI = struct {
     /// Check if subprocess is running
     pub fn isRunning(self: *AI) bool {
         if (self.child) |*child| {
-            if (child.wait() catch null) |term| {
-                _ = term;
-                // Process exited
-                self.child = null;
-                self.stdin_fd = null;
-                self.stdout_fd = null;
+            // Use kill(pid, 0) to check if process exists without blocking
+            if (posix.kill(child.id, 0)) {
+                // Process exists
+                return true;
+            } else |_| {
+                // Process no longer exists - clean up
+                self.cleanupChild();
                 return false;
             }
-            return true;
         }
         return false;
+    }
+
+    /// Clean up child process resources
+    fn cleanupChild(self: *AI) void {
+        if (self.child) |*child| {
+            // Close stdin if still open
+            if (child.stdin) |stdin| {
+                stdin.close();
+                child.stdin = null;
+            }
+            // Close stdout if still open
+            if (child.stdout) |stdout| {
+                stdout.close();
+                child.stdout = null;
+            }
+            // Reap the zombie process
+            _ = child.wait() catch {};
+            self.child = null;
+        }
+        self.stdin_fd = null;
+        self.stdout_fd = null;
     }
 
     /// Get stdout fd for poll multiplexing
@@ -259,7 +318,9 @@ pub fn ask(alloc: Allocator, code: []const u8, user_prompt: []const u8) ![]const
     // Try claude first
     if (runProvider(alloc, "claude", prompt)) |response| {
         return response;
-    } else |_| {}
+    } else |err| {
+        std.log.debug("claude provider failed: {}, trying codex", .{err});
+    }
 
     // Fall back to codex
     return runProvider(alloc, "codex", prompt);
@@ -271,22 +332,55 @@ pub fn explain(alloc: Allocator, code: []const u8) ![]const u8 {
 }
 
 fn runProvider(alloc: Allocator, cmd: []const u8, prompt: []const u8) ![]const u8 {
-    var child = process.Child.init(&.{ cmd, "-p", prompt }, alloc);
+    // Pass prompt via stdin to avoid command injection through shell metacharacters
+    var child = process.Child.init(&.{ cmd, "-p", "-" }, alloc);
+    child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Ignore;
 
     try child.spawn();
+    errdefer {
+        _ = child.kill() catch {};
+        _ = child.wait() catch {};
+    }
 
-    // Read stdout using collectOutput
+    // Write prompt to stdin (safe - no shell interpretation)
+    if (child.stdin) |stdin| {
+        stdin.writeAll(prompt) catch {};
+        stdin.close();
+        child.stdin = null;
+    }
+
+    // Read stdout with timeout using poll
     const stdout = child.stdout.?;
-    var buf: [64 * 1024]u8 = undefined;
+    var buf: [rpc.STREAM_BUFFER_SIZE]u8 = undefined;
     var read_buf: std.ArrayList(u8) = .{};
     errdefer read_buf.deinit(alloc);
 
+    var poll_fds = [_]posix.pollfd{.{
+        .fd = stdout.handle,
+        .events = posix.POLL.IN,
+        .revents = 0,
+    }};
+
     while (true) {
-        const n = stdout.read(&buf) catch break;
-        if (n == 0) break;
-        try read_buf.appendSlice(alloc, buf[0..n]);
+        // Wait for data with timeout
+        const ready = posix.poll(&poll_fds, AI_TIMEOUT_MS) catch break;
+        if (ready == 0) {
+            // Timeout - kill child and return error
+            _ = child.kill() catch {};
+            _ = child.wait() catch {};
+            read_buf.deinit(alloc);
+            return error.Timeout;
+        }
+
+        if (poll_fds[0].revents & posix.POLL.IN != 0) {
+            const n = stdout.read(&buf) catch break;
+            if (n == 0) break;
+            try read_buf.appendSlice(alloc, buf[0..n]);
+        } else if (poll_fds[0].revents & (posix.POLL.HUP | posix.POLL.ERR) != 0) {
+            break;
+        }
     }
 
     const term = try child.wait();

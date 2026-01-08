@@ -150,14 +150,18 @@ pub const GrammarRegistry = struct {
         const grammar = try self.allocator.create(Grammar);
         errdefer self.allocator.destroy(grammar);
 
+        const owned_name = try self.allocator.dupe(u8, name);
+        errdefer self.allocator.free(owned_name);
+
         grammar.* = Grammar{
             .language = language,
-            .name = try self.allocator.dupe(u8, name),
+            .name = owned_name,
             .lib = lib,
             .allocator = self.allocator,
         };
 
-        try self.grammars.put(try self.allocator.dupe(u8, name), grammar);
+        // Use grammar.name as key (already owned) - no need to dupe again
+        try self.grammars.put(grammar.name, grammar);
 
         return grammar;
     }
@@ -184,12 +188,13 @@ pub const GrammarRegistry = struct {
         const hash_path = try std.fmt.allocPrint(self.allocator, "{s}.sha256", .{lib_path});
         defer self.allocator.free(hash_path);
 
-        // Read expected hash from .sha256 file
+        // Read expected hash from .sha256 file - MANDATORY for security
         const hash_file = std.fs.openFileAbsolute(hash_path, .{}) catch |err| {
             if (err == error.FileNotFound) {
-                std.debug.print("Warning: No hash file for grammar: {s}\n", .{lib_path});
+                std.debug.print("Error: No hash file for grammar: {s}\n", .{lib_path});
                 std.debug.print("  Expected: {s}\n", .{hash_path});
-                return; // Allow loading without hash (warn only)
+                std.debug.print("  Generate with: sha256sum {s} > {s}\n", .{ lib_path, hash_path });
+                return TreeSitterError.GrammarLoadFailed;
             }
             return err;
         };
@@ -198,7 +203,7 @@ pub const GrammarRegistry = struct {
         var expected_hash: [64]u8 = undefined;
         const bytes_read = hash_file.readAll(&expected_hash) catch |err| {
             std.debug.print("Failed to read hash file: {}\n", .{err});
-            return;
+            return TreeSitterError.GrammarLoadFailed;
         };
         if (bytes_read < 64) {
             std.debug.print("Hash file too short: {s}\n", .{hash_path});
@@ -211,6 +216,17 @@ pub const GrammarRegistry = struct {
             return err;
         };
         defer lib_file.close();
+
+        // Check file size to prevent DoS from maliciously large files (100MB limit)
+        const MAX_GRAMMAR_SIZE: u64 = 100 * 1024 * 1024;
+        const stat = lib_file.stat() catch |err| {
+            std.debug.print("Failed to stat grammar file: {}\n", .{err});
+            return err;
+        };
+        if (stat.size > MAX_GRAMMAR_SIZE) {
+            std.debug.print("Grammar file too large: {d} bytes (max {d})\n", .{ stat.size, MAX_GRAMMAR_SIZE });
+            return TreeSitterError.GrammarLoadFailed;
+        }
 
         var hasher = std.crypto.hash.sha2.Sha256.init(.{});
         var buf: [8192]u8 = undefined;
@@ -286,14 +302,16 @@ pub const Parser = struct {
 
     /// Parse and cache the result
     pub fn parseAndCache(self: *Parser, key: []const u8, language_name: []const u8, source: []const u8) !*TSTree {
-        // Check cache first
+        // Check cache first (simple get - no allocation)
         if (self.tree_cache.get(key)) |tree| {
             return tree;
         }
 
+        // Not in cache - parse first before allocating key
         const tree = try self.parse(language_name, source);
         errdefer c.ts_tree_delete(tree);
 
+        // Now allocate key and insert
         const key_copy = try self.allocator.dupe(u8, key);
         errdefer self.allocator.free(key_copy);
 
@@ -490,11 +508,14 @@ pub const Node = struct {
         return c.ts_node_prev_named_sibling(node);
     }
 
-    /// Get node text from source
+    /// Get node text from source (with bounds checking for stale trees)
     pub fn text(node: TSNode, source: []const u8) []const u8 {
         const start = startByte(node);
         const end = endByte(node);
-        return source[start..end];
+        // Bounds check: tree-sitter positions could be stale if source changed
+        const safe_start = @min(start, source.len);
+        const safe_end = @min(end, source.len);
+        return source[safe_start..safe_end];
     }
 };
 

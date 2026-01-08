@@ -2,19 +2,32 @@
 
 # Mnemos: A Second Brain for Your Code
 
-**~680KB binary** | **Zero dependencies** | **Markdown storage**
+**Fast Zig backend** | **Multi-editor support** | **Markdown storage**
 
-Mnemos attaches persistent notes to code locations, anchored to Tree-sitter nodes. Notes survive refactoring and are searchable across your project.
+Mnemos attaches persistent notes to specific code locations. Unlike line-based comments, notes are anchored to **AST nodes** (functions, classes, variables) using Tree-sitter parsing. When you refactor code, notes stay attached to their target even if line numbers change.
+
+## How It Works
+
+1. **Add a note** - Position cursor on a function/class/variable, press the keybinding
+2. **Note anchors to AST node** - Mnemos uses Tree-sitter to identify the code element and stores a hash of its content
+3. **Code changes** - When the code is modified, Mnemos detects the hash mismatch and marks the note as "stale"
+4. **Reattach** - Search nearby lines for similar code, or manually reattach to a new location
 
 ## Features
 
-- Notes anchored to AST nodes (functions, classes, etc.)
-- Git-aware staleness detection with reattachment
-- Full-text search across notes and code
-- Note linking with `[[description][id]]` syntax and backlinks
-- AI-powered code explanations (optional)
-- Project-wide indexing
-- Selected note model for precise operations
+- **AST-anchored notes** - Notes attach to functions, classes, variables (not line numbers)
+- **Staleness detection** - Knows when anchored code has changed
+- **Reattachment** - Find and reattach stale notes after refactoring
+- **Full-text search** - Search across all notes and source code
+- **Note linking** - Link notes together with `[[description][id]]` syntax
+- **Backlinks** - See which notes reference the current note
+- **AI explanations** - Generate code explanations with Claude/Codex (optional)
+
+## Demo: Reattaching Notes After Refactoring
+
+When code changes, notes may become stale. Mnemos detects this and lets you reattach them:
+
+[Watch the demo video](assets/demo-reattach.mov)
 
 ## Why Markdown Storage?
 
@@ -82,13 +95,15 @@ export MNEMOS_NOTES_PATH=/path/to/custom/notes/
 
 ### Build the Backend
 
+Requires Zig 0.15+ and system libraries (tree-sitter, libgit2).
+
 ```bash
 git clone https://github.com/joelreymont/mnemos
 cd mnemos
-cargo build --release
+zig build -Doptimize=ReleaseFast
 ```
 
-The binary is at `target/release/mnemos`.
+The binary is at `zig-out/bin/mnemos`.
 
 ### Installation
 
@@ -138,8 +153,8 @@ Use `<leader>hx` (visual mode) to explain selected code.
 ## Testing
 
 ```bash
-# Rust tests
-cargo test
+# Backend tests
+zig build test
 
 # Neovim tests (requires plenary.nvim)
 cd ui/neovim && nvim --headless -u tests/minimal_init.lua \
@@ -148,30 +163,6 @@ cd ui/neovim && nvim --headless -u tests/minimal_init.lua \
 # Emacs tests
 emacs -Q --batch -L ui/emacs -l mnemos.el \
   -L ui/emacs/tests -l mnemos-test.el -f ert-run-tests-batch-and-exit
-```
-
-## Project Structure
-
-```
-mnemos/
-  backend/              # Rust JSON-RPC server
-    src/
-    crates/
-      git/              # Git operations (libgit2/CLI)
-      index/            # Text indexing and search
-      notes/            # Note model and markdown storage
-      rpc/              # JSON-RPC framing
-      storage/          # Markdown file helpers
-      treesitter/       # Tree-sitter parsing
-  ui/
-    emacs/              # Emacs client (mnemos.el)
-    neovim/             # Neovim client (lua)
-    vscode/             # VS Code extension
-  docs/
-    PROTOCOL.md         # JSON-RPC protocol spec
-    ARCHITECTURE.md     # System design
-    DOOM-EMACS.md       # Doom Emacs setup
-    NEOVIM.md           # Neovim/LazyVim setup
 ```
 
 ## Protocol

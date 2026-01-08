@@ -3,21 +3,9 @@ const fs = std.fs;
 const process = std.process;
 const mem = std.mem;
 const Allocator = mem.Allocator;
+const paths = @import("paths.zig");
 
-/// Get grammars directory (~/.config/mnemos/grammars)
-fn getGrammarsDir(alloc: Allocator) ![]const u8 {
-    if (process.getEnvVarOwned(alloc, "XDG_CONFIG_HOME")) |xdg| {
-        defer alloc.free(xdg);
-        return try std.fmt.allocPrint(alloc, "{s}/mnemos/grammars", .{xdg});
-    } else |_| {}
-
-    if (process.getEnvVarOwned(alloc, "HOME")) |home| {
-        defer alloc.free(home);
-        return try std.fmt.allocPrint(alloc, "{s}/.config/mnemos/grammars", .{home});
-    } else |_| {}
-
-    return error.NoHomeDir;
-}
+// getGrammarsDir moved to paths.zig
 
 /// Validate git URL - only allow https:// and git://
 fn validateGitUrl(url: []const u8) !void {
@@ -154,7 +142,7 @@ fn printHelp() void {
 
 /// List installed grammars
 fn list(alloc: Allocator) !void {
-    const grammars_dir = getGrammarsDir(alloc) catch {
+    const grammars_dir = paths.getGrammarsDir(alloc) catch {
         printErr("error: could not determine grammars directory (HOME not set?)\n", .{});
         process.exit(1);
     };
@@ -219,7 +207,7 @@ fn list(alloc: Allocator) !void {
 
 /// Fetch grammar source from git
 fn fetch(alloc: Allocator, name: []const u8) !void {
-    const grammars_dir = getGrammarsDir(alloc) catch {
+    const grammars_dir = paths.getGrammarsDir(alloc) catch {
         printErr("error: could not determine grammars directory (HOME not set?)\n", .{});
         process.exit(1);
     };
@@ -317,7 +305,7 @@ fn fetchAll(alloc: Allocator) !void {
 
 /// Build grammar from source
 fn build(alloc: Allocator, name: []const u8) !void {
-    const grammars_dir = getGrammarsDir(alloc) catch {
+    const grammars_dir = paths.getGrammarsDir(alloc) catch {
         printErr("error: could not determine grammars directory (HOME not set?)\n", .{});
         process.exit(1);
     };
@@ -465,7 +453,7 @@ fn build(alloc: Allocator, name: []const u8) !void {
 
 /// Build all fetched grammars
 fn buildAll(alloc: Allocator) !void {
-    const grammars_dir = getGrammarsDir(alloc) catch {
+    const grammars_dir = paths.getGrammarsDir(alloc) catch {
         printErr("error: could not determine grammars directory (HOME not set?)\n", .{});
         process.exit(1);
     };

@@ -13,6 +13,7 @@ pub const GitError = error{
     InvalidRepository,
     DiffFailed,
     BlameFailed,
+    IgnoreCheckFailed,
     OutOfMemory,
 };
 
@@ -21,10 +22,14 @@ pub const Repository = struct {
 
     /// Open a git repository at the given path.
     /// Path must be null-terminated (use string literals or [:0]const u8).
+    /// Note: libgit2_init/shutdown are internally reference-counted, so
+    /// multiple Repository instances can safely coexist.
     pub fn open(path: [:0]const u8) !Repository {
+        // libgit2_init returns init count; safe to call multiple times
         if (c.git_libgit2_init() < 0) {
             return GitError.InitFailed;
         }
+        errdefer _ = c.git_libgit2_shutdown();
 
         var repo: ?*c.git_repository = null;
         const result = c.git_repository_open(&repo, path.ptr);
@@ -80,7 +85,7 @@ pub const Repository = struct {
         var ignored: c_int = 0;
         const result = c.git_ignore_path_is_ignored(&ignored, self.repo, path.ptr);
         if (result < 0) {
-            return false;
+            return GitError.IgnoreCheckFailed;
         }
         return ignored != 0;
     }
@@ -126,8 +131,15 @@ pub const Repository = struct {
         var opts: c.git_diff_options = undefined;
         _ = c.git_diff_options_init(&opts, c.GIT_DIFF_OPTIONS_VERSION);
 
-        // Get diff for all files (pathspec filter is complex with const casts)
-        _ = path;
+        // Create null-terminated path for pathspec filter
+        const path_z = try alloc.allocSentinel(u8, path.len, 0);
+        defer alloc.free(path_z);
+        @memcpy(path_z, path);
+
+        // Set up pathspec to filter to single file
+        var paths: [1][*:0]const u8 = .{path_z.ptr};
+        opts.pathspec.strings = @ptrCast(&paths);
+        opts.pathspec.count = 1;
 
         const result = c.git_diff_index_to_workdir(&diff, self.repo, null, &opts);
         if (result < 0 or diff == null) {
@@ -213,13 +225,16 @@ pub const Repository = struct {
 
         var author_name: []const u8 = "";
         var author_email: []const u8 = "";
+        var author_name_owned = false;
 
         if (commit != null) {
             const signature = c.git_commit_author(commit.?);
             if (signature != null) {
                 if (signature.*.name != null) {
                     author_name = try alloc.dupe(u8, mem.span(signature.*.name));
+                    author_name_owned = true;
                 }
+                errdefer if (author_name_owned) alloc.free(author_name);
                 if (signature.*.email != null) {
                     author_email = try alloc.dupe(u8, mem.span(signature.*.email));
                 }

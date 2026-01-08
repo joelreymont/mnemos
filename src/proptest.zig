@@ -7,49 +7,21 @@
 
 const std = @import("std");
 const testing = std.testing;
-const quickcheck = @import("quickcheck");
+const zcheck = @import("zcheck");
 const OhSnap = @import("ohsnap");
 
 const storage = @import("storage.zig");
 const treesitter = @import("treesitter.zig");
 const ai = @import("ai.zig");
+const rpc = @import("rpc.zig");
 
 // ============================================================================
-// Test Utilities
+// zcheck generators used:
+// - zcheck.String: Bounded printable ASCII (64 bytes max), 10% empty
+// - zcheck.Id: Alphanumeric identifier (8-36 chars)
+// - zcheck.FilePath: Path with extension (128 bytes max)
+// - zcheck.check(): Property-based testing with automatic shrinking
 // ============================================================================
-
-/// Generate a random printable ASCII string (no control chars or null bytes)
-fn generatePrintableString(buf: []u8, random: std.Random) []const u8 {
-    const len = random.uintLessThan(usize, buf.len);
-    for (buf[0..len]) |*c| {
-        // Printable ASCII: 32-126
-        c.* = @intCast(random.intRangeAtMost(u8, 32, 126));
-    }
-    return buf[0..len];
-}
-
-/// Generate a random alphanumeric ID
-fn generateId(buf: *[36]u8, random: std.Random) []const u8 {
-    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-    for (buf) |*c| {
-        c.* = chars[random.uintLessThan(usize, chars.len)];
-    }
-    return buf;
-}
-
-/// Generate a valid file path
-fn generateFilePath(buf: []u8, random: std.Random) []const u8 {
-    const extensions = [_][]const u8{ ".zig", ".rs", ".py", ".js", ".ts", ".go", ".c" };
-    const ext = extensions[random.uintLessThan(usize, extensions.len)];
-
-    const name_len = random.intRangeAtMost(usize, 1, 20);
-    buf[0] = '/';
-    for (buf[1 .. name_len + 1]) |*c| {
-        c.* = @intCast(random.intRangeAtMost(u8, 'a', 'z'));
-    }
-    @memcpy(buf[name_len + 1 ..][0..ext.len], ext);
-    return buf[0 .. name_len + 1 + ext.len];
-}
 
 // ============================================================================
 // Property Tests: Storage CRUD Operations
@@ -65,35 +37,32 @@ test "prop: note create-read roundtrip preserves content" {
     const random = prng.random();
 
     for (0..50) |_| {
-        var id_buf: [36]u8 = undefined;
-        var path_buf: [64]u8 = undefined;
-        var content_buf: [256]u8 = undefined;
-
-        const id = generateId(&id_buf, random);
-        const file_path = generateFilePath(&path_buf, random);
-        const content = generatePrintableString(&content_buf, random);
+        // Use zcheck generators for realistic test data
+        const id = zcheck.generate(zcheck.Id, random);
+        const path = zcheck.generate(zcheck.FilePath, random);
+        const content = zcheck.generate(zcheck.String, random);
 
         const note = storage.Note{
-            .id = id,
-            .file_path = file_path,
+            .id = id.slice(),
+            .file_path = path.slice(),
             .node_path = null,
             .node_text_hash = null,
             .line_number = null,
             .column_number = null,
-            .content = content,
+            .content = content.slice(),
             .created_at = "2024-01-01",
             .updated_at = "2024-01-01",
         };
 
         try store.createNote(note);
 
-        const fetched = try store.getNote(alloc, id);
+        const fetched = try store.getNote(alloc, id.slice());
         try testing.expect(fetched != null);
         defer storage.freeNoteFields(alloc, fetched.?);
 
         // Oracle check: content must match exactly
-        try testing.expectEqualStrings(content, fetched.?.content);
-        try testing.expectEqualStrings(file_path, fetched.?.file_path);
+        try testing.expectEqualStrings(content.slice(), fetched.?.content);
+        try testing.expectEqualStrings(path.slice(), fetched.?.file_path);
     }
 }
 
@@ -108,11 +77,10 @@ test "prop: note count increases monotonically with creates" {
 
     const n = 25;
     for (0..n) |i| {
-        var id_buf: [36]u8 = undefined;
-        const id = generateId(&id_buf, random);
+        const id = zcheck.generate(zcheck.Id, random);
 
         try store.createNote(.{
-            .id = id,
+            .id = id.slice(),
             .file_path = "/test.zig",
             .node_path = null,
             .node_text_hash = null,
@@ -137,12 +105,12 @@ test "prop: delete removes exactly one note" {
     var prng = std.Random.DefaultPrng.init(0xDEADBEEF);
     const random = prng.random();
 
-    // Create several notes
-    var ids: [10][36]u8 = undefined;
-    for (&ids) |*id_buf| {
-        _ = generateId(id_buf, random);
+    // Create several notes using zcheck.Id generator
+    var ids: [10]zcheck.Id = undefined;
+    for (&ids) |*id| {
+        id.* = zcheck.generate(zcheck.Id, random);
         try store.createNote(.{
-            .id = id_buf,
+            .id = id.slice(),
             .file_path = "/test.zig",
             .node_path = null,
             .node_text_hash = null,
@@ -155,21 +123,21 @@ test "prop: delete removes exactly one note" {
     }
 
     // Delete each and verify
-    for (&ids, 0..) |*id_buf, i| {
+    for (&ids, 0..) |*id, i| {
         const before_count = try store.countNotes();
-        try store.deleteNote(id_buf);
+        try store.deleteNote(id.slice());
         const after_count = try store.countNotes();
 
         // Oracle: count decremented by exactly 1
         try testing.expectEqual(before_count - 1, after_count);
 
         // Oracle: note no longer retrievable
-        const gone = try store.getNote(alloc, id_buf);
+        const gone = try store.getNote(alloc, id.slice());
         try testing.expect(gone == null);
 
         // Other notes still exist (spot check)
         if (i + 1 < ids.len) {
-            const other = try store.getNote(alloc, &ids[i + 1]);
+            const other = try store.getNote(alloc, ids[i + 1].slice());
             try testing.expect(other != null);
             storage.freeNoteFields(alloc, other.?);
         }
@@ -230,39 +198,34 @@ test "prop: update preserves id and file_path" {
     const random = prng.random();
 
     for (0..20) |_| {
-        var id_buf: [36]u8 = undefined;
-        var path_buf: [64]u8 = undefined;
-        var content_buf: [128]u8 = undefined;
-        var new_content_buf: [128]u8 = undefined;
-
-        const id = generateId(&id_buf, random);
-        const file_path = generateFilePath(&path_buf, random);
-        const original_content = generatePrintableString(&content_buf, random);
-        const new_content = generatePrintableString(&new_content_buf, random);
+        const id = zcheck.generate(zcheck.Id, random);
+        const path = zcheck.generate(zcheck.FilePath, random);
+        const original_content = zcheck.generate(zcheck.String, random);
+        const new_content = zcheck.generate(zcheck.String, random);
 
         try store.createNote(.{
-            .id = id,
-            .file_path = file_path,
+            .id = id.slice(),
+            .file_path = path.slice(),
             .node_path = null,
             .node_text_hash = null,
             .line_number = null,
             .column_number = null,
-            .content = original_content,
+            .content = original_content.slice(),
             .created_at = "2024-01-01",
             .updated_at = "2024-01-01",
         });
 
-        try store.updateNote(id, new_content, null, "2024-01-02");
+        try store.updateNote(id.slice(), new_content.slice(), null, "2024-01-02");
 
-        const fetched = try store.getNote(alloc, id);
+        const fetched = try store.getNote(alloc, id.slice());
         try testing.expect(fetched != null);
         defer storage.freeNoteFields(alloc, fetched.?);
 
         // Oracle: id and file_path unchanged
-        try testing.expectEqualStrings(id, fetched.?.id);
-        try testing.expectEqualStrings(file_path, fetched.?.file_path);
+        try testing.expectEqualStrings(id.slice(), fetched.?.id);
+        try testing.expectEqualStrings(path.slice(), fetched.?.file_path);
         // Oracle: content updated
-        try testing.expectEqualStrings(new_content, fetched.?.content);
+        try testing.expectEqualStrings(new_content.slice(), fetched.?.content);
         // Oracle: updated_at changed
         try testing.expectEqualStrings("2024-01-02", fetched.?.updated_at);
     }
@@ -278,14 +241,13 @@ test "prop: getNotesForFile returns only matching files" {
     var prng = std.Random.DefaultPrng.init(0x11223344);
     const random = prng.random();
 
-    // Create notes distributed across files
+    // Create notes distributed across files using zcheck.Id
     for (0..30) |i| {
-        var id_buf: [36]u8 = undefined;
-        _ = generateId(&id_buf, random);
+        const id = zcheck.generate(zcheck.Id, random);
         const file = files[i % files.len];
 
         try store.createNote(.{
-            .id = &id_buf,
+            .id = id.slice(),
             .file_path = file,
             .node_path = null,
             .node_text_hash = null,
@@ -323,13 +285,12 @@ test "prop: writeJsonEscaped produces valid JSON string content" {
     const random = prng.random();
 
     for (0..100) |_| {
-        var input_buf: [64]u8 = undefined;
-        const input = generatePrintableString(&input_buf, random);
+        const input = zcheck.generate(zcheck.String, random);
 
         var output: std.ArrayList(u8) = .{};
         defer output.deinit(alloc);
 
-        try ai.writeJsonEscaped(output.writer(alloc), input);
+        try ai.writeJsonEscaped(output.writer(alloc), input.slice());
 
         // Wrap in quotes to make valid JSON string
         const json = try std.fmt.allocPrint(alloc, "\"{s}\"", .{output.items});
@@ -373,16 +334,15 @@ test "prop: writeJsonEscaped is deterministic" {
     const random = prng.random();
 
     for (0..50) |_| {
-        var input_buf: [64]u8 = undefined;
-        const input = generatePrintableString(&input_buf, random);
+        const input = zcheck.generate(zcheck.String, random);
 
         var out1: std.ArrayList(u8) = .{};
         defer out1.deinit(alloc);
         var out2: std.ArrayList(u8) = .{};
         defer out2.deinit(alloc);
 
-        try ai.writeJsonEscaped(out1.writer(alloc), input);
-        try ai.writeJsonEscaped(out2.writer(alloc), input);
+        try ai.writeJsonEscaped(out1.writer(alloc), input.slice());
+        try ai.writeJsonEscaped(out2.writer(alloc), input.slice());
 
         try testing.expectEqualSlices(u8, out1.items, out2.items);
     }
@@ -634,24 +594,22 @@ test "model: storage matches in-memory oracle" {
 
         switch (op) {
             0 => {
-                // CREATE
-                var id_buf: [36]u8 = undefined;
-                var content_buf: [64]u8 = undefined;
-                const id = generateId(&id_buf, random);
-                const content = generatePrintableString(&content_buf, random);
+                // CREATE using zcheck generators
+                const id = zcheck.generate(zcheck.Id, random);
+                const content = zcheck.generate(zcheck.String, random);
 
                 // Skip if already exists (to match model behavior)
-                if (model.get(id) != null) continue;
+                if (model.get(id.slice()) != null) continue;
 
-                try model.create(id, content);
+                try model.create(id.slice(), content.slice());
                 try store.createNote(.{
-                    .id = id,
+                    .id = id.slice(),
                     .file_path = "/test.zig",
                     .node_path = null,
                     .node_text_hash = null,
                     .line_number = null,
                     .column_number = null,
-                    .content = content,
+                    .content = content.slice(),
                     .created_at = "2024-01-01",
                     .updated_at = "2024-01-01",
                 });
@@ -688,34 +646,16 @@ test "model: storage matches in-memory oracle" {
 }
 
 // ============================================================================
-// Quickcheck Integration Tests
+// zcheck Property Tests with Automatic Shrinking
 // ============================================================================
-
-test "qc: addition is commutative (sanity check)" {
-    try quickcheck.check(struct {
-        fn prop(args: struct { a: i16, b: i16 }) bool {
-            const sum1 = @as(i32, args.a) + @as(i32, args.b);
-            const sum2 = @as(i32, args.b) + @as(i32, args.a);
-            return sum1 == sum2;
-        }
-    }.prop, .{});
-}
 
 test "qc: string length preserved through JSON escape" {
     // Escaped string should be >= original length (escaping only adds chars)
     const alloc = testing.allocator;
 
-    try quickcheck.check(struct {
-        fn prop(args: struct { seed: u32 }) bool {
-            var prng = std.Random.DefaultPrng.init(args.seed);
-            const random = prng.random();
-
-            var input_buf: [32]u8 = undefined;
-            const len = random.uintLessThan(usize, input_buf.len);
-            for (input_buf[0..len]) |*c| {
-                c.* = random.int(u8);
-            }
-            const input = input_buf[0..len];
+    try zcheck.check(struct {
+        fn prop(args: struct { s: zcheck.String }) bool {
+            const input = args.s.slice();
 
             var output: std.ArrayList(u8) = .{};
             defer output.deinit(alloc);
@@ -726,4 +666,187 @@ test "qc: string length preserved through JSON escape" {
             return output.items.len >= input.len;
         }
     }.prop, .{ .iterations = 200 });
+}
+
+test "qc: Id always has minimum length" {
+    // zcheck.Id guarantees 8-36 char alphanumeric IDs
+    try zcheck.check(struct {
+        fn prop(args: struct { id: zcheck.Id }) bool {
+            const slice = args.id.slice();
+            return slice.len >= 8 and slice.len <= 36;
+        }
+    }.prop, .{ .iterations = 100 });
+}
+
+test "qc: FilePath starts with slash and has extension" {
+    // zcheck.FilePath guarantees valid path format
+    try zcheck.check(struct {
+        fn prop(args: struct { path: zcheck.FilePath }) bool {
+            const slice = args.path.slice();
+            if (slice.len == 0) return false;
+            if (slice[0] != '/') return false;
+            return std.mem.lastIndexOfScalar(u8, slice, '.') != null;
+        }
+    }.prop, .{ .iterations = 100 });
+}
+
+test "qc: JSON escape roundtrip produces valid JSON" {
+    // Any string escaped + quoted should parse as valid JSON
+    const alloc = testing.allocator;
+
+    try zcheck.check(struct {
+        fn prop(args: struct { s: zcheck.String }) bool {
+            const input = args.s.slice();
+
+            var output: std.ArrayList(u8) = .{};
+            defer output.deinit(alloc);
+
+            ai.writeJsonEscaped(output.writer(alloc), input) catch return false;
+
+            // Wrap in quotes and parse as JSON
+            const json = std.fmt.allocPrint(alloc, "\"{s}\"", .{output.items}) catch return false;
+            defer alloc.free(json);
+
+            const parsed = std.json.parseFromSlice([]const u8, alloc, json, .{}) catch return false;
+            defer parsed.deinit();
+            return true;
+        }
+    }.prop, .{ .iterations = 200 });
+}
+
+// ============================================================================
+// End-to-End RPC Tests
+// ============================================================================
+
+test "e2e: notes/create then notes/get roundtrip via RPC" {
+    // Full stack test: JSON-RPC create → JSON-RPC get → verify content
+    const alloc = testing.allocator;
+    var store = try storage.createTestStorage(alloc);
+    defer storage.cleanupTestStorage(alloc, &store);
+
+    const note_content = "This is a test note created via RPC";
+
+    // Create note via RPC (id is auto-generated, use filePath not file_path)
+    const create_request =
+        \\{"jsonrpc":"2.0","id":1,"method":"notes/create","params":{"filePath":"/test/rpc.zig","content":"This is a test note created via RPC"}}
+    ;
+    const create_response = rpc.dispatchWithStore(alloc, create_request, &store);
+    defer alloc.free(create_response);
+
+    // Verify success response
+    try testing.expect(std.mem.indexOf(u8, create_response, "\"result\"") != null);
+    try testing.expect(std.mem.indexOf(u8, create_response, "\"error\"") == null);
+
+    // Extract note id from create response
+    const id_marker = "\"id\":\"";
+    const id_start = (std.mem.indexOf(u8, create_response, id_marker) orelse return error.TestUnexpectedResult) + id_marker.len;
+    const id_end = std.mem.indexOfPos(u8, create_response, id_start, "\"") orelse return error.TestUnexpectedResult;
+    const note_id = create_response[id_start..id_end];
+
+    // Get note via RPC
+    const get_request = try std.fmt.allocPrint(alloc,
+        \\{{"jsonrpc":"2.0","id":2,"method":"notes/get","params":{{"id":"{s}"}}}}
+    , .{note_id});
+    defer alloc.free(get_request);
+    const get_response = rpc.dispatchWithStore(alloc, get_request, &store);
+    defer alloc.free(get_response);
+
+    // Verify note content in response
+    try testing.expect(std.mem.indexOf(u8, get_response, note_content) != null);
+}
+
+test "e2e: notes/search finds created notes via RPC" {
+    // Full stack test: create notes → search → verify results
+    const alloc = testing.allocator;
+    var store = try storage.createTestStorage(alloc);
+    defer storage.cleanupTestStorage(alloc, &store);
+
+    // Create notes with searchable content (use filePath, not file_path)
+    const contents = [_][]const u8{
+        "The quick brown fox",
+        "jumps over the lazy dog",
+        "brown bread is tasty",
+    };
+
+    for (contents) |content| {
+        const request = try std.fmt.allocPrint(alloc,
+            \\{{"jsonrpc":"2.0","id":1,"method":"notes/create","params":{{"filePath":"/test.zig","content":"{s}"}}}}
+        , .{content});
+        defer alloc.free(request);
+
+        const response = rpc.dispatchWithStore(alloc, request, &store);
+        defer alloc.free(response);
+    }
+
+    // Search for "brown"
+    const search_request =
+        \\{"jsonrpc":"2.0","id":10,"method":"notes/search","params":{"query":"brown","limit":10}}
+    ;
+    const search_response = rpc.dispatchWithStore(alloc, search_request, &store);
+    defer alloc.free(search_response);
+
+    // Should find 2 notes containing "brown"
+    try testing.expect(std.mem.indexOf(u8, search_response, "brown fox") != null);
+    try testing.expect(std.mem.indexOf(u8, search_response, "brown bread") != null);
+    // Should NOT find note without "brown"
+    try testing.expect(std.mem.indexOf(u8, search_response, "lazy dog") == null);
+}
+
+test "e2e: notes/delete removes note via RPC" {
+    // Full stack test: create → delete → verify gone
+    const alloc = testing.allocator;
+    var store = try storage.createTestStorage(alloc);
+    defer storage.cleanupTestStorage(alloc, &store);
+
+    // Create note (use filePath, id is auto-generated)
+    const create_request =
+        \\{"jsonrpc":"2.0","id":1,"method":"notes/create","params":{"filePath":"/test.zig","content":"to be deleted"}}
+    ;
+    const create_response = rpc.dispatchWithStore(alloc, create_request, &store);
+    defer alloc.free(create_response);
+
+    // Extract note id from create response
+    const id_marker = "\"id\":\"";
+    const id_start = (std.mem.indexOf(u8, create_response, id_marker) orelse return error.TestUnexpectedResult) + id_marker.len;
+    const id_end = std.mem.indexOfPos(u8, create_response, id_start, "\"") orelse return error.TestUnexpectedResult;
+    const note_id = create_response[id_start..id_end];
+
+    // Delete note
+    const delete_request = try std.fmt.allocPrint(alloc,
+        \\{{"jsonrpc":"2.0","id":2,"method":"notes/delete","params":{{"id":"{s}"}}}}
+    , .{note_id});
+    defer alloc.free(delete_request);
+    const delete_response = rpc.dispatchWithStore(alloc, delete_request, &store);
+    defer alloc.free(delete_response);
+    try testing.expect(std.mem.indexOf(u8, delete_response, "\"result\"") != null);
+
+    // Verify note is gone
+    const get_request = try std.fmt.allocPrint(alloc,
+        \\{{"jsonrpc":"2.0","id":3,"method":"notes/get","params":{{"id":"{s}"}}}}
+    , .{note_id});
+    defer alloc.free(get_request);
+    const get_response = rpc.dispatchWithStore(alloc, get_request, &store);
+    defer alloc.free(get_response);
+
+    // Should return null or error (note not found)
+    const has_null = std.mem.indexOf(u8, get_response, "\"result\":null") != null;
+    const has_error = std.mem.indexOf(u8, get_response, "\"error\"") != null;
+    try testing.expect(has_null or has_error);
+}
+
+test "e2e: mnemos/status returns server info via RPC" {
+    // Test status endpoint works without storage
+    const alloc = testing.allocator;
+    var store = try storage.createTestStorage(alloc);
+    defer storage.cleanupTestStorage(alloc, &store);
+
+    const request =
+        \\{"jsonrpc":"2.0","id":1,"method":"mnemos/status"}
+    ;
+    const response = rpc.dispatchWithStore(alloc, request, &store);
+    defer alloc.free(response);
+
+    // Should have result with notes count
+    try testing.expect(std.mem.indexOf(u8, response, "\"result\"") != null);
+    try testing.expect(std.mem.indexOf(u8, response, "\"notes\"") != null);
 }

@@ -219,8 +219,14 @@ const InotifyWatcher = struct {
 
         var i: usize = 0;
         while (i < n) {
+            // Bounds check: ensure we can read the fixed-size event header
+            if (i + @sizeOf(posix.linux.inotify_event) > n) break;
+
             const event_ptr = @as(*const posix.linux.inotify_event, @ptrCast(@alignCast(&buf[i])));
             const event_size = @sizeOf(posix.linux.inotify_event) + event_ptr.len;
+
+            // Bounds check: ensure full event (including variable name) fits
+            if (i + event_size > n) break;
 
             const mask = event_ptr.mask;
 

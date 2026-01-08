@@ -10,9 +10,13 @@ pub fn build(b: *std.Build) void {
     // Get git hash at build time
     const git_hash = b.run(&.{ "git", "rev-parse", "--short", "HEAD" });
 
+    // Version can be overridden: zig build -Dversion=1.2.3
+    const version = b.option([]const u8, "version", "Semantic version (default: 0.1.0)") orelse "0.1.0";
+
     // Build options for source code
     const options = b.addOptions();
     options.addOption([]const u8, "git_hash", std.mem.trim(u8, git_hash, "\n\r "));
+    options.addOption([]const u8, "version", version);
 
     // Main executable
     const exe_mod = b.createModule(.{
@@ -47,13 +51,13 @@ pub fn build(b: *std.Build) void {
     });
     test_mod.addOptions("build_options", options);
 
-    // Add quickcheck module for property-based testing
-    const quickcheck_mod = b.createModule(.{
-        .root_source_file = b.path("src/util/quickcheck.zig"),
+    // Add zcheck module for property-based testing
+    if (b.lazyDependency("zcheck", .{
         .target = target,
         .optimize = optimize,
-    });
-    test_mod.addImport("quickcheck", quickcheck_mod);
+    })) |zcheck_dep| {
+        test_mod.addImport("zcheck", zcheck_dep.module("zcheck"));
+    }
 
     // Add ohsnap module for snapshot testing
     if (b.lazyDependency("ohsnap", .{
