@@ -2,9 +2,9 @@
 
 # Mnemos: A Second Brain for Your Code
 
-**Fast Zig backend** | **Multi-editor support** | **Markdown storage**
+**Multi-editor support** | **Markdown storage** | **AI-assisted understanding**
 
-Mnemos attaches persistent notes to specific code locations. Unlike line-based comments, notes are anchored to **AST nodes** (functions, classes, variables) using Tree-sitter parsing. When you refactor code, notes stay attached to their target even if line numbers change.
+Mnemos attaches persistent notes to specific code locations. Notes live **outside your codebase** in `.mnemos/notes/` as plain markdown files—version-controlled separately, never cluttering your source. Unlike line-based comments, notes are anchored to **AST nodes** (functions, classes, variables) using Tree-sitter parsing. When you refactor code, notes stay attached to their target even if line numbers change. Ask AI to explain any code region—summaries or detailed explanations are saved as notes for future reference.
 
 ## How It Works
 
@@ -95,15 +95,13 @@ export MNEMOS_NOTES_PATH=/path/to/custom/notes/
 
 ### Build the Backend
 
-Requires Zig 0.15+ and system libraries (tree-sitter, libgit2).
-
 ```bash
 git clone https://github.com/joelreymont/mnemos
 cd mnemos
 zig build -Doptimize=ReleaseFast
 ```
 
-The binary is at `zig-out/bin/mnemos`.
+The binary is at `zig-out/bin/mnemos`. Requires system libraries (tree-sitter, libgit2).
 
 ### Installation
 
@@ -116,51 +114,51 @@ See the setup guide for your editor:
 
 ## Key Bindings
 
-All editors use a consistent `<prefix> h` pattern:
+All editors use a consistent `<prefix> m` pattern:
 
 | Action | Emacs | Neovim | Description |
 |--------|-------|--------|-------------|
-| Add note | `C-c h a` | `<leader>ha` | Add note at cursor |
-| Add note (multiline) | - | `<leader>hA` | Add multiline note |
-| Select note | `C-c h s` | `<leader>hs` | Select note at cursor |
-| List notes | `C-c h l` | `<leader>hl` | List notes in file |
-| Refresh | `C-c h r` | `<leader>hr` | Refresh note display |
-| Edit note | `C-c h e` | `<leader>he` | Edit selected note |
-| Edit note (buffer) | `C-c h E` | `<leader>hE` | Edit in full buffer |
-| Delete note | `C-c h d` | `<leader>hd` | Delete selected note |
-| Reattach note | `C-c h R` | `<leader>hR` | Reattach stale note |
-| Search file | - | `<leader>hf` | Search notes in file |
-| Search project | `C-c h f` | `<leader>hF` | Search project |
-| Index file | - | `<leader>hP` | Index current file |
-| Index project | `C-c h p` | `<leader>hp` | Index entire project |
-| Insert link | `C-c h k` | `<leader>hk` | Insert note link |
-| Show backlinks | `C-c h b` | `<leader>hb` | Show notes linking here |
-| Explain region | `C-c h x` | `<leader>hx` | Explain code (visual) |
-| Explain (detailed) | `C-c h X` | `<leader>hX` | Detailed AI explanation |
-| Status | `C-c h S` | `<leader>ht` | Show backend status |
-| Help | `C-c h ?` | `<leader>h?` | Show keybindings |
+| Add note | `C-c m a` | `<leader>ma` | Add note at cursor |
+| Add note (multiline) | - | `<leader>mA` | Add multiline note |
+| Select note | `C-c m s` | `<leader>ms` | Select note at cursor |
+| List notes | `C-c m l` | `<leader>ml` | List notes in file |
+| Refresh | `C-c m r` | `<leader>mr` | Refresh note display |
+| Edit note | `C-c m e` | `<leader>me` | Edit selected note |
+| Edit note (buffer) | `C-c m E` | `<leader>mE` | Edit in full buffer |
+| Delete note | `C-c m d` | `<leader>md` | Delete selected note |
+| Reattach note | `C-c m R` | `<leader>mR` | Reattach stale note |
+| Search file | - | `<leader>mf` | Search notes in file |
+| Search project | `C-c m f` | `<leader>mF` | Search project |
+| Index file | - | `<leader>mP` | Index current file |
+| Index project | `C-c m p` | `<leader>mp` | Index entire project |
+| Insert link | `C-c m k` | `<leader>mk` | Insert note link |
+| Show backlinks | `C-c m b` | `<leader>mb` | Show notes linking here |
+| Explain region | `C-c m x` | `<leader>mx` | Explain code (visual) |
+| Explain (detailed) | `C-c m X` | `<leader>mX` | Detailed AI explanation |
+| Status | `C-c m S` | `<leader>mt` | Show backend status |
+| Help | `C-c m ?` | `<leader>m?` | Show keybindings |
 
 ## AI Features
 
-Mnemos can use AI to generate code explanations. Set the provider:
+Mnemos can use AI to explain any code region. Select code visually and press `<leader>mx` for a summary or `<leader>mX` for a detailed explanation. The AI response is automatically saved as a note attached to that code location.
+
+Set the provider:
 
 ```bash
 export MNEMOS_AI_PROVIDER=claude  # or codex, none
 ```
 
-Use `<leader>hx` (visual mode) to explain selected code.
-
 ## Testing
 
 ```bash
-# Backend tests
+# Backend
 zig build test
 
-# Neovim tests (requires plenary.nvim)
+# Neovim (requires plenary.nvim)
 cd ui/neovim && nvim --headless -u tests/minimal_init.lua \
   -c "PlenaryBustedDirectory tests/ {minimal_init = 'tests/minimal_init.lua'}"
 
-# Emacs tests
+# Emacs
 emacs -Q --batch -L ui/emacs -l mnemos.el \
   -L ui/emacs/tests -l mnemos-test.el -f ert-run-tests-batch-and-exit
 ```
