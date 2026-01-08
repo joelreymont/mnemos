@@ -31,7 +31,7 @@ Unlike line-based comments, notes are anchored to **AST nodes** (functions, clas
 
 When code changes, notes may become stale. Mnemos detects this and lets you reattach them:
 
-[![Watch demo](assets/mnemos.jpg)](assets/demo-reattach.mov)
+[![Mnemos demo (click to play)](assets/mnemos.jpg)](assets/demo-reattach.mp4)
 
 ## Why Markdown Storage?
 
