@@ -226,6 +226,9 @@ pub const Repository = struct {
         var author_name: []const u8 = "";
         var author_email: []const u8 = "";
         var author_name_owned = false;
+        var author_email_owned = false;
+        errdefer if (author_name_owned) alloc.free(author_name);
+        errdefer if (author_email_owned) alloc.free(author_email);
 
         if (commit != null) {
             const signature = c.git_commit_author(commit.?);
@@ -234,9 +237,9 @@ pub const Repository = struct {
                     author_name = try alloc.dupe(u8, mem.span(signature.*.name));
                     author_name_owned = true;
                 }
-                errdefer if (author_name_owned) alloc.free(author_name);
                 if (signature.*.email != null) {
                     author_email = try alloc.dupe(u8, mem.span(signature.*.email));
+                    author_email_owned = true;
                 }
             }
         }
