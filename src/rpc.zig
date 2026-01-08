@@ -171,7 +171,7 @@ const SimpleNoteResponse = struct {
     id: []const u8,
     file: []const u8,
     line: i64,
-    content: []const u8,
+    text: []const u8,
 };
 
 /// RPC stream for reading/writing framed messages
@@ -665,7 +665,7 @@ fn handleNotesListProject(alloc: Allocator, _: ParsedRequest, store: ?*storage.S
     defer alloc.free(items);
 
     for (notes, 0..) |note, i| {
-        items[i] = .{ .id = note.id, .file = note.file_path, .line = note.line_number orelse 1, .content = note.content };
+        items[i] = .{ .id = note.id, .file = note.file_path, .line = note.line_number orelse 1, .text = note.content };
     }
 
     return jsonStringify(alloc, items);
@@ -684,7 +684,7 @@ fn handleNotesGet(alloc: Allocator, req: ParsedRequest, store: ?*storage.Storage
             .id = note.id,
             .file = note.file_path,
             .line = note.line_number orelse 1,
-            .content = note.content,
+            .text = note.content,
         });
     }
 
@@ -722,7 +722,7 @@ fn handleNotesUpdate(alloc: Allocator, req: ParsedRequest, store: ?*storage.Stor
             .id = note.id,
             .file = note.file_path,
             .line = note.line_number orelse 1,
-            .content = note.content,
+            .text = note.content,
         });
     }
 
@@ -858,7 +858,7 @@ fn handleMnemosSearch(alloc: Allocator, req: ParsedRequest, store: ?*storage.Sto
     defer alloc.free(items);
 
     for (notes, 0..) |note, i| {
-        items[i] = .{ .id = note.id, .file = note.file_path, .line = note.line_number orelse 1, .content = note.content };
+        items[i] = .{ .id = note.id, .file = note.file_path, .line = note.line_number orelse 1, .text = note.content };
     }
 
     return jsonStringify(alloc, SearchResultsResponse{ .results = items });
