@@ -8,7 +8,7 @@ Mnemos is a **"second brain for your code"** - a system that lets developers att
 
 **Core value proposition:**
 - Notes attached to functions, classes, or blocks persist when code moves
-- Multiple editors (Emacs, Neovim, VS Code) share the same notes database
+- Multiple editors (Emacs, Neovim, VS Code) can share the same notes directory
 - AI can auto-generate explanations for code regions
 - Full-text and semantic search across notes and code
 
@@ -18,7 +18,7 @@ Mnemos is a **"second brain for your code"** - a system that lets developers att
 ┌─────────────┐                           ┌──────────────────────────┐
 │   Emacs     │──────┐                    │                          │
 │ (mnemos.el) │      │   Unix Socket      │    Backend Server        │
-└─────────────┘      │   ~/.mnemos/       │    (Single Rust Process) │
+└─────────────┘      │   ~/.mnemos/       │    (Single Zig Process)  │
                      │   mnemos.sock      │                          │
 ┌─────────────┐      │                    │  ┌────────────────────┐  │
 │  Neovim     │──────┼───────────────────►│  │  JSON-RPC 2.0      │  │
@@ -31,8 +31,8 @@ Mnemos is a **"second brain for your code"** - a system that lets developers att
 └─────────────┘                           │  └─────────┬──────────┘  │
        ▲                                  │            │             │
        │                                  │  ┌─────────▼──────────┐  │
-       │  Events Socket                   │  │  SQLite Storage    │  │
-       │  ~/.mnemos/events.sock           │  │  ~/.mnemos/mnemos.db│  │
+       │  Events Socket                   │  │  Markdown Notes    │  │
+       │  ~/.mnemos/events.sock           │  │  .mnemos/notes/     │  │
        │                                  │  └────────────────────┘  │
        │                                  │                          │
        └──────────────────────────────────┤  ┌────────────────────┐  │
@@ -44,7 +44,7 @@ Mnemos is a **"second brain for your code"** - a system that lets developers att
 
 ## Backend Server
 
-The backend is a **single Rust process** that serves all editor clients. It uses **reference counting** - when the last client disconnects, it waits 30 seconds then shuts down gracefully.
+The backend is a **single Zig process** that serves all editor clients. It uses **reference counting** - when the last client disconnects, it waits 30 seconds then shuts down gracefully.
 
 ### Communication Protocol
 
@@ -134,67 +134,32 @@ This creates a **stable anchor** that can be re-located even if the code moves.
 
 ### Staleness Detection
 
-Notes track git state:
-- `commit_sha` - git commit when note was created
-- `blob_sha` - git blob hash of the file content
-- `node_text_hash` - SHA256 of the anchored node's text
+Notes track `node_text_hash` (SHA256 of the anchored node's text).
 
-When fetching notes, the backend compares stored hashes with current state:
-- If `blob_sha` differs → file content changed
-- If `node_text_hash` differs → the specific code block changed
-- Either case marks `stale: true`
+When fetching notes with current file content, the backend recomputes the node hash:
+- If the hash differs → the specific code block changed
+- The note is marked `stale: true`
 
 Stale notes are displayed differently (grayed out) and can be manually re-anchored.
 
-## Storage (SQLite)
+## Storage (Markdown)
 
-All data stored in `~/.mnemos/mnemos.db`.
+Notes live in `<project>/.mnemos/notes/` as individual Markdown files with YAML frontmatter.
 
-**Notes table:**
-```sql
-CREATE TABLE notes (
-  id TEXT PRIMARY KEY,           -- UUID
-  file TEXT NOT NULL,            -- Canonical file path
-  project_root TEXT NOT NULL,    -- Project root directory
-  line INTEGER NOT NULL,         -- 1-indexed line number
-  column INTEGER NOT NULL,       -- 0-indexed column
-  node_path TEXT,                -- JSON array of node types
-  node_text_hash TEXT,           -- SHA256 of node text
-  tags TEXT,                     -- JSON array of tags
-  text TEXT NOT NULL,            -- Note content
-  summary TEXT,                  -- Short summary (first line)
-  commit_sha TEXT,               -- Git commit hash
-  blob_sha TEXT,                 -- Git blob hash
-  created_at INTEGER,            -- Unix timestamp
-  updated_at INTEGER             -- Unix timestamp
-);
-```
+Example note file:
+```markdown
+---
+id: 550e8400-e29b-41d4-a716-446655440000
+file: /path/to/file.rs
+line: 42
+column: 4
+nodePath: ["source_file", "function_item", "block"]
+nodeTextHash: "sha256:..."
+createdAt: 1700000000
+updatedAt: 1700000123
+---
 
-**Files table (for text search):**
-```sql
-CREATE TABLE files (
-  file TEXT PRIMARY KEY,
-  project_root TEXT NOT NULL,
-  content TEXT,                  -- Full file content
-  updated_at INTEGER
-);
-```
-
-**Note versions table (history):**
-```sql
-CREATE TABLE note_versions (
-  note_id TEXT,
-  version INTEGER,
-  text TEXT,
-  line INTEGER,
-  column INTEGER,
-  node_path TEXT,
-  commit_sha TEXT,
-  blob_sha TEXT,
-  reason TEXT,                   -- Why version was created
-  created_at INTEGER,
-  PRIMARY KEY (note_id, version)
-);
+This function handles authentication.
 ```
 
 ## Event System
@@ -316,11 +281,11 @@ UIs must either:
 
 Mnemos is a client-server system where:
 
-- **Backend** (Rust): Single process handling JSON-RPC, SQLite storage, Tree-sitter parsing, AI integration
+- **Backend** (Zig): Single process handling JSON-RPC, Markdown storage, Tree-sitter parsing, AI integration
 - **UI plugins** (Emacs/Neovim/VS Code): Thin clients that render notes and send commands
 - **Protocol**: JSON-RPC 2.0 over Unix sockets + event broadcasting
 - **Anchoring**: Notes attached to AST nodes via Tree-sitter, survive refactoring
-- **Staleness**: Git hashes detect when code changes, mark notes for review
+- **Staleness**: Node text hashes detect when code changes, mark notes for review
 - **AI**: Optional local CLI integration for auto-generating explanations
 
-The architecture enables multiple editors to share the same notes database with real-time synchronization via events.
+The architecture enables multiple editors to share the same notes directory with real-time synchronization via events.

@@ -18,19 +18,20 @@
 │   extension │                        └──────────────┬──────────────┘
 └─────────────┘                                       │
                                                       ▼
-                                               ┌─────────────┐
-                                               │   SQLite    │
-                                               │  ~/.mnemos/ │
-                                               │  mnemos.db  │
-                                               └─────────────┘
+                                           ┌───────────────────┐
+                                           │  .mnemos/notes/   │
+                                           │    *.md files     │
+                                           │  (plain markdown) │
+                                           └───────────────────┘
 
 Files:
   ~/.mnemos/
-    mnemos.db       # Database
     mnemos.sock     # Unix domain socket
     mnemos.lock     # PID file for startup coordination
     mnemos.log      # Server logs (optional)
     events.sock     # Event notifications socket
+  <project>/.mnemos/
+    notes/          # Markdown note files
 ```
 
 ## Key Concepts
@@ -44,17 +45,18 @@ Files:
 ## Workspace Layout
 
 ```
-backend/
-  src/lib.rs          # Main RPC dispatcher
-  src/main.rs         # Server entry point
-  src/ai_cli.rs       # AI provider integration
-  crates/
-    git/              # Git operations (libgit2 with CLI fallback)
-    index/            # FTS5 text indexing and search
-    notes/            # Note model, SQLite CRUD, position tracking
-    rpc/              # JSON-RPC framing and parsing
-    storage/          # SQLite connection, migrations, schema
-    treesitter/       # Tree-sitter parsing for anchor detection
+src/
+  main.zig        # Entry point, CLI, socket setup
+  server.zig      # Unix socket server and event loop
+  rpc.zig         # JSON-RPC dispatch
+  storage.zig     # Markdown note storage + indexing
+  ai.zig          # AI provider integration
+  treesitter.zig  # Tree-sitter integration
+  git.zig         # libgit2 bindings
+ui/
+  neovim/         # Lua plugin
+  emacs/          # Elisp package
+  vscode/         # TypeScript extension
 ```
 
 ## Note Anchoring
@@ -120,15 +122,15 @@ Backend emits events via `~/.mnemos/events.sock`:
 - `note-created`: New note created
 - `note-updated`: Note text/tags changed
 - `note-deleted`: Note removed
-- `index-complete`: Project indexing finished
+- `index-complete`: Project indexing finished (legacy)
 
 Used by demo automation to wait for async operations.
 
 ## Testing
 
 ```bash
-# Rust unit and integration tests
-cargo test
+# Backend tests
+zig build test
 
 # Neovim tests (plenary.nvim)
 cd ui/neovim && nvim --headless -u tests/minimal_init.lua \

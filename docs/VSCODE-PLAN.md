@@ -2,7 +2,7 @@
 
 ## Overview
 
-Create a VS Code extension for Mnemos that communicates with the same Rust backend, providing feature parity with Emacs and Neovim UIs.
+Create a VS Code extension for Mnemos that communicates with the Zig backend, providing feature parity with Emacs and Neovim UIs.
 
 ## Directory Structure
 
@@ -53,9 +53,9 @@ ui/vscode/
     "type": "string",
     "description": "Path to mnemos backend binary"
   },
-  "mnemos.databasePath": {
+  "mnemos.notesPath": {
     "type": "string",
-    "description": "Path to SQLite database (defaults to ~/.mnemos/mnemos.db)"
+    "description": "Path to notes directory (defaults to <project>/.mnemos/notes)"
   },
   "mnemos.autoRefresh": {
     "type": "boolean",
@@ -69,7 +69,7 @@ ui/vscode/
 }
 ```
 
-**Note**: The database defaults to `~/.mnemos/mnemos.db`, enabling sharing notes with Emacs and Neovim.
+**Note**: The notes directory defaults to `<project>/.mnemos/notes`, enabling sharing notes with Emacs and Neovim.
 
 ### Phase 2: Basic Notes CRUD
 

@@ -55,8 +55,8 @@ Protocol: **JSON-RPC 2.0**.
 
 | Method | Description |
 |--------|-------------|
-| `index/add-file` | Index a file's content |
-| `index/search` | Search indexed file content |
+| `index/add-file` | Legacy: indexing no longer required |
+| `index/search` | Legacy: search uses ripgrep |
 
 ### Mnemos
 
@@ -68,8 +68,8 @@ Protocol: **JSON-RPC 2.0**.
 | `mnemos/explain-region` | Get code context for a region |
 | `mnemos/project-meta` | Get project metadata |
 | `mnemos/open-project` | Set active project root |
-| `mnemos/save-snapshot` | Save database snapshot |
-| `mnemos/load-snapshot` | Load database snapshot |
+| `mnemos/save-snapshot` | Save notes snapshot |
+| `mnemos/load-snapshot` | Load notes snapshot |
 | `mnemos/display-config` | Get display configuration |
 | `mnemos/note-templates` | Get note templates |
 | `mnemos/suggest-tags` | Suggest tags for a note |

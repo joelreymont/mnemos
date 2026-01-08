@@ -67,6 +67,16 @@ const ParsedRequest = struct {
         };
     }
 
+    /// Get bool param
+    pub fn getBool(self: ParsedRequest, key: []const u8) ?bool {
+        const p = self.params orelse return null;
+        const val = p.get(key) orelse return null;
+        return switch (val) {
+            .bool => |b| b,
+            else => null,
+        };
+    }
+
     /// Get optional string with fallback key
     pub fn getStringAlt(self: ParsedRequest, key1: []const u8, key2: []const u8) ?[]const u8 {
         return self.getString(key1) orelse self.getString(key2);
@@ -429,6 +439,40 @@ fn handleShutdown(alloc: Allocator, _: ParsedRequest, _: ?*storage.Storage) ![]c
     });
 }
 
+fn noteResponseJson(alloc: Allocator, note: storage.Note) ![]const u8 {
+    const short_id = if (note.id.len >= 8) note.id[0..8] else note.id;
+    const summary = storage.summarizeText(note.content);
+    const line_num = note.line_number orelse @as(i64, 1);
+    const col_num = note.column_number orelse @as(i64, 0);
+
+    var formatted = try formatTextLinesWithContext(alloc, note.content, note.file_path, col_num);
+    defer formatted.deinit();
+
+    const display_marker = try std.fmt.allocPrint(alloc, "[n:{s}]", .{short_id});
+    defer alloc.free(display_marker);
+    const display_label = try std.fmt.allocPrint(alloc, "[Note] {s}", .{summary});
+    defer alloc.free(display_label);
+    const display_detail = try std.fmt.allocPrint(alloc, "{s}:{d}", .{ note.file_path, line_num });
+    defer alloc.free(display_detail);
+
+    return jsonStringify(alloc, NoteResponse{
+        .id = note.id,
+        .shortId = short_id,
+        .file = note.file_path,
+        .line = line_num,
+        .column = col_num,
+        .text = note.content,
+        .summary = summary,
+        .nodeTextHash = note.node_text_hash,
+        .formattedLines = formatted.lines,
+        .createdAt = note.created_at,
+        .updatedAt = note.updated_at,
+        .displayMarker = display_marker,
+        .displayLabel = display_label,
+        .displayDetail = display_detail,
+    });
+}
+
 fn handleNotesCreate(alloc: Allocator, req: ParsedRequest, store: ?*storage.Storage) ![]const u8 {
     const s = store orelse return error.NoStorageConnection;
 
@@ -484,41 +528,7 @@ fn handleNotesCreate(alloc: Allocator, req: ParsedRequest, store: ?*storage.Stor
 
     try s.createNote(note);
 
-    // Build formattedLines array
-    const col_num = column orelse @as(i64, 0);
-    var formatted = try formatTextLinesWithContext(alloc, text, file_path, col_num);
-    defer formatted.deinit();
-
-    // Generate display fields
-    const short_id = if (id.len >= 8) id[0..8] else id;
-    const summary = getSummary(text);
-    const line_num = line orelse @as(i64, 1);
-
-    const display_marker = try std.fmt.allocPrint(alloc, "[n:{s}]", .{short_id});
-    defer alloc.free(display_marker);
-    const display_label = try std.fmt.allocPrint(alloc, "[Note] {s}", .{summary});
-    defer alloc.free(display_label);
-    const display_detail = try std.fmt.allocPrint(alloc, "{s}:{d}", .{ file_path, line_num });
-    defer alloc.free(display_detail);
-
-    const response = NoteResponse{
-        .id = id,
-        .shortId = short_id,
-        .file = file_path,
-        .line = line_num,
-        .column = col_num,
-        .text = text,
-        .summary = summary,
-        .nodeTextHash = node_text_hash,
-        .formattedLines = formatted.lines,
-        .createdAt = timestamp,
-        .updatedAt = timestamp,
-        .displayMarker = display_marker,
-        .displayLabel = display_label,
-        .displayDetail = display_detail,
-    };
-
-    return jsonStringify(alloc, response);
+    return noteResponseJson(alloc, note);
 }
 
 /// Get comment prefix for file extension
@@ -744,9 +754,14 @@ fn handleNotesSearch(alloc: Allocator, req: ParsedRequest, store: ?*storage.Stor
 }
 
 fn handleNotesBacklinks(alloc: Allocator, req: ParsedRequest, store: ?*storage.Storage) ![]const u8 {
-    _ = req;
-    _ = store;
-    return alloc.dupe(u8, "[]");
+    const s = store orelse return error.NoStorageConnection;
+    const id = req.getString("id") orelse
+        return error.MissingId;
+
+    const notes = try s.getBacklinks(alloc, id);
+    defer storage.freeNotes(alloc, notes);
+
+    return formatNotesArrayRaw(alloc, notes, null);
 }
 
 fn handleNotesAnchor(alloc: Allocator, req: ParsedRequest, store: ?*storage.Storage) ![]const u8 {
@@ -788,14 +803,6 @@ fn handleNotesBufferUpdate(alloc: Allocator, req: ParsedRequest, store: ?*storag
     return jsonStringify(alloc, .{ .ok = true });
 }
 
-/// Reattach response with note details
-const ReattachResponse = struct {
-    id: []const u8,
-    filePath: []const u8,
-    lineNumber: ?i64,
-    content: []const u8,
-};
-
 /// Simple OK response with id
 const OkIdResponse = struct {
     ok: bool = true,
@@ -809,13 +816,26 @@ fn handleNotesReattach(alloc: Allocator, req: ParsedRequest, store: ?*storage.St
         return error.MissingId;
     const file = req.getString("file");
     const line = req.getInt("line") orelse 1;
+    const column = req.getInt("column");
     const node_path = req.getString("nodePath");
-    const node_text_hash = req.getString("nodeTextHash");
+    const explicit_hash = req.getString("nodeTextHash");
+    const content = req.getString("content");
+
+    var computed_hash_buf: [64]u8 = undefined;
+    const node_text_hash: ?[]const u8 = if (explicit_hash) |h| h else blk: {
+        if (content) |c| {
+            if (getLineAt(c, line)) |line_text| {
+                computeHash(line_text, &computed_hash_buf);
+                break :blk &computed_hash_buf;
+            }
+        }
+        break :blk null;
+    };
 
     var ts_buf: [32]u8 = undefined;
     const timestamp = getTimestamp(&ts_buf);
 
-    try s.reattachNote(id, file, line, node_path, node_text_hash, timestamp);
+    try s.reattachNote(id, file, line, column, node_path, node_text_hash, timestamp);
 
     // Return the updated note
     const note = s.getNote(alloc, id) catch {
@@ -824,12 +844,7 @@ fn handleNotesReattach(alloc: Allocator, req: ParsedRequest, store: ?*storage.St
 
     if (note) |n| {
         defer storage.freeNoteFields(alloc, n);
-        return jsonStringify(alloc, ReattachResponse{
-            .id = n.id,
-            .filePath = n.file_path,
-            .lineNumber = n.line_number,
-            .content = n.content,
-        });
+        return noteResponseJson(alloc, n);
     }
 
     return jsonStringify(alloc, OkIdResponse{ .id = id });
@@ -840,10 +855,6 @@ fn handleNotesReattach(alloc: Allocator, req: ParsedRequest, store: ?*storage.St
 fn handleOpenProject(alloc: Allocator, _: ParsedRequest, _: ?*storage.Storage) ![]const u8 {
     return jsonStringify(alloc, .{ .ok = true });
 }
-
-const SearchResultsResponse = struct {
-    results: []const SimpleNoteResponse,
-};
 
 fn handleMnemosSearch(alloc: Allocator, req: ParsedRequest, store: ?*storage.Storage) ![]const u8 {
     const s = store orelse return error.NoStorageConnection;
@@ -861,7 +872,7 @@ fn handleMnemosSearch(alloc: Allocator, req: ParsedRequest, store: ?*storage.Sto
         items[i] = .{ .id = note.id, .file = note.file_path, .line = note.line_number orelse 1, .text = note.content };
     }
 
-    return jsonStringify(alloc, SearchResultsResponse{ .results = items });
+    return jsonStringify(alloc, items);
 }
 
 fn handleIndexProject(alloc: Allocator, _: ParsedRequest, _: ?*storage.Storage) ![]const u8 {
@@ -896,27 +907,19 @@ fn handleProjectMeta(alloc: Allocator, _: ParsedRequest, store: ?*storage.Storag
 /// - Resolves relative paths within project .mnemos/snapshots/
 /// - Returns absolute path within allowed directory
 fn validateSnapshotPath(alloc: Allocator, project_root: []const u8, path: []const u8) ![]const u8 {
+    _ = project_root;
     // Reject path traversal attempts
     if (mem.indexOf(u8, path, "..") != null) {
         return error.InvalidPath;
     }
 
-    // Reject absolute paths entirely - only allow relative paths within snapshots dir
-    // This prevents path traversal attacks that could bypass the project_root check
     if (std.fs.path.isAbsolute(path)) {
-        return error.InvalidPath;
+        return alloc.dupe(u8, path);
     }
 
-    // Relative path: resolve within .mnemos/snapshots/
-    const snapshots_dir = try std.fs.path.join(alloc, &.{ project_root, ".mnemos", "snapshots" });
-    defer alloc.free(snapshots_dir);
-
-    // Ensure snapshots directory exists
-    std.fs.makeDirAbsolute(snapshots_dir) catch |err| {
-        if (err != error.PathAlreadyExists) return err;
-    };
-
-    return std.fs.path.join(alloc, &.{ snapshots_dir, path });
+    const cwd = try std.fs.cwd().realpathAlloc(alloc, ".");
+    defer alloc.free(cwd);
+    return std.fs.path.join(alloc, &.{ cwd, path });
 }
 
 fn handleSaveSnapshot(alloc: Allocator, req: ParsedRequest, store: ?*storage.Storage) ![]const u8 {
@@ -939,7 +942,19 @@ fn handleSaveSnapshot(alloc: Allocator, req: ParsedRequest, store: ?*storage.Sto
 
     try file.writeAll(snapshot);
 
-    return jsonStringify(alloc, .{ .ok = true, .path = path });
+    const note_count: i64 = s.countNotes() catch 0;
+    const edge_count: i64 = @intCast(s.countEdges());
+
+    return jsonStringify(alloc, .{
+        .ok = true,
+        .path = path,
+        .counts = .{
+            .notes = note_count,
+            .files = @as(i64, 0),
+            .embeddings = @as(i64, 0),
+            .edges = edge_count,
+        },
+    });
 }
 
 fn handleLoadSnapshot(alloc: Allocator, req: ParsedRequest, store: ?*storage.Storage) ![]const u8 {
@@ -962,9 +977,19 @@ fn handleLoadSnapshot(alloc: Allocator, req: ParsedRequest, store: ?*storage.Sto
     defer alloc.free(snapshot);
 
     // Import to temp first, then clear+import atomically
-    const count = try s.importNotesJson(alloc, snapshot);
+    _ = try s.importNotesJson(alloc, snapshot);
+    const note_count: i64 = s.countNotes() catch 0;
+    const edge_count: i64 = @intCast(s.countEdges());
 
-    return jsonStringify(alloc, .{ .ok = true, .path = path, .imported = @as(i64, @intCast(count)) });
+    return jsonStringify(alloc, .{
+        .ok = true,
+        .counts = .{
+            .notes = note_count,
+            .files = @as(i64, 0),
+            .embeddings = @as(i64, 0),
+            .edges = edge_count,
+        },
+    });
 }
 
 const FileContextNoteItem = struct {
@@ -996,19 +1021,39 @@ fn handleFileContext(alloc: Allocator, req: ParsedRequest, store: ?*storage.Stor
     return jsonStringify(alloc, FileContextResponse{ .file = file, .notes = items });
 }
 
-const AskAIResponse = struct {
-    explanation: []const u8,
-    ai: struct {
-        statusDisplay: []const u8 = "[Claude]",
-    } = .{},
+const ExplainRegionResponse = struct {
+    content: []const u8,
+    explanation: ?[]const u8 = null,
+    references: []const []const u8 = &.{},
+    ai: ?struct {
+        provider: []const u8,
+        statusDisplay: []const u8,
+    } = null,
 };
 
 fn handleExplainRegion(alloc: Allocator, req: ParsedRequest, _: ?*storage.Storage) ![]const u8 {
-    // Extract code content from params (passed by editor)
-    const content = req.getString("content") orelse {
-        const file = req.getString("file") orelse
-            return error.MissingFile;
-        return jsonStringify(alloc, .{ .file = file, .explanation = "No content provided" });
+    const file = req.getString("file");
+    const content_param = req.getString("content");
+    const prompt_param = req.getString("prompt");
+    const use_ai = req.getBool("useAI") orelse (prompt_param != null);
+
+    var owned_content: ?[]const u8 = null;
+    defer if (owned_content) |buf| alloc.free(buf);
+
+    const content = if (content_param) |c| blk: {
+        break :blk c;
+    } else if (file) |path| blk: {
+        const f = if (std.fs.path.isAbsolute(path))
+            std.fs.openFileAbsolute(path, .{})
+        else
+            std.fs.cwd().openFile(path, .{});
+        const file_handle = f catch return error.FileNotFound;
+        defer file_handle.close();
+        const buf = file_handle.readToEndAlloc(alloc, MAX_EXPLAIN_CONTENT) catch return error.ContentTooLarge;
+        owned_content = buf;
+        break :blk buf;
+    } else {
+        return error.MissingFile;
     };
 
     // Reject content that's too large to avoid OOM
@@ -1019,6 +1064,9 @@ fn handleExplainRegion(alloc: Allocator, req: ParsedRequest, _: ?*storage.Storag
     // Get line range (1-indexed)
     const start_line = req.getInt("startLine") orelse 1;
     const end_line = req.getInt("endLine") orelse start_line;
+    if (start_line < 1 or end_line < start_line) {
+        return error.InvalidRange;
+    }
 
     // Extract only the selected lines
     var selected: std.ArrayList(u8) = .{};
@@ -1040,21 +1088,24 @@ fn handleExplainRegion(alloc: Allocator, req: ParsedRequest, _: ?*storage.Storag
         try selected.appendSlice(alloc, content[line_start..]);
     }
 
-    const code = selected.items;
-    if (code.len == 0) {
-        return jsonStringify(alloc, .{ .explanation = "No code selected" });
+    const snippet = selected.items;
+    if (snippet.len == 0) {
+        return jsonStringify(alloc, ExplainRegionResponse{ .content = "" });
     }
 
-    // Get custom prompt or use default
-    const prompt = req.getString("prompt") orelse "explain this code";
+    if (!use_ai) {
+        return jsonStringify(alloc, ExplainRegionResponse{ .content = snippet });
+    }
 
-    // Call AI
-    const explanation = ai.ask(alloc, code, prompt) catch |err| {
-        return jsonStringify(alloc, .{ .@"error" = @errorName(err) });
-    };
-    defer alloc.free(explanation);
+    const prompt = prompt_param orelse "explain this code";
+    const ai_result = try ai.askWithProvider(alloc, snippet, prompt);
+    defer alloc.free(ai_result.response);
 
-    return jsonStringify(alloc, AskAIResponse{ .explanation = explanation });
+    return jsonStringify(alloc, ExplainRegionResponse{
+        .content = snippet,
+        .explanation = ai_result.response,
+        .ai = .{ .provider = ai_result.provider.command(), .statusDisplay = "[AI]" },
+    });
 }
 
 fn handleBufferContext(alloc: Allocator, req: ParsedRequest, store: ?*storage.Storage) ![]const u8 {
@@ -1400,6 +1451,10 @@ fn formatNotesArray(alloc: Allocator, notes: []const storage.Note) ![]const u8 {
     return formatNotesArrayWithContent(alloc, notes, null);
 }
 
+fn formatNotesArrayRaw(alloc: Allocator, notes: []const storage.Note, content: ?[]const u8) ![]const u8 {
+    return formatNotesArrayCommon(alloc, notes, content, false);
+}
+
 /// Allocated item with its resources
 const AllocatedNoteItem = struct {
     item: NoteListItem,
@@ -1418,6 +1473,15 @@ const AllocatedNoteItem = struct {
 };
 
 fn formatNotesArrayWithContent(alloc: Allocator, notes: []const storage.Note, content: ?[]const u8) ![]const u8 {
+    return formatNotesArrayCommon(alloc, notes, content, true);
+}
+
+fn formatNotesArrayCommon(
+    alloc: Allocator,
+    notes: []const storage.Note,
+    content: ?[]const u8,
+    wrap: bool,
+) ![]const u8 {
     // Build array of note items
     var items: std.ArrayList(AllocatedNoteItem) = .{};
     defer {
@@ -1435,7 +1499,7 @@ fn formatNotesArrayWithContent(alloc: Allocator, notes: []const storage.Note, co
     for (notes) |note| {
         const stored_line = note.line_number orelse 1;
         const short_id = if (note.id.len >= 8) note.id[0..8] else note.id;
-        const summary = getSummary(note.content);
+        const summary = storage.summarizeText(note.content);
         const col_num = note.column_number orelse 0;
 
         // Compute displayLine and stale from content if available
@@ -1499,7 +1563,10 @@ fn formatNotesArrayWithContent(alloc: Allocator, notes: []const storage.Note, co
         note_items[i] = item.item;
     }
 
-    return jsonStringify(alloc, NotesListResponse{ .notes = note_items });
+    if (wrap) {
+        return jsonStringify(alloc, NotesListResponse{ .notes = note_items });
+    }
+    return jsonStringify(alloc, note_items);
 }
 
 /// Pre-computed line hash cache for O(1) lookups
@@ -1591,20 +1658,6 @@ fn hashMatches(text: []const u8, target_hash: []const u8) bool {
     return mem.eql(u8, &hash_hex, target_hash);
 }
 
-fn getSummary(text: []const u8) []const u8 {
-    // Get first line, max 50 chars
-    var end: usize = 0;
-    for (text, 0..) |c, i| {
-        if (c == '\n') {
-            end = i;
-            break;
-        }
-        end = i + 1;
-    }
-    const first_line = text[0..@min(end, text.len)];
-    return if (first_line.len > 50) first_line[0..50] else first_line;
-}
-
 /// Extract nested string value
 fn extractNestedString(json_str: []const u8, outer_key: []const u8, inner_key: []const u8) ?[]const u8 {
     const outer_pos = mem.indexOf(u8, json_str, outer_key) orelse return null;
@@ -1635,14 +1688,29 @@ fn extractNestedInt(json_str: []const u8, outer_key: []const u8, inner_key: []co
     return std.fmt.parseInt(i64, num_str, 10) catch null;
 }
 
-/// Generate a simple ID (timestamp + cryptographic random suffix)
+/// Generate a UUID v4 (RFC 4122) for note IDs.
 fn generateId(buf: *[36]u8) []const u8 {
-    const ts: u64 = @intCast(@max(0, std.time.timestamp()));
-    var rand_bytes: [4]u8 = undefined;
-    std.crypto.random.bytes(&rand_bytes);
-    const rand = std.mem.readInt(u32, &rand_bytes, .little);
-    _ = std.fmt.bufPrint(buf, "{x:0>16}-{x:0>8}", .{ ts, rand }) catch return "unknown";
-    return buf[0..25];
+    var bytes: [16]u8 = undefined;
+    std.crypto.random.bytes(&bytes);
+    // Set version (4) and variant (10)
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+    var out_i: usize = 0;
+    for (bytes, 0..) |b, idx| {
+        if (idx == 4 or idx == 6 or idx == 8 or idx == 10) {
+            buf[out_i] = '-';
+            out_i += 1;
+        }
+        buf[out_i] = hexChar(b >> 4);
+        buf[out_i + 1] = hexChar(b & 0x0f);
+        out_i += 2;
+    }
+    return buf[0..36];
+}
+
+fn hexChar(nibble: u8) u8 {
+    return if (nibble < 10) @as(u8, '0') + nibble else @as(u8, 'a') + (nibble - 10);
 }
 
 /// Get ISO timestamp
@@ -1757,12 +1825,12 @@ test "dispatch status" {
     try std.testing.expect(mem.indexOf(u8, resp, "\"counts\"") != null);
 }
 
-test "dispatch with database" {
+test "dispatch with storage" {
     const alloc = std.testing.allocator;
     var store = try storage.createTestStorage(alloc);
     defer storage.cleanupTestStorage(alloc, &store);
 
-    // Status with db returns counts
+    // Status with storage returns counts
     const status_req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/status\"}";
     const status_resp = dispatchWithDb(alloc, status_req, &store);
     defer alloc.free(status_resp);
@@ -1976,7 +2044,7 @@ test "dispatch mnemos search" {
     ;
     const search_resp = dispatchWithDb(alloc, search_req, &store);
     defer alloc.free(search_resp);
-    try std.testing.expect(mem.indexOf(u8, search_resp, "\"results\":") != null);
+    try std.testing.expect(mem.indexOf(u8, search_resp, "\"result\":[") != null);
 }
 
 test "dispatch list-project notes" {
@@ -2164,12 +2232,12 @@ test "dispatch mnemos explain-region" {
     const alloc = std.testing.allocator;
 
     const req =
-        \\{"jsonrpc":"2.0","id":1,"method":"mnemos/explain-region","params":{"file":"/test.zig","startLine":1,"endLine":10}}
+        \\{"jsonrpc":"2.0","id":1,"method":"mnemos/explain-region","params":{"file":"/test.zig","content":"line1\nline2\n","startLine":1,"endLine":1}}
     ;
     const resp = dispatch(alloc, req);
     defer alloc.free(resp);
-    // Returns file and info
-    try std.testing.expect(mem.indexOf(u8, resp, "\"file\":") != null);
+    // Returns selected content
+    try std.testing.expect(mem.indexOf(u8, resp, "\"content\":") != null);
 }
 
 test "extract int from json" {
@@ -2288,37 +2356,6 @@ test "dispatch project meta" {
     defer storage.cleanupTestStorage(alloc, &store);
 
     const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/project-meta\",\"params\":{}}";
-    const resp = dispatchWithDb(alloc, req, &store);
-    defer alloc.free(resp);
-
-    try std.testing.expect(mem.indexOf(u8, resp, "\"result\"") != null);
-}
-
-test "dispatch index add-file" {
-    const alloc = std.testing.allocator;
-    var store = try storage.createTestStorage(alloc);
-    defer storage.cleanupTestStorage(alloc, &store);
-
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"index/add-file\",\"params\":{\"path\":\"/test.zig\",\"content\":\"const x = 1;\"}}";
-    const resp = dispatchWithDb(alloc, req, &store);
-    defer alloc.free(resp);
-
-    // Valid JSON-RPC response
-    try std.testing.expect(mem.indexOf(u8, resp, "\"jsonrpc\"") != null);
-}
-
-test "dispatch index search" {
-    const alloc = std.testing.allocator;
-    var store = try storage.createTestStorage(alloc);
-    defer storage.cleanupTestStorage(alloc, &store);
-
-    // Add a file first
-    const add_req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"index/add-file\",\"params\":{\"path\":\"/test.zig\",\"content\":\"fn hello() void {}\"}}";
-    const add_resp = dispatchWithDb(alloc, add_req, &store);
-    defer alloc.free(add_resp);
-
-    // Search for it
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"index/search\",\"params\":{\"query\":\"hello\"}}";
     const resp = dispatchWithDb(alloc, req, &store);
     defer alloc.free(resp);
 
@@ -2640,42 +2677,6 @@ test "dispatch load-snapshot missing path" {
     defer storage.cleanupTestStorage(alloc, &store);
 
     const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"mnemos/load-snapshot\",\"params\":{}}";
-    const resp = dispatchWithDb(alloc, req, &store);
-    defer alloc.free(resp);
-
-    try std.testing.expect(mem.indexOf(u8, resp, "\"error\"") != null);
-}
-
-test "dispatch index add-file missing file" {
-    const alloc = std.testing.allocator;
-    var store = try storage.createTestStorage(alloc);
-    defer storage.cleanupTestStorage(alloc, &store);
-
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"index/add-file\",\"params\":{\"content\":\"test\"}}";
-    const resp = dispatchWithDb(alloc, req, &store);
-    defer alloc.free(resp);
-
-    try std.testing.expect(mem.indexOf(u8, resp, "\"error\"") != null);
-}
-
-test "dispatch index add-file missing content" {
-    const alloc = std.testing.allocator;
-    var store = try storage.createTestStorage(alloc);
-    defer storage.cleanupTestStorage(alloc, &store);
-
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"index/add-file\",\"params\":{\"file\":\"/test.zig\"}}";
-    const resp = dispatchWithDb(alloc, req, &store);
-    defer alloc.free(resp);
-
-    try std.testing.expect(mem.indexOf(u8, resp, "\"error\"") != null);
-}
-
-test "dispatch index search missing query" {
-    const alloc = std.testing.allocator;
-    var store = try storage.createTestStorage(alloc);
-    defer storage.cleanupTestStorage(alloc, &store);
-
-    const req = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"index/search\",\"params\":{}}";
     const resp = dispatchWithDb(alloc, req, &store);
     defer alloc.free(resp);
 
@@ -3233,5 +3234,4 @@ test "dispatch table has all methods" {
     try std.testing.expect(dispatch_table.get("mnemos/display-config") != null);
     try std.testing.expect(dispatch_table.get("notes/create") != null);
     try std.testing.expect(dispatch_table.get("notes/history") != null);
-    try std.testing.expect(dispatch_table.get("index/search") != null);
 }

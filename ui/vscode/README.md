@@ -20,20 +20,20 @@ A second brain for your code - attach persistent notes to AST nodes.
 1. Build the backend:
    ```bash
    cd /path/to/mnemos
-   cargo build --release
+   zig build -Doptimize=ReleaseFast
    ```
 
 2. Configure the extension in VS Code settings:
    ```json
    {
-     "mnemos.backend": "/path/to/mnemos/target/release/mnemos"
+    "mnemos.backend": "/path/to/mnemos/zig-out/bin/mnemos"
    }
    ```
 
-   The database defaults to `~/.mnemos/mnemos.db`. Override with:
+   Notes default to `<project>/.mnemos/notes`. Override with:
    ```json
    {
-     "mnemos.databasePath": "/path/to/custom.db"
+     "mnemos.notesPath": "/path/to/custom/notes"
    }
    ```
 
@@ -82,4 +82,4 @@ npm test
 
 ## Multi-Editor Support
 
-This extension shares its database with the Emacs and Neovim Mnemos clients. Notes created in one editor appear in the others after refresh.
+This extension can share its notes directory with the Emacs and Neovim Mnemos clients. Notes created in one editor appear in the others after refresh.

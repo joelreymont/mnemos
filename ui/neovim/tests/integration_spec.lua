@@ -658,66 +658,6 @@ describe("mnemos integration", function()
     end)
   end)
 
-  describe("index/add-file", function()
-    it("indexes a file for search", function()
-      local env = get_test_env()
-      local done = false
-      local index_ok = false
-      local connect_ok = false
-
-      env.rpc.start(function(ok)
-        if not ok then
-          done = true
-          return
-        end
-        connect_ok = true
-
-        env.rpc.request("index/add-file", {
-          file = env.file,
-          projectRoot = env.dir,
-        }, function(err, res)
-          index_ok = not err
-          done = true
-        end)
-      end)
-
-      helpers.wait_for(function() return done end, 5000)
-      env.cleanup()
-      assert.truthy(connect_ok, "Backend connection failed")
-      assert.is_true(index_ok, "Index file should succeed")
-    end)
-  end)
-
-  describe("mnemos/index-project", function()
-    it("indexes entire project", function()
-      local env = get_test_env()
-      local done = false
-      local result = nil
-      local connect_ok = false
-
-      env.rpc.start(function(ok)
-        if not ok then
-          done = true
-          return
-        end
-        connect_ok = true
-
-        env.rpc.request("mnemos/index-project", {
-          projectRoot = env.dir,
-        }, function(err, res)
-          result = res
-          done = true
-        end)
-      end)
-
-      helpers.wait_for(function() return done end, 5000)
-      env.cleanup()
-      assert.truthy(connect_ok, "Backend connection failed")
-      assert.is_not_nil(result, "Should return result")
-      assert.is_not_nil(result.indexed, "Should have indexed count")
-    end)
-  end)
-
   describe("mnemos/explain-region", function()
     it("returns code snippet for LLM context", function()
       local env = get_test_env()
@@ -839,8 +779,8 @@ describe("mnemos integration", function()
   end)
 
   describe("note creation verification", function()
-    -- Test that notes are actually persisted in the database
-    it("note exists in database after create", function()
+    -- Test that notes are actually persisted in the notes store
+    it("note exists in storage after create", function()
       local env = get_test_env()
       local done = false
       local create_result = nil

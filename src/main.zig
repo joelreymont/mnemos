@@ -22,12 +22,10 @@ const Config = struct {
     mode: Mode = .socket,
     socket_path: ?[]const u8 = null,
     project_root: ?[]const u8 = null,
-    db_path: ?[]const u8 = null,
 
     fn deinit(self: *Config, alloc: Allocator) void {
         if (self.socket_path) |p| alloc.free(p);
         if (self.project_root) |p| alloc.free(p);
-        if (self.db_path) |p| alloc.free(p);
     }
 };
 
@@ -86,12 +84,6 @@ fn parseArgs(alloc: Allocator) !Config {
                 process.exit(1);
             };
             config.project_root = try alloc.dupe(u8, path);
-        } else if (mem.eql(u8, arg, "--db")) {
-            const path = args_iter.next() orelse {
-                try printError("--db requires a path argument");
-                process.exit(1);
-            };
-            config.db_path = try alloc.dupe(u8, path);
         } else if (mem.eql(u8, arg, "--help") or mem.eql(u8, arg, "-h")) {
             printHelp();
             process.exit(0);
@@ -114,7 +106,6 @@ fn parseArgs(alloc: Allocator) !Config {
 const FileConfig = struct {
     socket_path: ?[]const u8 = null,
     project_root: ?[]const u8 = null,
-    db_path: ?[]const u8 = null,
 };
 
 fn loadConfigFile(alloc: Allocator, config: *Config) !void {
@@ -164,12 +155,6 @@ fn loadConfigFile(alloc: Allocator, config: *Config) !void {
             config.project_root = try alloc.dupe(u8, path);
         }
     }
-
-    if (file_config.db_path) |path| {
-        if (config.db_path == null) {
-            config.db_path = try alloc.dupe(u8, path);
-        }
-    }
 }
 
 // getConfigPath moved to paths.zig
@@ -182,40 +167,21 @@ fn getSocketPath(alloc: Allocator, config: *const Config) ![]const u8 {
     return paths.getSocketPath(alloc);
 }
 
-fn getDbPath(alloc: Allocator, config: *const Config) ![]const u8 {
-    if (config.db_path) |path| {
-        return try alloc.dupe(u8, path);
-    }
-
-    // Check MNEMOS_DB_PATH env var
-    if (process.getEnvVarOwned(alloc, "MNEMOS_DB_PATH")) |db_path| {
-        return db_path;
-    } else |_| {}
-
-    // Check MNEMOS_DIR env var
-    if (process.getEnvVarOwned(alloc, "MNEMOS_DIR")) |mnemos_dir| {
-        defer alloc.free(mnemos_dir);
-        return try std.fmt.allocPrint(alloc, "{s}/mnemos.db", .{mnemos_dir});
-    } else |_| {}
-
-    const project_root = config.project_root orelse try getCurrentDir(alloc);
-    defer if (config.project_root == null) alloc.free(project_root);
-
-    const mnemos_dir = try std.fmt.allocPrint(alloc, "{s}/.mnemos", .{project_root});
-    defer alloc.free(mnemos_dir);
-
-    fs.makeDirAbsolute(mnemos_dir) catch |err| {
-        if (err != error.PathAlreadyExists) return err;
-    };
-
-    return try std.fmt.allocPrint(alloc, "{s}/db.sqlite", .{mnemos_dir});
-}
-
 fn getCurrentDir(alloc: Allocator) ![]const u8 {
     return fs.cwd().realpathAlloc(alloc, ".") catch |err| {
         try printError("Failed to get current directory");
         return err;
     };
+}
+
+fn getProjectRoot(alloc: Allocator, config: *const Config) ![]const u8 {
+    if (config.project_root) |path| {
+        return fs.cwd().realpathAlloc(alloc, path) catch |err| {
+            try printError("Failed to resolve project root");
+            return err;
+        };
+    }
+    return getCurrentDir(alloc);
 }
 
 fn runStdio(alloc: Allocator, config: *const Config) !void {
@@ -244,10 +210,10 @@ fn runSocket(alloc: Allocator, config: *const Config) !void {
     const socket_path = try getSocketPath(alloc, config);
     defer alloc.free(socket_path);
 
-    const db_path = try getDbPath(alloc, config);
-    defer alloc.free(db_path);
+    const project_root = try getProjectRoot(alloc, config);
+    defer alloc.free(project_root);
 
-    try server.runWithPaths(alloc, socket_path, db_path);
+    try server.runWithPaths(alloc, socket_path, project_root);
 }
 
 fn printError(msg: []const u8) !void {
@@ -269,7 +235,6 @@ fn printHelp() void {
         \\    --serve              Run as Unix socket server (alias for --socket)
         \\    --socket <path>      Run as Unix socket server at specific path
         \\    --project <path>     Set project root directory (default: current directory)
-        \\    --db <path>          Database file path (default: .mnemos/db.sqlite)
         \\    --version, -v        Print version
         \\    --help, -h           Print this help
         \\
@@ -288,8 +253,7 @@ fn printHelp() void {
         \\    Example config.json:
         \\    {
         \\      "socket_path": "/tmp/mnemos.sock",
-        \\      "project_root": "/path/to/project",
-        \\      "db_path": "/path/to/db.sqlite"
+        \\      "project_root": "/path/to/project"
         \\    }
         \\
         \\    Command-line arguments override config file settings.
@@ -321,7 +285,6 @@ test "config default values" {
     try std.testing.expectEqual(Mode.socket, config.mode);
     try std.testing.expect(config.socket_path == null);
     try std.testing.expect(config.project_root == null);
-    try std.testing.expect(config.db_path == null);
 }
 
 test "mode enum values" {
@@ -353,7 +316,6 @@ test "config deinit frees allocated fields" {
     var config = Config{
         .socket_path = try alloc.dupe(u8, "/tmp/test.sock"),
         .project_root = try alloc.dupe(u8, "/home/test"),
-        .db_path = try alloc.dupe(u8, "/tmp/db.sqlite"),
     };
     config.deinit(alloc);
 }
@@ -375,7 +337,6 @@ test "config with partial allocation" {
     var config = Config{
         .socket_path = try alloc.dupe(u8, "/tmp/test.sock"),
         .project_root = null,
-        .db_path = try alloc.dupe(u8, "/tmp/db.sqlite"),
     };
     config.deinit(alloc);
 }
@@ -432,43 +393,36 @@ test "getSocketPath without config returns path" {
     try testing.expect(mem.endsWith(u8, path, "mnemos.sock"));
 }
 
-test "getDbPath from config" {
+test "getProjectRoot from config" {
     const testing = std.testing;
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    const config = Config{
-        .db_path = try alloc.dupe(u8, "/custom/db.sqlite"),
-    };
-
-    const path = try getDbPath(alloc, &config);
-    defer alloc.free(path);
-
-    try testing.expect(mem.eql(u8, path, "/custom/db.sqlite"));
-}
-
-test "getDbPath with project root" {
-    const testing = std.testing;
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    // Use a temp directory that actually exists
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
     const project_root = try tmp_dir.dir.realpathAlloc(alloc, ".");
     defer alloc.free(project_root);
-
     const config = Config{
-        .project_root = project_root,
+        .project_root = try alloc.dupe(u8, project_root),
     };
 
-    const path = try getDbPath(alloc, &config);
-    defer alloc.free(path);
+    const resolved = try getProjectRoot(alloc, &config);
+    defer alloc.free(resolved);
+    try testing.expect(mem.eql(u8, resolved, project_root));
+}
 
-    try testing.expect(mem.endsWith(u8, path, ".mnemos/db.sqlite"));
+test "getProjectRoot default current dir" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const config = Config{};
+    const resolved = try getProjectRoot(alloc, &config);
+    defer alloc.free(resolved);
+
+    try testing.expect(resolved.len > 0);
+    try testing.expect(resolved[0] == '/');
 }
 
 test "getCurrentDir returns path" {

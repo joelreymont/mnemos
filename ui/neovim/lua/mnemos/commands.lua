@@ -1069,7 +1069,8 @@ end
 
 -- Explain region using AI and create a note
 -- Ask AI about selected region with custom prompt
-function M.ask_ai()
+function M.ask_ai(opts)
+  opts = opts or {}
   -- Exit visual mode first to set '< and '> marks
   local mode = vim.fn.mode()
   if mode:match("[vV]") then
@@ -1086,16 +1087,20 @@ function M.ask_ai()
     return
   end
 
-  -- Prompt for AI instruction with default
-  local ok, prompt = pcall(vim.fn.input, {
-    prompt = "Ask AI: ",
-    default = "explain this code",
-  })
-  if not ok or not prompt or prompt == "" then
+  -- Prompt for AI instruction with default (skip prompt in test mode)
+  local prompt = opts.prompt or (opts.detailed and "explain this code in detail" or "explain this code")
+  if not vim.g.mnemos_test_mode then
+    local ok, input = pcall(vim.fn.input, {
+      prompt = "Ask AI: ",
+      default = prompt,
+    })
+    if not ok or not input or input == "" then
+      vim.cmd("echo ''")
+      return
+    end
+    prompt = input
     vim.cmd("echo ''")
-    return
   end
-  vim.cmd("echo ''")
 
   -- Set flag to prevent race with event-triggered refresh
   M.explain_region_in_progress = true
@@ -1133,8 +1138,10 @@ function M.ask_ai()
       status_timer:close()
       status_timer = nil
     end
-    vim.cmd("redraw!")
-    vim.api.nvim_echo({ { "" } }, false, {})
+    vim.schedule(function()
+      vim.cmd("redraw!")
+      vim.api.nvim_echo({ { "" } }, false, {})
+    end)
   end
 
   -- Store timer reference so update_status can check if it's still active
@@ -1151,19 +1158,26 @@ function M.ask_ai()
     if err then
       stop_and_clear()
       M.explain_region_in_progress = false
-      vim.notify("AI request failed: " .. (err.message or vim.inspect(err)), vim.log.levels.ERROR)
+      vim.schedule(function()
+        vim.notify("AI request failed: " .. (err.message or vim.inspect(err)), vim.log.levels.ERROR)
+      end)
       return
     end
 
     if not result or not result.explanation then
       stop_and_clear()
       M.explain_region_in_progress = false
-      vim.notify("No AI response", vim.log.levels.WARN)
+      vim.schedule(function()
+        vim.notify("No AI response", vim.log.levels.WARN)
+      end)
       return
     end
 
-    -- Backend guarantees ai.statusDisplay when AI is used
-    local text = string.format("%s %s", result.ai.statusDisplay, result.explanation)
+    local status = "[AI]"
+    if type(result.ai) == "table" and result.ai.statusDisplay then
+      status = result.ai.statusDisplay
+    end
+    local text = string.format("%s %s", status, result.explanation)
 
     -- Create note with AI response
     notes.create(text, {
@@ -1174,7 +1188,9 @@ function M.ask_ai()
         M._pending_status_timer = nil
         stop_and_clear()
         M.explain_region_in_progress = false
-        vim.notify("Failed to create note: " .. (create_err.message or "unknown"), vim.log.levels.ERROR)
+        vim.schedule(function()
+          vim.notify("Failed to create note: " .. (create_err.message or "unknown"), vim.log.levels.ERROR)
+        end)
         return
       end
 
@@ -1191,6 +1207,15 @@ function M.ask_ai()
       end, 5000)
     end)
   end)
+end
+
+-- Backward-compatible entrypoint for tests/clients expecting explain_region
+function M.explain_region()
+  return M.ask_ai()
+end
+
+function M.explain_region_full()
+  return M.ask_ai({ detailed = true })
 end
 
 -- Show project metadata

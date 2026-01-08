@@ -3,7 +3,7 @@
 -- Run with: nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedFile tests/explain_region_e2e_spec.lua"
 --
 -- REQUIRES:
--- - Backend built: cargo build --release -p backend
+-- - Backend built: zig build -Doptimize=ReleaseFast
 -- - AI provider configured: MNEMOS_AI_PROVIDER=claude or config.toml
 
 local helpers = require("tests.helpers")

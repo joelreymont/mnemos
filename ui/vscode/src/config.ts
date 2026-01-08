@@ -8,7 +8,7 @@ export type DebugLevel = 'off' | 'basic' | 'verbose';
 export interface MnemosConfig {
   backend: string;
   mnemosDir: string;
-  databasePath: string;
+  notesPath: string;
   autoRefresh: boolean;
   displayStyle: 'full' | 'minimal';
   debug: DebugLevel;
@@ -39,11 +39,10 @@ function findBackend(): string {
     // Development builds
     ...(devRoot ? [
       path.join(devRoot, 'zig-out', 'bin', 'mnemos'),
-      path.join(devRoot, 'target', 'debug', 'mnemos'),
-      path.join(devRoot, 'target', 'release', 'mnemos'),
     ] : []),
     // Installed locations
-    path.join(homeDir, '.cargo', 'bin', 'mnemos'),
+    path.join(homeDir, '.local', 'bin', 'mnemos'),
+    path.join(homeDir, 'bin', 'mnemos'),
     '/usr/local/bin/mnemos',
     '/usr/bin/mnemos',
   ];
@@ -73,7 +72,7 @@ export function getConfig(): MnemosConfig {
   return {
     backend: findBackend(),
     mnemosDir: getMnemosDir(),
-    databasePath: config.get<string>('databasePath') || '',
+    notesPath: config.get<string>('notesPath') || '',
     autoRefresh: config.get<boolean>('autoRefresh') ?? true,
     displayStyle: config.get<'full' | 'minimal'>('displayStyle') || 'full',
     debug: config.get<DebugLevel>('debug') || 'off',

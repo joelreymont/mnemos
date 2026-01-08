@@ -7,10 +7,10 @@ A walkthrough for screen recording the Mnemos note-taking system across Emacs, N
 ```bash
 # Build the backend
 cd ~/Work/mnemos
-cargo build --release
+zig build -Doptimize=ReleaseFast
 
-# Clean slate - remove old database
-rm -f ~/.mnemos/mnemos-notes.db
+# Clean slate - remove old notes
+rm -rf /tmp/mnemos-demo/.mnemos
 
 # Prepare a demo project
 mkdir -p /tmp/mnemos-demo
@@ -83,10 +83,10 @@ M-x mnemos-help
 C-x C-f /tmp/mnemos-demo/app.rs
 ```
 
-### 1.3 Index the Project
+### 1.3 Search Uses Ripgrep
 ```
-M-x mnemos-index-project
-→ Shows "Project indexed: 2 files"
+M-x mnemos-search-project
+→ Uses ripgrep for project-wide search
 ```
 
 ### 1.4 Create First Note
@@ -149,7 +149,7 @@ Press b (mnemos-show-backlinks)
 ```
 M-x mnemos-search-project
 → Type: "config"
-→ Shows matching notes AND indexed file content
+→ Shows matching notes and file content via ripgrep
 → Press RET to visit result
 ```
 
@@ -164,11 +164,11 @@ M-x mnemos-explain-region
 ```
 M-x mnemos-save-snapshot
 → Enter path: /tmp/mnemos-backup.json
-→ Saves all notes, files, embeddings
+→ Saves all notes
 
 M-x mnemos-load-snapshot
 → Select file
-→ Restores database state
+→ Restores notes state
 ```
 
 ### 1.14 Edit a Note
@@ -188,7 +188,7 @@ C-c m d (mnemos-delete-note-at-point)
 ### 1.16 Check Status
 ```
 C-c m S (mnemos-status)
-→ Shows: "3 notes, 2 files, 0 embeddings"
+→ Shows: "3 notes"
 ```
 
 ---
@@ -206,14 +206,14 @@ nvim /tmp/mnemos-demo/app.rs
 ### 2.2 Verify Connection & Status
 ```
 :Mnemos status
-→ Shows note/file counts from shared database
+→ Shows note counts from shared notes directory
 ```
 
 ### 2.3 Refresh to See Existing Notes
 ```
 :Mnemos refresh
 → Overlays appear for notes created in Emacs
-→ (Demonstrates shared database)
+→ (Demonstrates shared notes directory)
 ```
 
 ### 2.4 Create a Simple Note
@@ -262,26 +262,14 @@ Move to line with linked note
 → Shows notes that reference this one
 ```
 
-### 2.9 Index Current File
-```
-:Mnemos index_file
-→ Indexes current buffer for search
-```
-
-### 2.10 Index Entire Project
-```
-:Mnemos index_project
-→ Indexes all files in project root
-```
-
-### 2.11 Search
+### 2.9 Search
 ```
 :Mnemos search config
-→ Shows matching notes and file content
+→ Shows matching notes and file content via ripgrep
 → Select to jump to location
 ```
 
-### 2.12 Edit Note
+### 2.10 Edit Note
 ```
 Move cursor to note line
 :Mnemos edit
@@ -289,33 +277,33 @@ Move cursor to note line
 → Save
 ```
 
-### 2.13 Delete Note
+### 2.11 Delete Note
 ```
 :Mnemos delete
 → Confirms deletion
 → Note removed
 ```
 
-### 2.14 Explain Region (LLM Hook)
+### 2.12 Explain Region (LLM Hook)
 ```
 Select lines 12-16 (Server struct) in visual mode
 :MnemosExplainRegion
 → Copies snippet to clipboard (LLM-ready)
 ```
 
-### 2.16 Save/Load Snapshot
+### 2.14 Save/Load Snapshot
 ```
 :MnemosSaveSnapshot
 → Enter path: /tmp/mnemos-backup.json
-→ Saves all notes, files, embeddings
+→ Saves all notes
 
 :MnemosLoadSnapshot
 → Enter path
 → Confirms replacement
-→ Restores database state
+→ Restores notes state
 ```
 
-### 2.17 Shutdown Backend
+### 2.15 Shutdown Backend
 ```
 :MnemosShutdown
 → Cleanly stops the backend process
@@ -333,7 +321,7 @@ File → Open Folder → /tmp/mnemos-demo
 ### 3.2 Check Status
 ```
 Cmd+Shift+P → "Mnemos: Status"
-→ Shows note/file/embedding counts
+→ Shows note counts
 ```
 
 ### 3.3 View Existing Notes
@@ -345,7 +333,7 @@ Open app.rs
 ### 3.4 Refresh Notes
 ```
 Cmd+Shift+P → "Mnemos: Refresh Notes"
-→ Updates decorations from database
+→ Updates decorations from notes
 ```
 
 ### 3.5 Add Note
@@ -446,7 +434,7 @@ Cmd+Shift+P → "Mnemos: Save Snapshot"
 Cmd+Shift+P → "Mnemos: Load Snapshot"
 → Select snapshot file
 → Confirms replacement
-→ Restores database state
+→ Restores notes state
 ```
 
 ### 3.18 Show Help
@@ -465,10 +453,9 @@ Cmd+Shift+P → "Mnemos: Shutdown Backend"
 
 ## Part 4: Cross-Editor Sync (~1 min)
 
-### 4.1 Show Database Location
+### 4.1 Show Notes Location
 ```bash
-ls -la ~/.mnemos/mnemos-notes.db
-sqlite3 ~/.mnemos/mnemos-notes.db "SELECT COUNT(*) FROM notes;"
+ls -la /tmp/mnemos-demo/.mnemos/notes
 ```
 
 ### 4.2 Demonstrate Real-Time Sync
@@ -476,16 +463,15 @@ sqlite3 ~/.mnemos/mnemos-notes.db "SELECT COUNT(*) FROM notes;"
 1. In Emacs: Create note "Cross-editor sync test"
 2. In Neovim: :Mnemos refresh → Note appears instantly
 3. In VS Code: Refresh → Note appears
-→ All editors share the same database!
+→ All editors share the same notes directory!
 ```
 
 ### 4.3 Show Stale Note Detection
 ```
 1. Create a note on line 10
 2. In terminal: Edit app.rs, insert lines above
-3. git add . && git commit -m "Changed"
-4. Refresh notes in editor
-→ Note shows [STALE] indicator (git SHA changed)
+3. Refresh notes in editor
+→ Note shows [STALE] indicator (node hash changed)
 ```
 
 ---
@@ -497,10 +483,9 @@ sqlite3 ~/.mnemos/mnemos-notes.db "SELECT COUNT(*) FROM notes;"
 - Multiline notes with full markdown support
 - Cross-note linking with [[description][id]] syntax
 - Backlinks for bidirectional navigation
-- Full-text search across notes and indexed files
-- Git-aware stale detection (commit/blob SHA tracking)
+- Full-text search across notes and files via ripgrep
+- Stale detection via node hash tracking
 - Tree-sitter integration anchors notes to AST nodes
-- Project indexing for semantic code search
 - Snapshot save/load for backup/restore
-- Single shared SQLite database across all editors
+- Single shared notes directory across all editors
 - Works offline, local-first, no cloud dependency

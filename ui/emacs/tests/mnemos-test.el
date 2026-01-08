@@ -64,7 +64,7 @@
           ;; Include AI provider if set, so AI tests can work
           (mnemos-backend-env (append
                               (list (concat "MNEMOS_DIR=" test-dir)
-                                    (concat "MNEMOS_DB_PATH=" test-dir "/mnemos.db"))
+                                    (concat "MNEMOS_NOTES_PATH=" test-dir "/notes"))
                               (when (getenv "MNEMOS_AI_PROVIDER")
                                 (list (concat "MNEMOS_AI_PROVIDER=" (getenv "MNEMOS_AI_PROVIDER"))))))
           ;; Expand backend path NOW before test changes default-directory
@@ -72,7 +72,7 @@
                           (or (getenv "MNEMOS_BACKEND")
                               mnemos-backend
                               mnemos--default-backend
-                              (error "Set MNEMOS_BACKEND to the Rust backend binary")))))
+                              (error "Set MNEMOS_BACKEND to the Mnemos backend binary")))))
      ;; Disable global mode to prevent auto-connections to wrong socket
      (mnemos-notes-global-mode -1)
      (unwind-protect
@@ -202,7 +202,7 @@
         (should (string-match-p "^\\s-*\\(\n\\|//\\|;\\|--\\|#\\)" before))
         (should (string-match-p "line" before))))))
 
-(ert-deftest mnemos-index-rust-integration ()
+(ert-deftest mnemos-rust-note-integration ()
   "Test note CRUD and overlays."
   (let ((rust-content "fn main() {\n    println!(\"hello\");\n}\n\nfn helper() {\n    let x = 1;\n}\n"))
     (mnemos-test-with-backend
@@ -1245,23 +1245,6 @@ Returns list of plists with :line :before-string :face :count :texts."
                   ;; Or check face property includes stale indication
                   (plist-get ov-state :face))))))
 
-(ert-deftest mnemos-index-project-calls-backend ()
-  "Test that mnemos-index-project calls mnemos/index-project."
-  (mnemos-test-with-mocked-backend
-    (let ((indexed-root nil))
-      (cl-letf (((symbol-function 'mnemos--request)
-                 (lambda (method &optional params)
-                   (pcase method
-                     ("mnemos/index-project"
-                      (setq indexed-root (cdr (assoc 'projectRoot params)))
-                      '((indexed . 5)))
-                     (_ nil)))))
-        (with-temp-buffer
-          (set-visited-file-name "/tmp/project/test.rs" t t)
-          (let ((mnemos--project-root-override "/tmp/project"))
-            (mnemos-index-project "/tmp/project")
-            (should (equal indexed-root "/tmp/project"))))))))
-
 (ert-deftest mnemos-notes-list-has-edit-delete-keybindings ()
   "Test that notes list mode has edit and delete keybindings."
   (mnemos--ensure-notes-list-keymap)
@@ -1618,151 +1601,6 @@ Handles :json-false which is truthy in Emacs."
               (should (stringp display))
               (should (> (length display) 0)))))))))
 
-;;; Goto-Symbol E2E Tests (simulating demo driver behavior)
-;;; These tests verify the FULL goto-symbol flow: index -> search -> navigate
-
-(defun mnemos-test--search-result-to-list (result)
-  "Convert RESULT from index/search to a list (handles vectors)."
-  (if (vectorp result)
-      (append result nil)
-    result))
-
-(defun mnemos-test--get-result-line (hit)
-  "Get line from search result HIT, handling various formats."
-  (or (alist-get 'line hit)
-      (plist-get hit :line)
-      (cdr (assoc "line" hit))
-      (and (hash-table-p hit) (gethash "line" hit))))
-
-(ert-deftest mnemos-goto-symbol-fn-load-config ()
-  "Test index/search finds fn load_config at correct line."
-  (mnemos-test-with-backend
-    (let ((test-file (expand-file-name "goto-symbol.rs" test-dir)))
-      (with-temp-file test-file
-        (insert mnemos-test-demo-code))
-      (with-temp-buffer
-        (insert mnemos-test-demo-code)
-        (set-visited-file-name test-file t t)
-        (let ((mnemos--project-root-override test-dir))
-          ;; Step 1: Index the file
-          (mnemos--request "index/add-file"
-                         `((file . ,test-file)
-                           (projectRoot . ,test-dir)
-                           (content . ,mnemos-test-demo-code)))
-          ;; Step 2: Search for symbol
-          (let* ((raw-results (mnemos--request "index/search"
-                                             `((query . "fn load_config")
-                                               (projectRoot . ,test-dir))))
-                 (results (mnemos-test--search-result-to-list raw-results))
-                 (first-hit (car results))
-                 (line (mnemos-test--get-result-line first-hit)))
-            (should results)
-            (should (> (length results) 0))
-            ;; fn load_config is on line 7
-            (should (= 7 line))))))))
-
-(ert-deftest mnemos-goto-symbol-impl-server ()
-  "Test index/search finds impl Server at correct line."
-  (mnemos-test-with-backend
-    (let ((test-file (expand-file-name "goto-symbol2.rs" test-dir)))
-      (with-temp-file test-file
-        (insert mnemos-test-demo-code))
-      (with-temp-buffer
-        (insert mnemos-test-demo-code)
-        (set-visited-file-name test-file t t)
-        (let ((mnemos--project-root-override test-dir))
-          ;; Index the file
-          (mnemos--request "index/add-file"
-                         `((file . ,test-file)
-                           (projectRoot . ,test-dir)
-                           (content . ,mnemos-test-demo-code)))
-          ;; Search for impl Server
-          (let* ((raw-results (mnemos--request "index/search"
-                                             `((query . "impl Server")
-                                               (projectRoot . ,test-dir))))
-                 (results (mnemos-test--search-result-to-list raw-results))
-                 (first-hit (car results))
-                 (line (mnemos-test--get-result-line first-hit)))
-            (should results)
-            ;; impl Server is on line 11
-            (should (= 11 line))))))))
-
-(ert-deftest mnemos-goto-symbol-fn-new ()
-  "Test index/search finds fn new at correct line."
-  (mnemos-test-with-backend
-    (let ((test-file (expand-file-name "goto-symbol3.rs" test-dir)))
-      (with-temp-file test-file
-        (insert mnemos-test-demo-code))
-      (with-temp-buffer
-        (insert mnemos-test-demo-code)
-        (set-visited-file-name test-file t t)
-        (let ((mnemos--project-root-override test-dir))
-          ;; Index the file
-          (mnemos--request "index/add-file"
-                         `((file . ,test-file)
-                           (projectRoot . ,test-dir)
-                           (content . ,mnemos-test-demo-code)))
-          ;; Search for fn new
-          (let* ((raw-results (mnemos--request "index/search"
-                                             `((query . "fn new")
-                                               (projectRoot . ,test-dir))))
-                 (results (mnemos-test--search-result-to-list raw-results))
-                 (first-hit (car results))
-                 (line (mnemos-test--get-result-line first-hit)))
-            (should results)
-            ;; fn new is on line 12
-            (should (= 12 line))))))))
-
-(ert-deftest mnemos-goto-symbol-symlink-path ()
-  "Test index/search works with symlinked paths (macOS /tmp -> /private/tmp)."
-  ;; Use /tmp to test path canonicalization
-  (let* ((tmp-dir (make-temp-file "mnemos-goto-symlink-" t))
-         (test-file (expand-file-name "app.rs" tmp-dir))
-         (mnemos-dir tmp-dir)
-         (mnemos--process nil)
-         (mnemos--conn nil)
-         (mnemos--server-process nil)
-         (mnemos-backend-env (list (concat "MNEMOS_DIR=" tmp-dir)
-                                  (concat "MNEMOS_DB_PATH=" tmp-dir "/mnemos.db")))
-         (mnemos-backend (expand-file-name
-                         (or (getenv "MNEMOS_BACKEND")
-                             mnemos-backend
-                             mnemos--default-backend))))
-    (mnemos-notes-global-mode -1)
-    (unwind-protect
-        (progn
-          (with-temp-file test-file
-            (insert mnemos-test-demo-code))
-          ;; Check if this is a symlinked path
-          (let* ((resolved (file-truename test-file))
-                 (is-symlinked (not (string= test-file resolved))))
-            (when is-symlinked
-              (message "Testing symlink: %s -> %s" test-file resolved))
-            ;; Index with non-canonical path
-            (mnemos--request "index/add-file"
-                           `((file . ,test-file)
-                             (projectRoot . ,tmp-dir)
-                             (content . ,mnemos-test-demo-code)))
-            ;; Search with non-canonical projectRoot
-            (let* ((raw-results (mnemos--request "index/search"
-                                               `((query . "fn load_config")
-                                                 (projectRoot . ,tmp-dir))))
-                   (results (mnemos-test--search-result-to-list raw-results))
-                   (first-hit (car results))
-                   (line (mnemos-test--get-result-line first-hit)))
-              (should results)
-              (should (> (length results) 0))
-              (should (= 7 line)))))
-      ;; Cleanup
-      (ignore-errors (mnemos-shutdown))
-      (let ((deadline (+ (float-time) 2)))
-        (while (and (file-exists-p (expand-file-name "mnemos.sock" tmp-dir))
-                    (< (float-time) deadline))
-          (sleep-for 0.1)))
-      (ignore-errors (delete-file (expand-file-name "mnemos.sock" tmp-dir)))
-      (ignore-errors (delete-file (expand-file-name "mnemos.lock" tmp-dir)))
-      (ignore-errors (delete-directory tmp-dir t)))))
-
 ;;; Select Note Tests
 
 (ert-deftest mnemos-select-note-from-picker ()
@@ -1866,40 +1704,6 @@ Handles :json-false which is truthy in Emacs."
               (mnemos-select-note))
             ;; Should have selected our note
             (should mnemos--selected-note)))))))
-
-(ert-deftest mnemos-goto-symbol-navigate ()
-  "Test full goto-symbol flow: index, search, navigate to line."
-  (mnemos-test-with-backend
-    (let ((test-file (expand-file-name "goto-navigate.rs" test-dir)))
-      (with-temp-file test-file
-        (insert mnemos-test-demo-code))
-      (with-temp-buffer
-        (insert mnemos-test-demo-code)
-        (set-visited-file-name test-file t t)
-        (let ((mnemos--project-root-override test-dir))
-          ;; Index the file
-          (mnemos--request "index/add-file"
-                         `((file . ,test-file)
-                           (projectRoot . ,test-dir)
-                           (content . ,mnemos-test-demo-code)))
-          ;; Search for symbol
-          (let* ((raw-results (mnemos--request "index/search"
-                                             `((query . "fn load_config")
-                                               (projectRoot . ,test-dir))))
-                 (results (mnemos-test--search-result-to-list raw-results))
-                 (first-hit (car results))
-                 (target-line (mnemos-test--get-result-line first-hit)))
-            (should (= 7 target-line))
-            ;; Navigate to line (simulating demo driver goto-line)
-            (goto-char (point-min))
-            (forward-line (1- target-line))
-            ;; Verify we're at the right line
-            (should (= target-line (line-number-at-pos)))
-            ;; Verify the line contains our symbol
-            (should (string-match-p "fn load_config"
-                                    (buffer-substring-no-properties
-                                     (line-beginning-position)
-                                     (line-end-position))))))))))
 
 ;;; Event System Tests
 

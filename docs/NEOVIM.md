@@ -5,17 +5,17 @@ This guide walks you through setting up Mnemos with Neovim/LazyVim.
 ## Prerequisites
 
 - Neovim 0.9+ (for native Tree-sitter and extmarks)
-- Rust toolchain (to build the backend)
+- Zig toolchain (to build the backend)
 - Git in PATH
 
 ## Build the Backend
 
 ```bash
 cd /path/to/mnemos
-cargo build --release
+zig build -Doptimize=ReleaseFast
 ```
 
-This produces `target/release/mnemos`.
+This produces `zig-out/bin/mnemos`.
 
 ## LazyVim Installation
 
@@ -27,10 +27,10 @@ return {
     dir = "/path/to/mnemos/ui/neovim",
     dependencies = {},
     opts = {
-      backend = "/path/to/mnemos/target/release/mnemos",
-      -- Database defaults to ~/.mnemos/mnemos.db
+      backend = "/path/to/mnemos/zig-out/bin/mnemos",
+      -- Notes default to <project>/.mnemos/notes
       -- Uncomment to use a different location:
-      -- backend_env = { MNEMOS_DB_PATH = "/path/to/custom.db" },
+      -- backend_env = { MNEMOS_NOTES_PATH = "/path/to/custom/notes" },
       auto_refresh = true,
       keymaps = true,
       keymap_prefix = "<leader>m",
@@ -64,8 +64,8 @@ Restart Neovim or run `:Lazy sync`.
 | `<leader>md` | `:MnemosDeleteNote` | Delete note at cursor |
 | `<leader>me` | `:MnemosEditNote` | Edit note at cursor |
 | `<leader>ms` | `:MnemosSearch` | Search notes and files |
-| `<leader>mi` | `:MnemosIndexFile` | Index current file |
-| `<leader>mp` | `:MnemosIndexProject` | Index all project files |
+| `<leader>mi` | `:MnemosIndexFile` | Legacy: no indexing required |
+| `<leader>mp` | `:MnemosIndexProject` | Legacy: no indexing required |
 | `<leader>mk` | `:MnemosInsertLink` | Insert link to another note |
 | `<leader>m?` | `:MnemosHelp` | Show keybindings |
 
@@ -79,8 +79,8 @@ Restart Neovim or run `:Lazy sync`.
 :MnemosDeleteNote       " Delete note at cursor
 :MnemosEditNote         " Edit note at cursor
 :MnemosSearch           " Search notes and indexed files
-:MnemosIndexFile        " Index current file for search
-:MnemosIndexProject     " Index all project files
+:MnemosIndexFile        " Legacy: no indexing required
+:MnemosIndexProject     " Legacy: no indexing required
 :MnemosInsertLink       " Insert [[desc][id]] link
 :MnemosStatus           " Show backend status
 :MnemosShutdown         " Stop backend process
@@ -128,20 +128,19 @@ Mnemos notes for main.rs
 ## Workflow
 
 1. Open a source file
-2. Index it: `<leader>mi`
-3. Add notes at interesting locations: `<leader>ma`
-4. View all notes: `<leader>ml`
-5. Search across project: `<leader>ms`
-6. Link notes together: `<leader>mk`
+2. Add notes at interesting locations: `<leader>ma`
+3. View all notes: `<leader>ml`
+4. Search across project via ripgrep: `<leader>ms`
+5. Link notes together: `<leader>mk`
 
 ## Multi-Editor Support
 
-Mnemos works with Emacs, Neovim, and VS Code. Each editor runs its own backend process, but they all share the same SQLite database at `~/.mnemos/mnemos.db` by default. Notes created in one editor appear in the others after refresh.
+Mnemos works with Emacs, Neovim, and VS Code. Each editor runs its own backend process, but they can share the same notes directory. Notes created in one editor appear in the others after refresh.
 
-To use a project-specific database, set the environment variable:
-- Neovim: `backend_env = { MNEMOS_DB_PATH = "/path/to/project.db" }`
-- Emacs: `mnemos-backend-env '("MNEMOS_DB_PATH=/path/to/project.db")`
-- Shell: `export MNEMOS_DB_PATH=/path/to/project.db`
+To use a project-specific notes directory, set the environment variable:
+- Neovim: `backend_env = { MNEMOS_NOTES_PATH = "/path/to/project/.mnemos/notes" }`
+- Emacs: `mnemos-backend-env '("MNEMOS_NOTES_PATH=/path/to/project/.mnemos/notes")`
+- Shell: `export MNEMOS_NOTES_PATH=/path/to/project/.mnemos/notes`
 
 ## Troubleshooting
 

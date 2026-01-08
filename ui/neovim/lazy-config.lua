@@ -11,7 +11,7 @@ return {
     opts = {
       backend = "/Users/joel/Work/mnemos/zig-out/bin/mnemos",
       backend_env = {
-        MNEMOS_DB_PATH = "/Users/joel/Work/mnemos/mnemos-notes.db",
+        MNEMOS_NOTES_PATH = "/Users/joel/Work/mnemos/.mnemos/notes",
       },
       auto_refresh = true,
       keymaps = true,

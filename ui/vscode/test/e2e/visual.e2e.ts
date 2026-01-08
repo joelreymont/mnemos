@@ -9,7 +9,6 @@ import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import * as net from 'net';
 
 // Find backend binary
 function findBackend(): string | null {
@@ -19,8 +18,7 @@ function findBackend(): string | null {
   }
   const extensionRoot = path.resolve(__dirname, '../../');
   const candidates = [
-    path.join(extensionRoot, '../../target/debug/mnemos'),
-    path.join(extensionRoot, '../../target/release/mnemos'),
+    path.join(extensionRoot, '../../zig-out/bin/mnemos'),
   ];
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) {
@@ -43,11 +41,11 @@ async function waitForSocket(socketPath: string, timeoutMs: number): Promise<boo
 }
 
 // Start backend server and wait for it to be ready
-async function startBackend(backend: string, mnemosDir: string, dbPath: string): Promise<ChildProcess> {
+async function startBackend(backend: string, mnemosDir: string, notesPath: string): Promise<ChildProcess> {
   const env: Record<string, string> = {
     ...process.env as Record<string, string>,
     MNEMOS_DIR: mnemosDir,
-    MNEMOS_DB_PATH: dbPath,
+    MNEMOS_NOTES_PATH: notesPath,
   };
 
   const logPath = path.join(mnemosDir, 'backend.log');
@@ -100,7 +98,7 @@ let backendProc: ChildProcess | null = null;
 test.beforeAll(async () => {
   const backend = findBackend();
   if (!backend) {
-    throw new Error('Backend not found. Build with: cargo build');
+    throw new Error('Backend not found. Build with: zig build');
   }
 
   // Download VS Code if needed
@@ -116,11 +114,11 @@ test.beforeEach(async () => {
   fs.writeFileSync(testFile, DEMO_CODE);
 
   const backend = findBackend()!;
-  const dbPath = path.join(testDir, 'mnemos.db');
+  const notesPath = path.join(testDir, 'notes');
 
   // Start backend server BEFORE VS Code
   console.log('Starting backend server...');
-  backendProc = await startBackend(backend, testDir, dbPath);
+  backendProc = await startBackend(backend, testDir, notesPath);
   console.log('Backend server started');
 
   // Create VS Code settings for this workspace
@@ -130,7 +128,7 @@ test.beforeEach(async () => {
   const settings = {
     'mnemos.backend': backend,
     'mnemos.mnemosDir': testDir,
-    'mnemos.databasePath': dbPath,
+    'mnemos.notesPath': notesPath,
     'mnemos.debug': 'verbose',
   };
   fs.writeFileSync(path.join(vscodeDir, 'settings.json'), JSON.stringify(settings, null, 2));
@@ -141,7 +139,7 @@ test.beforeEach(async () => {
   const env: Record<string, string> = {
     ...process.env as Record<string, string>,
     MNEMOS_DIR: testDir,
-    MNEMOS_DB_PATH: dbPath,
+    MNEMOS_NOTES_PATH: notesPath,
     MNEMOS_BACKEND: backend,
   };
 
@@ -705,185 +703,6 @@ test.describe('Demo Workflow E2E', () => {
     expect(editorCount).toBeGreaterThanOrEqual(1);
   });
 
-  test('index project command', async () => {
-    // Open a file first so we have an editor visible
-    await openFile(window, 'app.rs');
-
-    await runCommand(window, 'Mnemos:Index Project');
-    await window.waitForTimeout(3000);
-
-    // Screenshot showing index result
-    await window.screenshot({ path: path.join(testDir, 'index-project.png') });
-
-    // Verify editor visible after indexing (use file-based selector)
-    const codeEditor = window.locator('.monaco-editor[data-uri^="file://"]').first();
-    await expect(codeEditor).toBeVisible();
-  });
-
-  test('project info command', async () => {
-    // First index the project
-    await runCommand(window, 'Mnemos:Index Project');
-    await window.waitForTimeout(2000);
-
-    // Then view project info
-    await runCommand(window, 'Mnemos:Project Info');
-    await window.waitForTimeout(2000);
-
-    // Screenshot showing project info
-    await window.screenshot({ path: path.join(testDir, 'project-info.png') });
-
-    // A new editor tab should open with project info
-    const editors = window.locator('.monaco-editor');
-    const editorCount = await editors.count();
-    expect(editorCount).toBeGreaterThanOrEqual(1);
-  });
-});
-
-// Goto-symbol e2e tests (simulating demo driver behavior)
-// These tests verify the FULL goto-symbol flow: index -> search -> navigate
-test.describe('Goto-Symbol E2E (Demo Driver Flow)', () => {
-  // Helper to send RPC request via Unix socket
-  async function rpcRequest(socketPath: string, method: string, params: Record<string, unknown>): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-      const client = net.createConnection(socketPath, () => {
-        const request = JSON.stringify({
-          jsonrpc: '2.0',
-          id: Date.now(),
-          method,
-          params,
-        }) + '\n';
-        client.write(request);
-      });
-
-      let data = '';
-      client.on('data', (chunk) => {
-        data += chunk.toString();
-        const newlineIdx = data.indexOf('\n');
-        if (newlineIdx !== -1) {
-          const response = data.substring(0, newlineIdx);
-          client.end();
-          try {
-            const parsed = JSON.parse(response);
-            if (parsed.error) {
-              reject(new Error(parsed.error.message));
-            } else {
-              resolve(parsed.result);
-            }
-          } catch (e) {
-            reject(e);
-          }
-        }
-      });
-
-      client.on('error', reject);
-      client.setTimeout(5000, () => {
-        client.destroy();
-        reject(new Error('RPC timeout'));
-      });
-    });
-  }
-
-  test('GOTO-SYMBOL E2E: index/search finds fn load_config at correct line', async () => {
-    // Use /tmp path to test symlink canonicalization (macOS: /tmp -> /private/tmp)
-    const socketPath = path.join(testDir, 'mnemos.sock');
-    const fileContent = DEMO_CODE;
-
-    // Step 1: Index the file (using non-canonical path)
-    await rpcRequest(socketPath, 'index/add-file', {
-      file: path.join(testDir, 'app.rs'),  // Non-canonical if testDir is in /tmp
-      projectRoot: testDir,
-      content: fileContent,
-    });
-
-    // Step 2: Search for symbol (using non-canonical projectRoot - like demo driver does)
-    const result = await rpcRequest(socketPath, 'index/search', {
-      query: 'fn load_config',
-      projectRoot: testDir,  // This should work even if backend stored /private/tmp/...
-    }) as Array<{ line: number; file: string; text: string }>;
-
-    expect(result).toBeDefined();
-    expect(result.length).toBeGreaterThan(0);
-    expect(result[0].line).toBe(7);  // fn load_config is on line 7
-    expect(result[0].text).toContain('fn load_config');
-  });
-
-  test('GOTO-SYMBOL E2E: index/search finds impl Server at correct line', async () => {
-    const socketPath = path.join(testDir, 'mnemos.sock');
-    const fileContent = DEMO_CODE;
-
-    // Index the file
-    await rpcRequest(socketPath, 'index/add-file', {
-      file: path.join(testDir, 'app.rs'),
-      projectRoot: testDir,
-      content: fileContent,
-    });
-
-    // Search for impl Server
-    const result = await rpcRequest(socketPath, 'index/search', {
-      query: 'impl Server',
-      projectRoot: testDir,
-    }) as Array<{ line: number; file: string; text: string }>;
-
-    expect(result).toBeDefined();
-    expect(result.length).toBeGreaterThan(0);
-    expect(result[0].line).toBe(11);  // impl Server is on line 11
-  });
-
-  test('GOTO-SYMBOL E2E: index/search finds fn new at correct line', async () => {
-    const socketPath = path.join(testDir, 'mnemos.sock');
-    const fileContent = DEMO_CODE;
-
-    // Index the file
-    await rpcRequest(socketPath, 'index/add-file', {
-      file: path.join(testDir, 'app.rs'),
-      projectRoot: testDir,
-      content: fileContent,
-    });
-
-    // Search for fn new
-    const result = await rpcRequest(socketPath, 'index/search', {
-      query: 'fn new',
-      projectRoot: testDir,
-    }) as Array<{ line: number; file: string; text: string }>;
-
-    expect(result).toBeDefined();
-    expect(result.length).toBeGreaterThan(0);
-    expect(result[0].line).toBe(12);  // fn new is on line 12
-  });
-
-  test('GOTO-SYMBOL E2E: navigates to correct line in editor', async () => {
-    await openFile(window, 'app.rs');
-
-    const socketPath = path.join(testDir, 'mnemos.sock');
-    const fileContent = DEMO_CODE;
-
-    // Index the file
-    await rpcRequest(socketPath, 'index/add-file', {
-      file: path.join(testDir, 'app.rs'),
-      projectRoot: testDir,
-      content: fileContent,
-    });
-
-    // Search for fn load_config
-    const result = await rpcRequest(socketPath, 'index/search', {
-      query: 'fn load_config',
-      projectRoot: testDir,
-    }) as Array<{ line: number }>;
-
-    expect(result.length).toBeGreaterThan(0);
-    const targetLine = result[0].line;
-
-    // Navigate to the line (simulating demo driver goto-line keyActions)
-    await gotoLine(window, targetLine);
-    await window.waitForTimeout(500);
-
-    // Take screenshot showing navigation result
-    await window.screenshot({ path: path.join(testDir, 'goto-symbol.png') });
-
-    // Verify the editor is at the correct line
-    const codeEditor = window.locator('.monaco-editor[data-uri^="file://"]').first();
-    await expect(codeEditor).toBeVisible();
-  });
 });
 
 // Tests that require AI provider - skipped by default, run with MNEMOS_AI_PROVIDER set
@@ -924,10 +743,6 @@ test.describe('AI Features E2E', () => {
 
   test('explain region demo workflow - complete', async () => {
     await openFile(window, 'app.rs');
-
-    // First, index the project
-    await runCommand(window, 'Mnemos:Index Project');
-    await window.waitForTimeout(3000);
 
     // Select Server::new method (lines 12-14 in our DEMO_CODE)
     await gotoLine(window, 12);
@@ -1032,21 +847,4 @@ test.describe('AI Features E2E', () => {
     expect(editorCount).toBeGreaterThanOrEqual(1);
   });
 
-  test('index project with AI', async () => {
-    // Open a file first to ensure we have an editor
-    await openFile(window, 'app.rs');
-    await window.waitForTimeout(1000);
-
-    await runCommand(window, 'Mnemos:Index Project with AI');
-    // AI indexing takes longer
-    await window.waitForTimeout(15000);
-
-    // Screenshot showing AI index result
-    await window.screenshot({ path: path.join(testDir, 'index-project-ai.png') });
-
-    // Verify at least one editor is visible
-    const editors = window.locator('.monaco-editor');
-    const editorCount = await editors.count();
-    expect(editorCount).toBeGreaterThanOrEqual(1);
-  });
 });

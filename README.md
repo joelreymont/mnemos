@@ -22,7 +22,7 @@ Unlike line-based comments, notes are anchored to **AST nodes** (functions, clas
 - **AST-anchored notes** - Notes attach to functions, classes, variables (not line numbers)
 - **Staleness detection** - Knows when anchored code has changed
 - **Reattachment** - Find and reattach stale notes after refactoring
-- **Full-text search** - Search across all notes and source code
+- **Full-text search** - Search across all notes and source code via ripgrep
 - **Note linking** - Link notes together with `[[description][id]]` syntax
 - **Backlinks** - See which notes reference the current note
 - **AI explanations** - Generate code explanations with Claude/Codex (optional)
@@ -133,8 +133,8 @@ All editors use a consistent `<prefix> m` pattern:
 | Reattach note | `C-c m R` | `<leader>mR` | Reattach stale note |
 | Search file | - | `<leader>mf` | Search notes in file |
 | Search project | `C-c m f` | `<leader>mF` | Search project |
-| Index file | - | `<leader>mP` | Index current file |
-| Index project | `C-c m p` | `<leader>mp` | Index entire project |
+| Index file | - | `<leader>mP` | Legacy: no indexing required |
+| Index project | `C-c m p` | `<leader>mp` | Legacy: no indexing required |
 | Insert link | `C-c m k` | `<leader>mk` | Insert note link |
 | Show backlinks | `C-c m b` | `<leader>mb` | Show notes linking here |
 | Explain region | `C-c m x` | `<leader>mx` | Explain code (visual) |

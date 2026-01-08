@@ -6,7 +6,7 @@ M.defaults = {
   backend = nil,
 
   -- Path to mnemos config file (defaults to ~/.config/mnemos/config.toml)
-  -- The config file sets db-path and ai-provider
+  -- The config file sets notes-path and ai-provider
   config_path = nil,
 
   -- Mnemos directory for socket/lock files (defaults to ~/.mnemos)

@@ -1,6 +1,7 @@
 import * as path from 'path';
 import Mocha from 'mocha';
 import { glob } from 'glob';
+import * as vscode from 'vscode';
 
 export async function run(): Promise<void> {
   // Create the mocha test
@@ -25,6 +26,16 @@ export async function run(): Promise<void> {
         } else {
           resolve();
         }
+        const exitCode = failures > 0 ? 1 : 0;
+        void vscode.commands.executeCommand('workbench.action.quit').then(
+          () => process.exit(exitCode),
+          () => {
+            void vscode.commands.executeCommand('workbench.action.closeWindow').then(
+              () => process.exit(exitCode),
+              () => process.exit(exitCode),
+            );
+          },
+        );
       });
     } catch (err) {
       console.error(err);

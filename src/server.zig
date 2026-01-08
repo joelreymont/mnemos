@@ -359,7 +359,7 @@ test "Server struct has allocator" {
     _ = Server;
 }
 
-test "Server struct has database" {
+test "Server struct has storage" {
     _ = Server;
 }
 

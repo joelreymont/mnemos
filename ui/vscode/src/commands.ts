@@ -645,9 +645,9 @@ export async function helpCommand(): Promise<void> {
     '| Backlinks | Cmd+Shift+H B | Show notes linking here |',
     '| Search | Cmd+Shift+H S | Search notes and files |',
     '| Insert Link | Cmd+Shift+H K | Insert note link |',
-    '| Index Project | Cmd+Shift+H P | Index all project files |',
+    '| Index Project | Cmd+Shift+H P | Legacy: no indexing required |',
     '| Explain Region | | Get code snippet for LLM |',
-    '| Status | | Show database counts |',
+    '| Status | | Show note counts |',
     '| Shutdown | | Stop backend server |',
   ].join('\n');
 

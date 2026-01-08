@@ -2,7 +2,7 @@
 
 ## Overview
 
-Add a Neovim frontend for Mnemos using LazyVim conventions. The plugin will communicate with the same Rust backend over stdio JSON-RPC, providing feature parity with the Emacs UI.
+Add a Neovim frontend for Mnemos using LazyVim conventions. The plugin will communicate with the Zig backend over JSON-RPC, providing feature parity with the Emacs UI.
 
 ## Directory Structure
 
@@ -48,7 +48,7 @@ M.request_sync(method, params)       -- Sync request (for simple cases)
 ```lua
 {
   backend = nil,  -- Path to mnemos binary (auto-detect from plugin dir)
-  backend_env = { "MNEMOS_DB_PATH=..." },
+  backend_env = { "MNEMOS_NOTES_PATH=..." },
   log_level = "warn",
 }
 ```
@@ -225,7 +225,7 @@ return {
     opts = {
       backend = "~/Work/mnemos/target/debug/mnemos",
       backend_env = {
-        "MNEMOS_DB_PATH=~/Work/mnemos/mnemos.db",
+        "MNEMOS_NOTES_PATH=~/Work/mnemos/.mnemos/notes",
       },
       auto_refresh = true,
       keymaps = {

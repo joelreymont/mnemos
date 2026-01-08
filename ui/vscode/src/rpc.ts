@@ -66,17 +66,6 @@ export class RpcClient {
       const lines = content.split('\n');
       const tail = lines.slice(-10).join('\n');
 
-      if (tail.includes('newer than this version') || tail.includes('schema version')) {
-        return `Database schema is incompatible.
-
-Your database was created by a newer version of Mnemos.
-Please upgrade Mnemos or use a different database file.
-
-To use a fresh database:
-  rm ~/.mnemos/mnemos.db
-
-Check ${logPath} for details.`;
-      }
       if (tail.includes('Error:') || tail.includes('FATAL') || tail.includes('panic')) {
         return `Backend failed to start.
 
@@ -126,8 +115,8 @@ ${tail}`;
 
     const env: Record<string, string | undefined> = { ...process.env };
     env['MNEMOS_DIR'] = config.mnemosDir;
-    if (config.databasePath) {
-      env['MNEMOS_DB_PATH'] = config.databasePath;
+    if (config.notesPath) {
+      env['MNEMOS_NOTES_PATH'] = config.notesPath;
     }
 
     const logPath = this.getLogPath();

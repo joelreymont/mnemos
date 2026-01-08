@@ -128,26 +128,6 @@ if not connected then
   return
 end
 
--- Index project first (required before notes can be listed)
-print("\nIndexing project...")
-local index_done = false
-rpc.request("mnemos/index-project", {
-  projectRoot = test_dir,
-}, function(e, r)
-  if e then
-    print("Index error: " .. vim.inspect(e))
-  else
-    print("Indexed: " .. tostring(r and r.indexed or 0) .. " files")
-  end
-  index_done = true
-end)
-
-start_time = vim.uv.now()
-while not index_done and (vim.uv.now() - start_time) < 5000 do
-  vim.uv.run("nowait")
-  vim.wait(100, function() return index_done end, 50)
-end
-
 -- Test explain-region RPC
 print("\nTesting mnemos/explain-region with AI...")
 local result = nil

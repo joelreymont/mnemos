@@ -3,16 +3,16 @@
 This walks you through wiring Mnemos into Doom Emacs, then exercising the full flow: open a Rust file, add two notes, edit one to link to the other, and search for the note.
 
 ## Prereqs
-- Rust toolchain (for `cargo build`).
+- Zig toolchain (for `zig build`).
 - Emacs 29+ with built-in Tree-sitter; Git available in `PATH`.
 - Network access for Tree-sitter grammar install (Mnemos can auto-install Rust grammar).
 
 ## Build the backend
 From the repo root:
 ```bash
-cargo build -p backend
+zig build -Doptimize=ReleaseFast
 ```
-This produces `target/debug/mnemos`. The backend stores data in SQLite; override with `MNEMOS_DB_PATH` if you want a custom location.
+This produces `zig-out/bin/mnemos`. Notes are stored as Markdown files under `<project>/.mnemos/notes`; override with `MNEMOS_NOTES_PATH` if you want a custom location.
 
 ## Doom module install
 1) Symlink the module:
@@ -32,11 +32,11 @@ mnemos
 ```
 4) Configure backend path in `~/.config/doom/config.el`:
 ```lisp
-(setq mnemos-backend "/Users/joel/Work/mnemos/target/debug/mnemos"
+(setq mnemos-backend "/Users/joel/Work/mnemos/zig-out/bin/mnemos"
       mnemos-auto-install-treesit-grammars t) ;; installs Rust grammar if missing
-;; Database defaults to ~/.mnemos/mnemos.db
+;; Notes default to <project>/.mnemos/notes
 ;; Uncomment to use a different location:
-;; (setq mnemos-backend-env '("MNEMOS_DB_PATH=/path/to/custom.db"))
+;; (setq mnemos-backend-env '("MNEMOS_NOTES_PATH=/path/to/custom/notes"))
 ```
 5) `doom sync` and restart Emacs.
 
@@ -46,13 +46,13 @@ mnemos
 - `C-c m a` add note at point (multiline prompt; RET inserts newline, `C-c C-c` saves)
 - `C-c m r` refresh notes overlays
 - `C-c m l` list notes for buffer
-- `C-c m i` index current file; `C-c m p` index project
-- `C-c m s` search indexed files/notes
+- `C-c m i` index current file; `C-c m p` index project (legacy, no indexing required)
+- `C-c m s` search notes and files via ripgrep
 - `C-c m k` insert note link (`[[DESC][ID]]`); typing `[[` in notes mode also triggers search
 
 ## End-to-end workflow
 1) `M-x mnemos-open-project` → select `/Users/joel/Work/mnemos`.
-2) Open `backend/src/lib.rs` (or any Rust file in this repo). Mnemos starts the backend and, if needed, auto-installs the Rust Tree-sitter grammar.
+2) Open `src/main.zig` (or any file in this repo). Mnemos starts the backend and, if needed, auto-installs the Rust Tree-sitter grammar.
 3) Index the file for search: `C-c m i`.
 4) Create Note A at a line of interest: `C-c m a` → enter text (e.g., “Parser entry”).
 5) Move to another relevant line and create Note B: `C-c m a` → enter text (e.g., “Search pipeline”).
@@ -72,4 +72,4 @@ mnemos
 ## Troubleshooting
 - Backend path: ensure `mnemos-backend` points to the built binary; check `*Mnemos Log*` for process output.
 - Tree-sitter: if Rust grammar fails to install automatically, re-run `M-:` `(mnemos--ensure-rust-grammar t)` in a Rust buffer; `treesit-extra-load-path` should include `~/.emacs.d/tree-sitter/`.
-- Database: set `MNEMOS_DB_PATH` in `mnemos-backend-env` to separate per-project data.
+- Notes path: set `MNEMOS_NOTES_PATH` in `mnemos-backend-env` to store notes elsewhere.

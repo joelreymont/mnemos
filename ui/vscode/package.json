@@ -128,10 +128,10 @@
           "default": "",
           "description": "Directory for Mnemos socket, lock, and log files. Defaults to ~/.mnemos"
         },
-        "mnemos.databasePath": {
+        "mnemos.notesPath": {
           "type": "string",
           "default": "",
-          "description": "Path to SQLite database. Defaults to ~/.mnemos/mnemos.db"
+          "description": "Path to notes directory. Defaults to <project>/.mnemos/notes"
         },
         "mnemos.autoRefresh": {
           "type": "boolean",

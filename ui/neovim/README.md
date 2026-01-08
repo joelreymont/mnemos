@@ -7,7 +7,7 @@ Neovim plugin for Mnemos - a second brain for your code.
 - Notes anchored to Tree-sitter nodes
 - Notes displayed as virtual text (comment blocks)
 - Note linking with `[[desc][id]]` syntax
-- Project-wide search
+- Project-wide search via ripgrep
 - Stale note detection
 
 ## Requirements
@@ -22,7 +22,7 @@ Neovim plugin for Mnemos - a second brain for your code.
 {
   dir = "/path/to/mnemos/ui/neovim",
   opts = {
-    backend = "/path/to/mnemos/target/release/mnemos",
+    backend = "/path/to/mnemos/zig-out/bin/mnemos",
   },
 }
 ```
@@ -33,7 +33,7 @@ See [docs/NEOVIM.md](../../docs/NEOVIM.md) for full setup instructions.
 
 ```bash
 # Build backend
-cargo build
+zig build
 
 # Run tests
 nvim --headless -u tests/minimal_init.lua \

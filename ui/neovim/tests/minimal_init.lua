@@ -27,8 +27,6 @@ vim.g.mnemos_test_mode = true
 -- Find the backend binary relative to plugin root
 local backend_paths = {
   root .. "/../../zig-out/bin/mnemos",
-  root .. "/../../target/debug/mnemos",
-  root .. "/../../target/release/mnemos",
 }
 
 for _, path in ipairs(backend_paths) do

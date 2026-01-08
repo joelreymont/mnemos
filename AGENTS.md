@@ -24,7 +24,7 @@ std.Io Event Loop
 ├── AI stdout   ──► Streaming responses
 ├── AI stdin    ◄── Send prompts
 ├── File watch  ──► Change notifications
-└── SQLite      ──► Database
+└── Notes store ──► Markdown files
 ```
 
 ## Key Files
@@ -35,14 +35,14 @@ std.Io Event Loop
 | `src/server.zig` | Socket server |
 | `src/rpc.zig` | JSON-RPC dispatch |
 | `src/ai.zig` | AI subprocess pipes |
-| `src/storage.zig` | SQLite bindings |
+| `src/storage.zig` | Markdown note storage |
 | `src/treesitter.zig` | Dynamic grammar loading |
 | `src/git.zig` | libgit2 bindings |
 
 ## RPC Protocol
 
 `notes/` create,get,update,delete,list-for-file,list-by-node,list-project,search,backlinks,reattach,buffer-update
-`index/` add-file,search
+`index/` add-file,search (legacy)
 `mnemos/` search,status,index-project,list-files,get-file,explain-region,project-meta,open-project,save-snapshot,load-snapshot,shutdown
 
 ## Conventions

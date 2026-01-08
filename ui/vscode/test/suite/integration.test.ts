@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as net from 'net';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 
 // Find the backend binary
 function findBackend(): string | null {
@@ -16,8 +16,7 @@ function findBackend(): string | null {
   // Try relative paths from extension root
   const extensionRoot = path.resolve(__dirname, '../../../');
   const candidates = [
-    path.join(extensionRoot, '../../target/debug/mnemos'),
-    path.join(extensionRoot, '../../target/release/mnemos'),
+    path.join(extensionRoot, '../../zig-out/bin/mnemos'),
   ];
 
   for (const candidate of candidates) {
@@ -71,7 +70,7 @@ class TestRpcClient {
 
     const env: Record<string, string | undefined> = { ...process.env };
     env['MNEMOS_DIR'] = this.mnemosDir;
-    env['MNEMOS_DB_PATH'] = path.join(this.mnemosDir, 'mnemos.db');
+    env['MNEMOS_NOTES_PATH'] = path.join(this.mnemosDir, 'notes');
 
     const logPath = path.join(this.mnemosDir, 'mnemos.log');
     const logFd = fs.openSync(logPath, 'a');
@@ -479,52 +478,6 @@ suite('Integration Test Suite', () => {
     assert.ok(Array.isArray(results), 'Search results should be an array');
   });
 
-  test('RPC client can index file', async function() {
-    if (!backend) {
-      this.skip();
-      return;
-    }
-
-    this.timeout(10000);
-
-    await client.start();
-
-    // Create a test file
-    const testFile = path.join(testDir, 'index-test.rs');
-    fs.writeFileSync(testFile, 'fn main() {}\n');
-
-    // Index the file
-    const result = await client.request<unknown>('index/add-file', {
-      file: testFile,
-      projectRoot: testDir,
-    });
-
-    assert.ok(result !== undefined, 'Index file should return result');
-  });
-
-  test('RPC client can index project', async function() {
-    if (!backend) {
-      this.skip();
-      return;
-    }
-
-    this.timeout(10000);
-
-    await client.start();
-
-    // Create a test file
-    const testFile = path.join(testDir, 'project-test.rs');
-    fs.writeFileSync(testFile, 'fn main() { println!("hello"); }\n');
-
-    // Index the project
-    const result = await client.request<{ indexed: number }>('mnemos/index-project', {
-      projectRoot: testDir,
-    });
-
-    assert.ok(result, 'Index project should return result');
-    assert.strictEqual(typeof result.indexed, 'number', 'Should have indexed count');
-  });
-
   test('RPC client can explain region', async function() {
     if (!backend) {
       this.skip();
@@ -884,9 +837,16 @@ impl Server {
       return;
     }
 
-    // Skip if AI not configured
-    const aiConfigured = process.env['MNEMOS_AI_PROVIDER'] ||
-      fs.existsSync(path.join(os.homedir(), '.config/mnemos/config.toml'));
+    const provider = process.env['MNEMOS_AI_PROVIDER'];
+    if (!provider || provider === 'none') {
+      this.skip();
+      return;
+    }
+    const providerCheck = spawnSync(provider, ['--version'], { stdio: 'ignore' });
+    if (providerCheck.status !== 0) {
+      this.skip();
+      return;
+    }
 
     this.timeout(120000); // AI can take up to 2 minutes
 
@@ -910,39 +870,34 @@ impl Server {
       useAI: true,
     });
 
-    // If AI is configured, we should get an explanation
-    if (aiConfigured) {
-      assert.ok(explainResult, 'Should return result');
-      if (explainResult.explanation) {
-        // AI returned explanation - create note with it
-        const statusDisplay = explainResult.ai?.statusDisplay || '[AI]';
-        const noteText = `${statusDisplay} ${explainResult.explanation}`;
+    assert.ok(explainResult, 'Should return result');
+    assert.ok(explainResult.explanation, 'Should return explanation');
 
-        const note = await client.request<{ id: string; text: string }>('notes/create', {
-          file: testFile,
-          projectRoot: testDir,
-          line: 2,
-          column: 0,
-          text: noteText,
-          content: DEMO_CODE,
-        });
+    // AI returned explanation - create note with it
+    const statusDisplay = explainResult.ai?.statusDisplay || `[AI: ${provider}]`;
+    const noteText = `${statusDisplay} ${explainResult.explanation}`;
 
-        assert.ok(note.id, 'Note should be created with AI explanation');
-        assert.ok(note.text.includes('['), 'Note should include AI status');
+    const note = await client.request<{ id: string; text: string }>('notes/create', {
+      file: testFile,
+      projectRoot: testDir,
+      line: 2,
+      column: 0,
+      text: noteText,
+      content: DEMO_CODE,
+    });
 
-        // Verify note appears in list
-        const listResult = await client.request<{ notes: Array<{ id: string }> }>('notes/list-for-file', {
-          file: testFile,
-          projectRoot: testDir,
-          content: DEMO_CODE,
-        });
+    assert.ok(note.id, 'Note should be created with AI explanation');
+    assert.ok(note.text.includes('['), 'Note should include AI status');
 
-        const notes = unwrapNotes(listResult) as Array<{ id: string }>;
-        assert.ok(notes.some(n => n.id === note.id), 'Note should appear in list');
-      }
-    }
-    // If AI not configured, just verify explain-region doesn't error
-    assert.ok(explainResult !== undefined, 'Explain region should return something');
+    // Verify note appears in list
+    const listResult = await client.request<{ notes: Array<{ id: string }> }>('notes/list-for-file', {
+      file: testFile,
+      projectRoot: testDir,
+      content: DEMO_CODE,
+    });
+
+    const notes = unwrapNotes(listResult) as Array<{ id: string }>;
+    assert.ok(notes.some(n => n.id === note.id), 'Note should appear in list');
   });
 
   test('Full create-display-delete cycle', async function() {
@@ -993,196 +948,5 @@ impl Server {
 
     const notesAfterDelete = unwrapNotes(listAfterDelete) as Array<{ id: string }>;
     assert.strictEqual(notesAfterDelete.length, 0, 'Should have 0 notes after delete');
-  });
-});
-
-// Goto-Symbol E2E Tests (mirrors Neovim visual_e2e_spec.lua)
-// Tests the full goto-symbol flow: index -> search -> navigate
-suite('Goto-Symbol E2E Tests', () => {
-  const backend = findBackend();
-  let testDir: string;
-  let client: TestRpcClient;
-
-  // Extended demo code matching Neovim's visual_e2e_spec.lua
-  const GOTO_SYMBOL_CODE = `fn main() {
-    let config = load_config();
-    let server = Server::new(config);
-    server.start();
-}
-
-fn load_config() -> Config {
-    Config::default()
-}
-
-struct Server {
-    config: Config,
-}
-
-impl Server {
-    fn new(config: Config) -> Self {
-        Self { config }
-    }
-
-    fn start(&self) {
-        println!("Starting server...");
-    }
-}
-
-struct Config {
-    port: u16,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self { port: 8080 }
-    }
-}
-`;
-
-  setup(async function() {
-    if (!backend) {
-      this.skip();
-      return;
-    }
-
-    testDir = createTestDir();
-    client = new TestRpcClient(testDir, backend);
-  });
-
-  teardown(async () => {
-    if (client) {
-      await client.shutdown();
-    }
-    if (testDir) {
-      await new Promise(resolve => setTimeout(resolve, 200));
-      cleanupTestDir(testDir);
-    }
-  });
-
-  test('GOTO-SYMBOL: fn load_config returns line 7', async function() {
-    if (!backend) {
-      this.skip();
-      return;
-    }
-
-    this.timeout(10000);
-
-    await client.start();
-
-    const testFile = path.join(testDir, 'goto-symbol.rs');
-    fs.writeFileSync(testFile, GOTO_SYMBOL_CODE);
-
-    // Index the file
-    await client.request('index/add-file', {
-      file: testFile,
-      projectRoot: testDir,
-      content: GOTO_SYMBOL_CODE,
-    });
-
-    // Search for symbol
-    const results = await client.request<Array<{ file: string; line: number; text: string }>>('index/search', {
-      query: 'fn load_config',
-      projectRoot: testDir,
-    });
-
-    assert.ok(Array.isArray(results), 'Should return array');
-    assert.ok(results.length > 0, 'Should find at least one result');
-    assert.strictEqual(results[0].line, 7, 'fn load_config should be on line 7');
-    assert.ok(results[0].text.includes('fn load_config'), 'Result text should contain query');
-  });
-
-  test('GOTO-SYMBOL: impl Server returns line 15', async function() {
-    if (!backend) {
-      this.skip();
-      return;
-    }
-
-    this.timeout(10000);
-
-    await client.start();
-
-    const testFile = path.join(testDir, 'goto-symbol2.rs');
-    fs.writeFileSync(testFile, GOTO_SYMBOL_CODE);
-
-    await client.request('index/add-file', {
-      file: testFile,
-      projectRoot: testDir,
-      content: GOTO_SYMBOL_CODE,
-    });
-
-    const results = await client.request<Array<{ line: number }>>('index/search', {
-      query: 'impl Server',
-      projectRoot: testDir,
-    });
-
-    assert.ok(results.length > 0, 'Should find impl Server');
-    assert.strictEqual(results[0].line, 15, 'impl Server should be on line 15');
-  });
-
-  test('GOTO-SYMBOL: fn new returns line 16', async function() {
-    if (!backend) {
-      this.skip();
-      return;
-    }
-
-    this.timeout(10000);
-
-    await client.start();
-
-    const testFile = path.join(testDir, 'goto-symbol3.rs');
-    fs.writeFileSync(testFile, GOTO_SYMBOL_CODE);
-
-    await client.request('index/add-file', {
-      file: testFile,
-      projectRoot: testDir,
-      content: GOTO_SYMBOL_CODE,
-    });
-
-    const results = await client.request<Array<{ line: number }>>('index/search', {
-      query: 'fn new',
-      projectRoot: testDir,
-    });
-
-    assert.ok(results.length > 0, 'Should find fn new');
-    assert.strictEqual(results[0].line, 16, 'fn new should be on line 16');
-  });
-
-  test('GOTO-SYMBOL: handles symlink path canonicalization', async function() {
-    if (!backend) {
-      this.skip();
-      return;
-    }
-
-    this.timeout(10000);
-
-    // Use /tmp which is symlinked on macOS to /private/tmp
-    const tmpDir = fs.mkdtempSync(path.join('/tmp', 'mnemos-goto-symlink-'));
-    const testFile = path.join(tmpDir, 'app.rs');
-    const tmpClient = new TestRpcClient(tmpDir, backend!);
-
-    try {
-      fs.writeFileSync(testFile, GOTO_SYMBOL_CODE);
-
-      await tmpClient.start();
-
-      // Index with non-canonical path
-      await tmpClient.request('index/add-file', {
-        file: testFile,
-        projectRoot: tmpDir,
-        content: GOTO_SYMBOL_CODE,
-      });
-
-      // Search with non-canonical path
-      const results = await tmpClient.request<Array<{ line: number }>>('index/search', {
-        query: 'fn load_config',
-        projectRoot: tmpDir,
-      });
-
-      assert.ok(results.length > 0, 'Should find results even with symlinked path');
-      assert.strictEqual(results[0].line, 7, 'fn load_config should be on line 7');
-    } finally {
-      await tmpClient.shutdown();
-      cleanupTestDir(tmpDir);
-    }
   });
 });

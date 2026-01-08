@@ -6,6 +6,7 @@
 const std = @import("std");
 const mem = std.mem;
 const fs = std.fs;
+const process = std.process;
 const Allocator = mem.Allocator;
 
 pub const StorageError = error{
@@ -39,18 +40,11 @@ pub const SearchHit = struct {
     text: []const u8,
 };
 
-/// Backward compatibility alias - use Storage instead
-pub const Database = Storage;
-
 // Size limits
 const MAX_NOTE_SIZE: usize = 10 * 1024 * 1024; // 10MB max note file
 const MAX_CONTENT_SIZE: usize = 1024 * 1024; // 1MB max for search content files
 const MAX_RESULTS: usize = 100; // Max search results
 const FRONTMATTER_BUFFER: usize = 512; // Bytes to read for frontmatter
-
-/// Marker for in-memory/test storage
-const IN_MEMORY_MARKER = ":memory:";
-const IN_MEMORY_TEMP_PATH = "/tmp/mnemos-test";
 
 /// Normalize a file path for consistent indexing
 /// Strips leading "./" to avoid duplicates like "./foo" vs "foo"
@@ -63,6 +57,21 @@ fn normalizePath(path: []const u8) []const u8 {
     return result;
 }
 
+fn resolveNotesDir(alloc: Allocator, project_root: []const u8) ![]const u8 {
+    if (process.getEnvVarOwned(alloc, "MNEMOS_NOTES_PATH")) |env_path| {
+        if (env_path.len == 0) {
+            alloc.free(env_path);
+        } else if (std.fs.path.isAbsolute(env_path)) {
+            return env_path;
+        } else {
+            defer alloc.free(env_path);
+            return std.fs.path.join(alloc, &.{ project_root, env_path });
+        }
+    } else |_| {}
+
+    return std.fs.path.join(alloc, &.{ project_root, ".mnemos", "notes" });
+}
+
 /// Markdown-based storage for notes
 pub const Storage = struct {
     alloc: Allocator,
@@ -70,50 +79,46 @@ pub const Storage = struct {
     project_root: []const u8,
     /// Maps file_path -> ArrayList of note IDs
     index: std.StringHashMap(std.ArrayList([]const u8)),
+    /// Maps src note id -> list of dst note ids (links)
+    edges_by_src: std.StringHashMap(std.ArrayList([]const u8)),
+    /// Maps dst note id -> list of src note ids (backlinks)
+    edges_by_dst: std.StringHashMap(std.ArrayList([]const u8)),
     rg_path: ?[]const u8,
     /// Cached note count for O(1) lookups
     note_count: usize,
 
-    /// Backward compatibility: open is an alias for init
-    /// Note: path is treated as project_root, not a database file
-    pub fn open(alloc: Allocator, path: []const u8) !Storage {
-        // For ":memory:" or similar SQLite patterns, use a temp directory
-        const project_root = if (mem.eql(u8, path, IN_MEMORY_MARKER))
-            IN_MEMORY_TEMP_PATH
-        else
-            path;
-        return init(alloc, project_root);
-    }
-
-    /// Backward compatibility: close is an alias for deinit
-    pub fn close(self: *Storage) void {
-        self.deinit();
-    }
-
     /// Initialize storage, creating directories and rebuilding index
     pub fn init(alloc: Allocator, project_root: []const u8) !Storage {
+        const notes_dir = try resolveNotesDir(alloc, project_root);
+        defer alloc.free(notes_dir);
+        return initWithNotesDir(alloc, project_root, notes_dir);
+    }
+
+    pub fn initWithNotesDir(alloc: Allocator, project_root: []const u8, notes_dir: []const u8) !Storage {
         const owned_root = try alloc.dupe(u8, project_root);
         errdefer alloc.free(owned_root);
 
-        const notes_dir = try std.fs.path.join(alloc, &.{ owned_root, ".mnemos", "notes" });
-        errdefer alloc.free(notes_dir);
+        const owned_notes_dir = try alloc.dupe(u8, notes_dir);
+        errdefer alloc.free(owned_notes_dir);
 
-        // Create .mnemos/notes/ directory
+        // Ensure project .mnemos exists for snapshots and metadata
         const mnemos_dir = try std.fs.path.join(alloc, &.{ owned_root, ".mnemos" });
         defer alloc.free(mnemos_dir);
 
         fs.cwd().makePath(mnemos_dir) catch |err| {
             if (err != error.PathAlreadyExists) return StorageError.IoError;
         };
-        fs.cwd().makePath(notes_dir) catch |err| {
+        fs.cwd().makePath(owned_notes_dir) catch |err| {
             if (err != error.PathAlreadyExists) return StorageError.IoError;
         };
 
         var result = Storage{
             .alloc = alloc,
-            .notes_dir = notes_dir,
+            .notes_dir = owned_notes_dir,
             .project_root = owned_root,
             .index = std.StringHashMap(std.ArrayList([]const u8)).init(alloc),
+            .edges_by_src = std.StringHashMap(std.ArrayList([]const u8)).init(alloc),
+            .edges_by_dst = std.StringHashMap(std.ArrayList([]const u8)).init(alloc),
             .rg_path = detectRipgrep(alloc),
             .note_count = 0,
         };
@@ -138,6 +143,9 @@ pub const Storage = struct {
             self.alloc.free(entry.key_ptr.*);
         }
         self.index.deinit();
+        self.clearEdges();
+        self.edges_by_src.deinit();
+        self.edges_by_dst.deinit();
 
         if (self.rg_path) |p| self.alloc.free(p);
         self.alloc.free(self.notes_dir);
@@ -159,6 +167,7 @@ pub const Storage = struct {
         // Add to index and update count
         try self.addToIndex(note.file_path, note.id);
         self.note_count += 1;
+        try self.updateEdgesForNote(note.id, note.content);
     }
 
     /// Get a note by ID
@@ -209,6 +218,7 @@ pub const Storage = struct {
         defer self.alloc.free(file_content);
 
         try writeFileAtomic(self.alloc, filepath, file_content);
+        try self.updateEdgesForNote(id, new_note.content);
     }
 
     /// Delete a note by ID
@@ -222,6 +232,7 @@ pub const Storage = struct {
 
         // Remove from index
         self.removeFromIndex(note.?.file_path, id);
+        self.removeEdgesForNote(id);
 
         // Delete the file
         const filepath = try self.noteFilePath(id);
@@ -236,7 +247,16 @@ pub const Storage = struct {
     }
 
     /// Reattach note to new location
-    pub fn reattachNote(self: *Storage, id: []const u8, file_path: ?[]const u8, line: i64, node_path: ?[]const u8, node_text_hash: ?[]const u8, updated_at: []const u8) !void {
+    pub fn reattachNote(
+        self: *Storage,
+        id: []const u8,
+        file_path: ?[]const u8,
+        line: i64,
+        column: ?i64,
+        node_path: ?[]const u8,
+        node_text_hash: ?[]const u8,
+        updated_at: []const u8,
+    ) !void {
         try validateNoteId(id);
 
         const existing = try self.getNote(self.alloc, id);
@@ -271,7 +291,7 @@ pub const Storage = struct {
             .node_path = owned_node_path,
             .node_text_hash = owned_hash,
             .line_number = line,
-            .column_number = existing.?.column_number,
+            .column_number = column orelse existing.?.column_number,
             .content = existing.?.content,
             .created_at = existing.?.created_at,
             .updated_at = updated_at,
@@ -366,6 +386,15 @@ pub const Storage = struct {
     /// Count total notes (O(1) using cached count)
     pub fn countNotes(self: *Storage) !i64 {
         return @intCast(self.note_count);
+    }
+
+    pub fn countEdges(self: *Storage) usize {
+        var count: usize = 0;
+        var it = self.edges_by_src.iterator();
+        while (it.next()) |entry| {
+            count += entry.value_ptr.items.len;
+        }
+        return count;
     }
 
     /// Add a file to the index (stub - not implemented in markdown storage)
@@ -576,6 +605,7 @@ pub const Storage = struct {
     /// Delete all notes
     pub fn clearNotes(self: *Storage) !void {
         self.clearIndex();
+        self.clearEdges();
         self.note_count = 0;
 
         // Delete all .md files
@@ -725,42 +755,100 @@ pub const Storage = struct {
         defer alloc.free(snapshot);
 
         for (notes, 0..) |note, i| {
-            snapshot[i] = .{ .id = note.id, .filePath = note.file_path, .content = note.content };
+            const created_at = std.fmt.parseInt(i64, note.created_at, 10) catch 0;
+            const updated_at = std.fmt.parseInt(i64, note.updated_at, 10) catch created_at;
+            snapshot[i] = .{
+                .id = note.id,
+                .file = note.file_path,
+                .projectRoot = self.project_root,
+                .line = note.line_number orelse 1,
+                .column = note.column_number orelse 0,
+                .nodePath = note.node_path,
+                .tags = "[]",
+                .text = note.content,
+                .summary = summarizeText(note.content),
+                .commitSha = null,
+                .blobSha = null,
+                .nodeTextHash = note.node_text_hash,
+                .createdAt = created_at,
+                .updatedAt = updated_at,
+            };
         }
 
-        return std.fmt.allocPrint(alloc, "{f}", .{std.json.fmt(snapshot, .{})});
+        var edges: std.ArrayList(SnapshotEdge) = .{};
+        defer edges.deinit(alloc);
+        var edge_id: i64 = 1;
+        var edge_it = self.edges_by_src.iterator();
+        while (edge_it.next()) |entry| {
+            for (entry.value_ptr.items) |dst| {
+                try edges.append(alloc, .{
+                    .id = edge_id,
+                    .src = entry.key_ptr.*,
+                    .dst = dst,
+                    .kind = "link",
+                    .projectRoot = self.project_root,
+                    .updatedAt = @intCast(std.time.timestamp()),
+                });
+                edge_id += 1;
+            }
+        }
+
+        const payload = SnapshotPayload{
+            .version = 1,
+            .projectRoot = self.project_root,
+            .createdAt = @intCast(std.time.timestamp()),
+            .counts = .{
+                .files = 0,
+                .notes = @intCast(notes.len),
+                .embeddings = 0,
+                .edges = @intCast(edges.items.len),
+            },
+            .notes = snapshot,
+            .files = &.{},
+            .embeddings = &.{},
+            .edges = edges.items,
+        };
+
+        return std.fmt.allocPrint(alloc, "{f}", .{std.json.fmt(payload, .{})});
     }
 
     /// Import notes from JSON. Returns number of successfully imported notes.
     pub fn importNotesJson(self: *Storage, alloc: Allocator, json: []const u8) !usize {
-        const parsed = std.json.parseFromSlice([]SnapshotNote, alloc, json, .{}) catch {
+        const parsed = std.json.parseFromSlice(SnapshotPayload, alloc, json, .{}) catch {
             return StorageError.InvalidJson;
         };
         defer parsed.deinit();
 
         var count: usize = 0;
         var failed: usize = 0;
-        var ts_buf: [32]u8 = undefined;
-        const timestamp = getTimestamp(&ts_buf);
+        self.clearNotes() catch {};
+        self.clearIndex();
+        self.clearEdges();
+        self.note_count = 0;
 
-        for (parsed.value) |sn| {
+        for (parsed.value.notes) |sn| {
             // Validate content size to prevent memory exhaustion
-            if (sn.content.len > MAX_CONTENT_SIZE) {
-                std.log.warn("importNotesJson: skipping note '{s}': content too large ({d} bytes)", .{ sn.id, sn.content.len });
+            if (sn.text.len > MAX_CONTENT_SIZE) {
+                std.log.warn("importNotesJson: skipping note '{s}': content too large ({d} bytes)", .{ sn.id, sn.text.len });
                 failed += 1;
                 continue;
             }
 
+            var created_buf: [32]u8 = undefined;
+            const created_at = std.fmt.bufPrint(&created_buf, "{d}", .{sn.createdAt}) catch "0";
+            var updated_buf: [32]u8 = undefined;
+            const updated_at = std.fmt.bufPrint(&updated_buf, "{d}", .{sn.updatedAt}) catch created_at;
+
             const note = Note{
                 .id = sn.id,
-                .file_path = sn.filePath,
-                .node_path = null,
-                .node_text_hash = null,
-                .line_number = null,
-                .column_number = null,
-                .content = sn.content,
-                .created_at = timestamp,
-                .updated_at = timestamp,
+                .file_path = sn.file,
+                .node_path = sn.nodePath,
+                .node_text_hash = sn.nodeTextHash,
+                .line_number = sn.line,
+                .column_number = sn.column,
+                .content = sn.text,
+                .created_at = created_at,
+                .updated_at = updated_at,
             };
             self.createNote(note) catch |err| {
                 std.log.warn("importNotesJson: failed to import note '{s}': {s}", .{ sn.id, @errorName(err) });
@@ -771,7 +859,7 @@ pub const Storage = struct {
         }
 
         if (failed > 0) {
-            std.log.warn("importNotesJson: {d} of {d} notes failed to import", .{ failed, parsed.value.len });
+            std.log.warn("importNotesJson: {d} of {d} notes failed to import", .{ failed, parsed.value.notes.len });
         }
 
         return count;
@@ -780,6 +868,7 @@ pub const Storage = struct {
     /// Rebuild the in-memory index from disk
     pub fn rebuildIndex(self: *Storage) !void {
         self.clearIndex();
+        self.clearEdges();
         self.note_count = 0;
 
         // Scan directory
@@ -796,19 +885,18 @@ pub const Storage = struct {
 
             const id = entry.name[0 .. entry.name.len - 3];
 
-            // Read only first 512 bytes - enough for frontmatter file_path
             const file = dir.openFile(entry.name, .{}) catch continue;
             defer file.close();
 
-            var buf: [FRONTMATTER_BUFFER]u8 = undefined;
-            const bytes_read = file.read(&buf) catch continue;
-            if (bytes_read == 0) continue;
+            const content = file.readToEndAlloc(self.alloc, MAX_NOTE_SIZE) catch continue;
+            defer self.alloc.free(content);
 
-            // Quick frontmatter parse for file_path only
-            if (extractFilePath(buf[0..bytes_read])) |file_path| {
-                try self.addToIndex(file_path, id);
-                self.note_count += 1;
-            }
+            const note = parseFrontmatter(self.alloc, id, content) catch continue;
+            defer freeNoteFields(self.alloc, note);
+
+            try self.addToIndex(note.file_path, note.id);
+            try self.updateEdgesForNote(note.id, note.content);
+            self.note_count += 1;
         }
     }
 
@@ -879,18 +967,210 @@ pub const Storage = struct {
         }
         self.index.clearAndFree();
     }
+
+    fn clearEdges(self: *Storage) void {
+        var it_src = self.edges_by_src.iterator();
+        while (it_src.next()) |entry| {
+            for (entry.value_ptr.items) |id| {
+                self.alloc.free(id);
+            }
+            entry.value_ptr.deinit(self.alloc);
+            self.alloc.free(entry.key_ptr.*);
+        }
+        self.edges_by_src.clearAndFree();
+
+        var it_dst = self.edges_by_dst.iterator();
+        while (it_dst.next()) |entry| {
+            for (entry.value_ptr.items) |id| {
+                self.alloc.free(id);
+            }
+            entry.value_ptr.deinit(self.alloc);
+            self.alloc.free(entry.key_ptr.*);
+        }
+        self.edges_by_dst.clearAndFree();
+    }
+
+    /// Update edge maps for a note's content.
+    fn updateEdgesForNote(self: *Storage, id: []const u8, content: []const u8) !void {
+        self.removeEdgesForNote(id);
+        var links = try extractLinks(self.alloc, content);
+        defer links.deinit(self.alloc);
+
+        for (links.items) |link_id| {
+            try self.addEdgeEntry(&self.edges_by_src, id, link_id);
+            try self.addEdgeEntry(&self.edges_by_dst, link_id, id);
+        }
+    }
+
+    /// Remove all edges originating from a note id.
+    fn removeEdgesForNote(self: *Storage, id: []const u8) void {
+        if (self.edges_by_src.get(id)) |list| {
+            for (list.items) |dst| {
+                self.removeEdgeEntry(&self.edges_by_dst, dst, id);
+            }
+        }
+        self.removeEdgeList(&self.edges_by_src, id);
+    }
+
+    fn addEdgeEntry(
+        self: *Storage,
+        map: *std.StringHashMap(std.ArrayList([]const u8)),
+        key: []const u8,
+        value: []const u8,
+    ) !void {
+        const gop = try map.getOrPut(key);
+        if (!gop.found_existing) {
+            const owned_key = try self.alloc.dupe(u8, key);
+            errdefer self.alloc.free(owned_key);
+            gop.key_ptr.* = owned_key;
+            gop.value_ptr.* = .{};
+        }
+
+        var list = gop.value_ptr;
+        for (list.items) |existing| {
+            if (mem.eql(u8, existing, value)) return;
+        }
+
+        const owned_value = try self.alloc.dupe(u8, value);
+        errdefer self.alloc.free(owned_value);
+        try list.append(self.alloc, owned_value);
+    }
+
+    fn removeEdgeEntry(
+        self: *Storage,
+        map: *std.StringHashMap(std.ArrayList([]const u8)),
+        key: []const u8,
+        value: []const u8,
+    ) void {
+        if (map.getPtr(key)) |list| {
+            var i: usize = 0;
+            while (i < list.items.len) {
+                if (mem.eql(u8, list.items[i], value)) {
+                    self.alloc.free(list.items[i]);
+                    _ = list.swapRemove(i);
+                } else {
+                    i += 1;
+                }
+            }
+            if (list.items.len == 0) {
+                self.removeEdgeList(map, key);
+            }
+        }
+    }
+
+    fn removeEdgeList(
+        self: *Storage,
+        map: *std.StringHashMap(std.ArrayList([]const u8)),
+        key: []const u8,
+    ) void {
+        if (map.fetchRemove(key)) |entry| {
+            var list = entry.value;
+            for (list.items) |id| {
+                self.alloc.free(id);
+            }
+            list.deinit(self.alloc);
+            self.alloc.free(entry.key);
+        }
+    }
+
+    pub fn getBacklinks(self: *Storage, alloc: Allocator, id: []const u8) ![]Note {
+        if (self.edges_by_dst.get(id)) |list| {
+            var notes: std.ArrayList(Note) = .{};
+            errdefer {
+                for (notes.items) |note| freeNoteFields(alloc, note);
+                notes.deinit(alloc);
+            }
+
+            for (list.items) |src_id| {
+                if (try self.getNote(alloc, src_id)) |note| {
+                    try notes.append(alloc, note);
+                }
+            }
+
+            return notes.toOwnedSlice(alloc);
+        }
+
+        return alloc.alloc(Note, 0);
+    }
+};
+
+const SnapshotCounts = struct {
+    files: i64,
+    notes: i64,
+    embeddings: i64,
+    edges: i64,
 };
 
 /// JSON format for snapshot notes
 const SnapshotNote = struct {
     id: []const u8,
-    filePath: []const u8,
+    file: []const u8,
+    projectRoot: []const u8,
+    line: i64,
+    column: i64,
+    nodePath: ?[]const u8 = null,
+    tags: []const u8,
+    text: []const u8,
+    summary: []const u8,
+    commitSha: ?[]const u8 = null,
+    blobSha: ?[]const u8 = null,
+    nodeTextHash: ?[]const u8 = null,
+    createdAt: i64,
+    updatedAt: i64,
+};
+
+const SnapshotFile = struct {
+    file: []const u8,
+    projectRoot: []const u8,
     content: []const u8,
+    updatedAt: i64,
+};
+
+const SnapshotEmbedding = struct {
+    file: []const u8,
+    projectRoot: []const u8,
+    vector: []const u8,
+    text: []const u8,
+    updatedAt: i64,
+};
+
+const SnapshotEdge = struct {
+    id: i64,
+    src: []const u8,
+    dst: []const u8,
+    kind: []const u8,
+    projectRoot: []const u8,
+    updatedAt: i64,
+};
+
+const SnapshotPayload = struct {
+    version: i64,
+    projectRoot: ?[]const u8 = null,
+    createdAt: i64,
+    counts: SnapshotCounts,
+    notes: []SnapshotNote,
+    files: []SnapshotFile = &.{},
+    embeddings: []SnapshotEmbedding = &.{},
+    edges: []SnapshotEdge = &.{},
 };
 
 /// Compare notes by created_at descending (newest first)
 fn notesByCreatedAtDesc(_: void, a: Note, b: Note) bool {
     return mem.order(u8, b.created_at, a.created_at) == .lt;
+}
+
+pub fn summarizeText(text: []const u8) []const u8 {
+    // Get first line, max 50 chars
+    var end: usize = 0;
+    for (text, 0..) |c, i| {
+        if (c == '\n') {
+            end = i;
+            break;
+        }
+        end = i + 1;
+    }
+    const first_line = text[0..@min(end, text.len)];
+    return if (first_line.len > 50) first_line[0..50] else first_line;
 }
 
 /// Frontmatter boundary positions
@@ -968,6 +1248,62 @@ fn validateNoteId(id: []const u8) StorageError!void {
 
     // Reject ".." anywhere in the ID
     if (mem.indexOf(u8, id, "..") != null) return StorageError.InvalidNoteId;
+}
+
+fn extractLinks(alloc: Allocator, content: []const u8) !std.ArrayList([]const u8) {
+    var links: std.ArrayList([]const u8) = .{};
+
+    var i: usize = 0;
+    while (i + 4 <= content.len) {
+        if (content[i] == '[' and content[i + 1] == '[') {
+            const desc_start = i + 2;
+            const sep = findSeq(content, desc_start, "][") orelse {
+                i += 2;
+                continue;
+            };
+            const id_start = sep + 2;
+            const end = findSeq(content, id_start, "]]") orelse {
+                i = id_start;
+                continue;
+            };
+            const id = content[id_start..end];
+            if (isUuid(id) and !containsLink(links.items, id)) {
+                try links.append(alloc, id);
+            }
+            i = end + 2;
+            continue;
+        }
+        i += 1;
+    }
+
+    return links;
+}
+
+fn findSeq(haystack: []const u8, start: usize, needle: []const u8) ?usize {
+    if (needle.len == 0 or start + needle.len > haystack.len) return null;
+    var i = start;
+    while (i + needle.len <= haystack.len) : (i += 1) {
+        if (mem.eql(u8, haystack[i .. i + needle.len], needle)) return i;
+    }
+    return null;
+}
+
+fn containsLink(items: []const []const u8, id: []const u8) bool {
+    for (items) |item| {
+        if (mem.eql(u8, item, id)) return true;
+    }
+    return false;
+}
+
+fn isUuid(id: []const u8) bool {
+    if (id.len != 36) return false;
+    for (id, 0..) |c, idx| {
+        switch (idx) {
+            8, 13, 18, 23 => if (c != '-') return false,
+            else => if (!std.ascii.isHex(c)) return false,
+        }
+    }
+    return true;
 }
 
 /// Parse YAML frontmatter from file content
@@ -1197,7 +1533,10 @@ pub fn createTestStorage(alloc: Allocator) !Storage {
 
     fs.cwd().makePath(tmp_dir) catch {};
 
-    const store = try Storage.init(alloc, tmp_dir);
+    const notes_dir = try std.fs.path.join(alloc, &.{ tmp_dir, ".mnemos", "notes" });
+    defer alloc.free(notes_dir);
+
+    const store = try Storage.initWithNotesDir(alloc, tmp_dir, notes_dir);
     alloc.free(tmp_dir); // Storage owns its copy
     return store;
 }
@@ -1524,7 +1863,7 @@ test "reattach note" {
         .updated_at = "1704672000",
     });
 
-    try store.reattachNote("reattach-test", "/new.zig", 20, "fn.new", "newhash", "1704672100");
+    try store.reattachNote("reattach-test", "/new.zig", 20, null, "fn.new", "newhash", "1704672100");
 
     const note = try store.getNote(alloc, "reattach-test");
     try std.testing.expect(note != null);

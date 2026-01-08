@@ -112,24 +112,15 @@ local function read_log_tail(max_lines)
   return table.concat(result, "\n")
 end
 
--- Check log for schema/startup errors and return user-friendly message
+-- Check log for startup errors and return user-friendly message
 local function check_startup_error()
   local tail = read_log_tail(10)
   if not tail then
     return nil
   end
-  -- Check for schema version error
-  if tail:match("newer than this version") or tail:match("schema version") then
-    return "Database schema is incompatible.\n\n"
-      .. "Your database was created by a newer version of Mnemos.\n"
-      .. "Please upgrade Mnemos or use a different database file.\n\n"
-      .. "To use a fresh database:\n"
-      .. "  rm ~/.mnemos/mnemos.db\n\n"
-      .. "Check ~/.mnemos/mnemos.log for details."
-  end
   -- Check for other fatal errors
   if tail:match("Error:") or tail:match("FATAL") or tail:match("panic") then
-    return "Backend failed to start.\n\nCheck ~/.mnemos/mnemos.log for details:\n" .. tail
+    return "Backend failed to start.\n\nCheck " .. get_log_path() .. " for details:\n" .. tail
   end
   return nil
 end
@@ -317,6 +308,17 @@ local function start_server()
   -- Ensure mnemos directory exists
   mkdir_p(mnemos_dir)
 
+  local function build_env()
+    local env_map = vim.fn.environ()
+    env_map["MNEMOS_DIR"] = mnemos_dir
+
+    local env_list = {}
+    for key, value in pairs(env_map) do
+      table.insert(env_list, key .. "=" .. value)
+    end
+    return env_list
+  end
+
   -- Build args array (no shell escaping needed with spawn)
   local args = { "--serve" }
   local config_path = config.get("config_path")
@@ -338,7 +340,7 @@ local function start_server()
   -- detached=true makes it survive parent exit
   local handle, pid = uv.spawn(backend, {
     args = args,
-    env = { "MNEMOS_DIR=" .. mnemos_dir },
+    env = build_env(),
     detached = true,
     stdio = { nil, log_fd, log_fd }, -- stdin=nil, stdout=log, stderr=log
   }, function(code, signal)
@@ -457,15 +459,10 @@ function M.ensure_connected(callback)
         return
       end
 
-      -- Connection failed, socket might be stale
-      log("debug", "Socket exists but connection failed, checking if stale")
-      local pid = read_lock_pid()
-      if pid and not process_alive(pid) then
-        -- Stale, clean up
-        log("info", "Removing stale socket and lock")
-        os.remove(socket_path)
-        remove_lock()
-      end
+      -- Connection failed; treat socket as stale and clean up
+      log("info", "Socket exists but connection failed, removing stale socket and lock")
+      os.remove(socket_path)
+      remove_lock()
 
       -- Need to start server
       M.ensure_connected_start_server(callback)
@@ -582,6 +579,25 @@ end
 
 -- Disconnect from the backend (does NOT shutdown server)
 function M.stop()
+  if vim.g.mnemos_test_mode then
+    if M.connected then
+      pcall(function()
+        M.request_sync("mnemos/shutdown", {}, 2000)
+      end)
+    end
+
+    local pid = read_lock_pid()
+    if pid and process_alive(pid) then
+      local uv = vim.uv or vim.loop
+      pcall(function()
+        uv.kill(pid, 15) -- SIGTERM
+      end)
+    end
+
+    pcall(function() os.remove(get_lock_path()) end)
+    pcall(function() os.remove(get_socket_path()) end)
+  end
+
   if M.socket then
     pcall(function() M.socket:close() end)
     M.socket = nil

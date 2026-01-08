@@ -5,7 +5,7 @@ import { EventEmitter } from 'events';
 import { getConfig } from './config';
 import { debug } from './debug';
 
-// Event types matching backend/src/events.rs
+// Event types matching backend event payloads
 export interface NoteCreatedEvent {
   type: 'note-created';
   id: string;

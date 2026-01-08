@@ -6,6 +6,7 @@
 //! Integrates with poll-based event loop for multiplexed I/O.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const mem = std.mem;
 const posix = std.posix;
 const process = std.process;
@@ -301,10 +302,88 @@ pub const AI = struct {
     }
 };
 
-/// Run AI synchronously with a prompt, return response
-/// Tries claude first, falls back to codex
-/// Ask AI with custom prompt about code
-pub fn ask(alloc: Allocator, code: []const u8, user_prompt: []const u8) ![]const u8 {
+const ProviderEnv = enum {
+    auto,
+    none,
+    claude,
+    codex,
+};
+
+pub const AskResult = struct {
+    provider: Provider,
+    response: []const u8,
+};
+
+fn parseProviderEnv(value: []const u8) ProviderEnv {
+    if (value.len == 0) return .auto;
+    if (std.ascii.eqlIgnoreCase(value, "none") or std.ascii.eqlIgnoreCase(value, "disabled")) {
+        return .none;
+    }
+    if (std.ascii.eqlIgnoreCase(value, "claude") or std.ascii.eqlIgnoreCase(value, "claude-cli")) {
+        return .claude;
+    }
+    if (std.ascii.eqlIgnoreCase(value, "codex")) {
+        return .codex;
+    }
+    return .auto;
+}
+
+fn isAvailable(alloc: Allocator, cmd: []const u8) bool {
+    if (cmd.len == 0) return false;
+    if (std.fs.path.isAbsolute(cmd) or mem.indexOfScalar(u8, cmd, std.fs.path.sep) != null) {
+        posix.access(cmd, posix.X_OK) catch return false;
+        return true;
+    }
+
+    const path_env = process.getEnvVarOwned(alloc, "PATH") catch return false;
+    defer alloc.free(path_env);
+
+    var it = mem.splitScalar(u8, path_env, std.fs.path.delimiter);
+    while (it.next()) |dir| {
+        if (dir.len == 0) continue;
+        const full = std.fs.path.join(alloc, &.{ dir, cmd }) catch continue;
+        defer alloc.free(full);
+        if (posix.access(full, posix.X_OK)) |_| {
+            return true;
+        } else |_| {}
+    }
+    return false;
+}
+
+fn detectProvider(alloc: Allocator) ?Provider {
+    if (process.getEnvVarOwned(alloc, "MNEMOS_AI_PROVIDER")) |raw| {
+        defer alloc.free(raw);
+        switch (parseProviderEnv(raw)) {
+            .none => return null,
+            .claude => if (isAvailable(alloc, "claude")) return .claude,
+            .codex => if (isAvailable(alloc, "codex")) return .codex,
+            .auto => {},
+        }
+    } else |_| {}
+
+    if (isAvailable(alloc, "codex")) return .codex;
+    if (isAvailable(alloc, "claude")) return .claude;
+    return null;
+}
+
+fn traceEnabled(alloc: Allocator) bool {
+    if (comptime builtin.mode != .Debug) return false;
+    if (process.getEnvVarOwned(alloc, "MNEMOS_AI_TRACE")) |val| {
+        alloc.free(val);
+        return true;
+    } else |_| {}
+    return false;
+}
+
+/// Run AI synchronously with a prompt, return provider + response
+pub fn askWithProvider(alloc: Allocator, code: []const u8, user_prompt: []const u8) !AskResult {
+    const trace = traceEnabled(alloc);
+    var start: ?std.time.Instant = null;
+    if (trace) {
+        start = std.time.Instant.now() catch null;
+        std.log.info("ai ask start prompt_len={} code_len={}", .{ user_prompt.len, code.len });
+    }
+
     // Build full prompt with code context
     const prompt = try std.fmt.allocPrint(alloc,
         \\{s}
@@ -315,15 +394,27 @@ pub fn ask(alloc: Allocator, code: []const u8, user_prompt: []const u8) ![]const
     , .{ user_prompt, code });
     defer alloc.free(prompt);
 
-    // Try claude first
-    if (runProvider(alloc, "claude", prompt)) |response| {
-        return response;
-    } else |err| {
-        std.log.debug("claude provider failed: {}, trying codex", .{err});
+    const provider = detectProvider(alloc) orelse return error.NoProviderAvailable;
+    const response = switch (provider) {
+        .claude => try runProvider(alloc, "claude", prompt),
+        .codex => try runProvider(alloc, "codex", prompt),
+    };
+
+    if (trace) {
+        const elapsed_ms = if (start) |s|
+            (std.time.Instant.now() catch s).since(s) / std.time.ns_per_ms
+        else
+            @as(u64, 0);
+        std.log.info("ai ask done provider={s} elapsed_ms={}", .{ provider.command(), elapsed_ms });
     }
 
-    // Fall back to codex
-    return runProvider(alloc, "codex", prompt);
+    return .{ .provider = provider, .response = response };
+}
+
+/// Run AI synchronously with a prompt, return response
+pub fn ask(alloc: Allocator, code: []const u8, user_prompt: []const u8) ![]const u8 {
+    const result = try askWithProvider(alloc, code, user_prompt);
+    return result.response;
 }
 
 /// Legacy explain function - uses default prompt
@@ -332,6 +423,10 @@ pub fn explain(alloc: Allocator, code: []const u8) ![]const u8 {
 }
 
 fn runProvider(alloc: Allocator, cmd: []const u8, prompt: []const u8) ![]const u8 {
+    if (mem.eql(u8, cmd, "codex")) {
+        return runCodex(alloc, prompt);
+    }
+
     // Pass prompt via stdin to avoid command injection through shell metacharacters
     var child = process.Child.init(&.{ cmd, "-p", "-" }, alloc);
     child.stdin_behavior = .Pipe;
@@ -370,7 +465,6 @@ fn runProvider(alloc: Allocator, cmd: []const u8, prompt: []const u8) ![]const u
             // Timeout - kill child and return error
             _ = child.kill() catch {};
             _ = child.wait() catch {};
-            read_buf.deinit(alloc);
             return error.Timeout;
         }
 
@@ -385,11 +479,58 @@ fn runProvider(alloc: Allocator, cmd: []const u8, prompt: []const u8) ![]const u
 
     const term = try child.wait();
     if (term.Exited != 0) {
-        read_buf.deinit(alloc);
         return error.ProviderFailed;
     }
 
     return read_buf.toOwnedSlice(alloc);
+}
+
+const MAX_AI_RESPONSE: usize = 1024 * 1024; // 1MB cap for safety
+
+fn runCodex(alloc: Allocator, prompt: []const u8) ![]const u8 {
+    var rand_bytes: [8]u8 = undefined;
+    std.crypto.random.bytes(&rand_bytes);
+    const rand = std.mem.readInt(u64, &rand_bytes, .little);
+    const out_path = try std.fmt.allocPrint(alloc, "/tmp/mnemos-codex-{x}.txt", .{rand});
+    defer alloc.free(out_path);
+    std.fs.deleteFileAbsolute(out_path) catch |err| {
+        if (err != error.FileNotFound) return err;
+    };
+
+    var child = process.Child.init(&.{
+        "codex",
+        "exec",
+        "--skip-git-repo-check",
+        "--output-last-message",
+        out_path,
+        "-",
+    }, alloc);
+    child.stdin_behavior = .Pipe;
+    child.stdout_behavior = .Ignore;
+    child.stderr_behavior = .Ignore;
+
+    try child.spawn();
+    errdefer {
+        _ = child.kill() catch {};
+        _ = child.wait() catch {};
+    }
+
+    if (child.stdin) |stdin| {
+        stdin.writeAll(prompt) catch {};
+        stdin.close();
+        child.stdin = null;
+    }
+
+    const term = try child.wait();
+    if (term.Exited != 0) {
+        return error.ProviderFailed;
+    }
+
+    const file = std.fs.openFileAbsolute(out_path, .{}) catch return error.ProviderFailed;
+    defer file.close();
+    defer std.fs.deleteFileAbsolute(out_path) catch {};
+
+    return file.readToEndAlloc(alloc, MAX_AI_RESPONSE);
 }
 
 test "AI init/deinit" {
@@ -490,6 +631,17 @@ test "writeJsonEscaped carriage return" {
 
 test "Provider enum distinct" {
     try std.testing.expect(Provider.claude != Provider.codex);
+}
+
+test "parseProviderEnv" {
+    try std.testing.expectEqual(ProviderEnv.codex, parseProviderEnv("codex"));
+    try std.testing.expectEqual(ProviderEnv.codex, parseProviderEnv("CoDeX"));
+    try std.testing.expectEqual(ProviderEnv.claude, parseProviderEnv("claude"));
+    try std.testing.expectEqual(ProviderEnv.claude, parseProviderEnv("claude-cli"));
+    try std.testing.expectEqual(ProviderEnv.none, parseProviderEnv("none"));
+    try std.testing.expectEqual(ProviderEnv.none, parseProviderEnv("disabled"));
+    try std.testing.expectEqual(ProviderEnv.auto, parseProviderEnv(""));
+    try std.testing.expectEqual(ProviderEnv.auto, parseProviderEnv("unknown"));
 }
 
 test "writeJsonEscaped empty string" {

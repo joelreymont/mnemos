@@ -168,7 +168,7 @@
     },
     "backend_error": {
       "code": -32603,
-      "message": "Internal error: database locked"
+      "message": "Internal error: notes storage locked"
     }
   }
 }

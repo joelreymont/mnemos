@@ -4,7 +4,7 @@
 
 **Mnemos** is a code annotation system that lets developers attach persistent notes to specific lines of code. Notes are anchored to AST nodes via tree-sitter, so they survive code refactoring. The system has:
 
-- **Backend**: A Rust JSON-RPC server that manages notes in SQLite, handles tree-sitter parsing, and integrates with AI providers (Claude, etc.)
+- **Backend**: A Zig JSON-RPC server that manages notes in Markdown files, handles tree-sitter parsing, and integrates with AI providers (Claude, etc.)
 - **UI Clients**: Neovim, VSCode, Emacs plugins that display notes as virtual text/overlays
 - **Event System**: A Unix socket that broadcasts real-time events (note-created, note-updated, etc.) to all connected clients
 
@@ -25,11 +25,11 @@
            │ JSON-RPC                     │ Events (JSON-lines)
            ▼                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                      Rust Backend                               │
+│                      Zig Backend                                │
 ├─────────────────────────────────────────────────────────────────┤
 │  RPC Socket: ~/.mnemos/rpc.sock                                 │
 │  Event Socket: ~/.mnemos/events.sock                            │
-│  Database: ~/.mnemos/mnemos.db (SQLite)                         │
+│  Notes: <project>/.mnemos/notes (Markdown)                      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -241,45 +241,30 @@ end)
 
 1. **Delay scales with content length** - This rules out constant-time UI issues
 2. **Extmarks exist before note appears** - Polling confirms they're created
-3. **Backend returns `formattedLines` synchronously** - Verified in Rust code:
-   ```rust
+3. **Backend returns `formattedLines` synchronously** - Verified in backend flow:
+   ```text
    // In RPC handler for notes/create
-   match notes::create(db, params) {
-       Ok(mut note) => {
-           events::emit(Event::NoteCreated { ... });
-           display::ensure_formatted_lines(&mut note, None);  // Sync!
-           Response::result_from(id, note)  // formattedLines included
-       }
-   }
+   note = storage.create_note(params)
+   events.emit(note-created)
+   note.formattedLines = format(note)
+   return note
    ```
 4. **Two refresh paths exist** - RPC callback and event handler both trigger refresh
 
 ## Backend Event Emission
 
 When a note is created, the backend:
-1. Inserts note into SQLite
+1. Writes note to Markdown storage
 2. Emits `note-created` event (async, non-blocking)
 3. Computes `formattedLines` (sync)
 4. Returns RPC response with complete note
 
-```rust
+```text
 // Simplified backend flow
-fn handle_notes_create(params: CreateParams) -> Response {
-    let note = db.insert_note(params)?;
-
-    // Fire-and-forget event broadcast
-    events::emit(Event::NoteCreated {
-        id: note.id.clone(),
-        file: params.file.to_string(),
-        line: note.line,
-    });
-
-    // Compute formatted lines (BLOCKING)
-    display::ensure_formatted_lines(&mut note, None);
-
-    // Return complete note
-    Response::success(note)
-}
+note = storage.create_note(params)
+events.emit(note-created)
+note.formattedLines = format(note)
+return note
 ```
 
 ## Hypotheses
@@ -339,7 +324,7 @@ Even though extmarks exist in memory:
 
 - Neovim 0.10+
 - macOS (Darwin 25.1.0)
-- Mnemos backend (Rust, built with cargo)
+- Mnemos backend (Zig, built with zig)
 - AI provider: Claude (via MNEMOS_AI_PROVIDER=claude)
 - Demo runner: mnemos-demo (Swift)
 
@@ -353,6 +338,6 @@ Even though extmarks exist in memory:
 | `ui/neovim/lua/mnemos/events.lua` | Unix socket event client |
 | `ui/neovim/lua/mnemos/notes.lua` | RPC wrappers |
 | `ui/neovim/lua/mnemos/rpc.lua` | JSON-RPC client |
-| `backend/src/lib.rs` | RPC handlers |
-| `backend/src/display.rs` | formattedLines computation |
-| `backend/src/events.rs` | Event broadcaster |
+| `src/rpc.zig` | RPC handlers and formattedLines |
+| `src/storage.zig` | Note persistence and indexing |
+| `src/server.zig` | Socket server/event loop |

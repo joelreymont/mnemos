@@ -34,7 +34,7 @@ Test UI logic without real backend. Mock RPC responses.
 
 ### Layer 2: Integration Tests (Real Backend)
 
-Test end-to-end with real backend and isolated database.
+Test end-to-end with real backend and isolated notes directory.
 
 **What to verify:**
 - Create note → overlay appears
@@ -378,7 +378,7 @@ MNEMOS_UPDATE_SNAPSHOTS=1 cd ui/neovim && nvim --headless -u tests/minimal_init.
 
 ## Best Practices
 
-1. **Isolate tests** - Each test uses isolated temp files and database
+1. **Isolate tests** - Each test uses isolated temp files and notes directory
 2. **Mock sparingly** - Prefer real backend for integration tests
 3. **Verify user-visible state** - Test what user sees, not internals
 4. **Fast feedback** - Unit tests with mocks run in <1s

@@ -266,13 +266,6 @@ EVENT-TYPE is a string like \"note-created\" or \"*\" for all events."
         (forward-line -10)
         (let ((tail (buffer-substring-no-properties (point) (point-max))))
           (cond
-           ((string-match "newer than this version\\|schema version" tail)
-            (concat "Database schema is incompatible.\n\n"
-                    "Your database was created by a newer version of Mnemos.\n"
-                    "Please upgrade Mnemos or use a different database file.\n\n"
-                    "To use a fresh database:\n"
-                    "  rm ~/.mnemos/mnemos.db\n\n"
-                    "Check " log-path " for details."))
            ((string-match "Error:\\|FATAL\\|panic" tail)
             (concat "Backend failed to start.\n\n"
                     "Check " log-path " for details:\n" tail))
@@ -314,7 +307,7 @@ EVENT-TYPE is a string like \"note-created\" or \"*\" for all events."
   "Start the Mnemos server process in the background.
 The server runs detached with output redirected to `mnemos--log-path'.
 Use `mnemos-shutdown' to stop it (sends shutdown RPC)."
-  (let* ((exe (or mnemos-backend (error "Set `mnemos-backend' to the Rust backend binary")))
+  (let* ((exe (or mnemos-backend (error "Set `mnemos-backend' to the Mnemos backend binary")))
          (exe-abs (expand-file-name exe))
          (log (mnemos--log-path))
          ;; Build environment variables as shell exports
