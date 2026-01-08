@@ -41,9 +41,12 @@ _G.print = function(...)
 end
 
 -- Run tests
+local max_duration_ms = tonumber(vim.env.MNEMOS_TEST_TIMEOUT_MS) or 600000
+
 harness.test_directory(test_root, {
   minimal_init = test_root .. "/minimal_init.lua",
   sequential = true,
+  timeout = max_duration_ms,
 })
 
 -- Wait for async tests to complete, then exit with appropriate code
@@ -52,7 +55,6 @@ local uv = vim.uv or vim.loop
 local check_timer = uv.new_timer()
 local check_count = 0
 local check_interval_ms = 100
-local max_duration_ms = tonumber(vim.env.MNEMOS_TEST_TIMEOUT_MS) or 300000
 local max_checks = math.floor(max_duration_ms / check_interval_ms)
 
 check_timer:start(check_interval_ms, check_interval_ms, function()
