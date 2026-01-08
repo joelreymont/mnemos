@@ -27,7 +27,7 @@ Mnemos attaches persistent notes to specific code locations. Unlike line-based c
 
 When code changes, notes may become stale. Mnemos detects this and lets you reattach them:
 
-[Watch the demo video](assets/demo-reattach.mov)
+<video src="assets/demo-reattach.mov" controls width="100%"></video>
 
 ## Why Markdown Storage?
 
