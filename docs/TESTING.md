@@ -327,7 +327,7 @@ test('notes tree shows created notes', async () => {
 
 ```bash
 # From project root - with MNEMOS_BACKEND pointing to the backend binary
-MNEMOS_BACKEND=./target/debug/mnemos emacs -batch -L ui/emacs -l ui/emacs/tests/mnemos-test.el \
+MNEMOS_BACKEND=./zig-out/bin/mnemos emacs -batch -L ui/emacs -l ui/emacs/tests/mnemos-test.el \
   -f ert-run-tests-batch-and-exit
 ```
 
@@ -351,7 +351,7 @@ Snapshot tests compare captured display state against committed baseline files.
 
 ```bash
 # Run tests (fails if snapshots missing or mismatched)
-MNEMOS_BACKEND=./target/debug/mnemos emacs -batch -L ui/emacs -l ui/emacs/tests/mnemos-test.el \
+MNEMOS_BACKEND=./zig-out/bin/mnemos emacs -batch -L ui/emacs -l ui/emacs/tests/mnemos-test.el \
   -f ert-run-tests-batch-and-exit
 
 # Create or update snapshots (Neovim)

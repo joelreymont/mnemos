@@ -3,7 +3,7 @@
 Run ERT in batch from repo root:
 
 ```bash
-MNEMOS_BACKEND=/path/to/target/debug/mnemos \
+MNEMOS_BACKEND=/path/to/zig-out/bin/mnemos \
 emacs -Q --batch \
   -L ui/emacs \
   -l mnemos.el \

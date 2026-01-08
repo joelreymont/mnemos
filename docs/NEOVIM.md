@@ -149,7 +149,7 @@ To use a project-specific notes directory, set the environment variable:
 Check that the binary exists and is executable:
 
 ```bash
-ls -la /path/to/mnemos/target/release/mnemos
+ls -la /path/to/mnemos/zig-out/bin/mnemos
 ```
 
 Check `:messages` for error details.

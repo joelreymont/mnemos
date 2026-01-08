@@ -12,8 +12,7 @@ function findBackend(): string | undefined {
   // Try relative paths from extension root
   const extensionRoot = path.resolve(__dirname, '../../');
   const candidates = [
-    path.join(extensionRoot, '../../target/debug/mnemos'),
-    path.join(extensionRoot, '../../target/release/mnemos'),
+  path.join(extensionRoot, '../../zig-out/bin/mnemos'),
   ];
 
   for (const candidate of candidates) {

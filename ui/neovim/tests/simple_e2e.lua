@@ -30,8 +30,7 @@ print("AI Provider: " .. ai_provider)
 
 -- Find backend
 local backend_paths = {
-  root .. "/../../target/release/mnemos",
-  root .. "/../../target/debug/mnemos",
+  root .. "/../../zig-out/bin/mnemos",
 }
 local backend = nil
 for _, path in ipairs(backend_paths) do

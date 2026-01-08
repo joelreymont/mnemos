@@ -18,9 +18,7 @@
 (defconst mnemos--default-backend
   (let* ((here (file-name-directory (or load-file-name buffer-file-name)))
          (root (expand-file-name "../.." here))
-         (candidates (list (expand-file-name "zig-out/bin/mnemos" root)
-                           (expand-file-name "target/debug/mnemos" root)
-                           (expand-file-name "target/release/mnemos" root))))
+         (candidates (list (expand-file-name "zig-out/bin/mnemos" root))))
     (cl-find-if #'file-exists-p candidates))
   "Default path to the Mnemos backend binary (if built locally).")
 

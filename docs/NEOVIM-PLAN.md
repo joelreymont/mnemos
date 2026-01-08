@@ -223,7 +223,7 @@ return {
       "nvim-telescope/telescope.nvim",
     },
     opts = {
-      backend = "~/Work/mnemos/target/debug/mnemos",
+      backend = "~/Work/mnemos/zig-out/bin/mnemos",
       backend_env = {
         "MNEMOS_NOTES_PATH=~/Work/mnemos/.mnemos/notes",
       },

@@ -41,8 +41,7 @@ function M.setup(opts)
   if not M.options.backend then
     local plugin_dir = debug.getinfo(1, "S").source:sub(2):match("(.*/)")
     local candidates = {
-      plugin_dir .. "../../../../target/release/mnemos",
-      plugin_dir .. "../../../../target/debug/mnemos",
+      plugin_dir .. "../../../../zig-out/bin/mnemos",
     }
     for _, path in ipairs(candidates) do
       local expanded = vim.fn.expand(path)
