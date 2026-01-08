@@ -13,9 +13,9 @@ Quick start:
 (setq mnemos-backend (expand-file-name "target/debug/mnemos" "/path/to/mnemos"))
 ```
 
-Use `M-x mnemos-notes-mode` in a buffer to show sticky notes; `C-c h a` to add a note, `C-c h r` to refresh, `C-c h l` to list notes. `M-x mnemos-shutdown` stops the backend.
-Search: `C-c h s` to search indexed files in the current project. Backend stores notes/files in SQLite (`MNEMOS_DB_PATH` env var can override the default location).
-Project ops: `M-x mnemos-open-project` to set a project root; `C-c h p` to index the project.
+Use `M-x mnemos-notes-mode` in a buffer to show sticky notes; `C-c m a` to add a note, `C-c m r` to refresh, `C-c m l` to list notes. `M-x mnemos-shutdown` stops the backend.
+Search: `C-c m s` to search indexed files in the current project. Backend stores notes/files in SQLite (`MNEMOS_DB_PATH` env var can override the default location).
+Project ops: `M-x mnemos-open-project` to set a project root; `C-c m p` to index the project.
 Explain: select a region and `M-x mnemos-explain-region`.
 
 ## Testing
@@ -44,5 +44,5 @@ Set `MNEMOS_EMBED_URL` to point at an embedding HTTP endpoint (POST body `{ "tex
 
 Progress/status
 ---------------
-- `C-c h p` indexes the whole project and reports counts in the minibuffer.
+- `C-c m p` indexes the whole project and reports counts in the minibuffer.
 - Semantic search results show kind/score/location.

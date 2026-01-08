@@ -33,19 +33,19 @@ return {
       -- backend_env = { MNEMOS_DB_PATH = "/path/to/custom.db" },
       auto_refresh = true,
       keymaps = true,
-      keymap_prefix = "<leader>h",
+      keymap_prefix = "<leader>m",
       display_style = "full",  -- "full" or "minimal"
     },
     keys = {
-      { "<leader>ha", "<cmd>MnemosAddNote<cr>", desc = "Mnemos: Add note" },
-      { "<leader>hA", "<cmd>MnemosAddNoteMultiline<cr>", desc = "Mnemos: Add note (multiline)" },
-      { "<leader>hl", "<cmd>MnemosListNotes<cr>", desc = "Mnemos: List notes" },
-      { "<leader>hr", "<cmd>MnemosRefresh<cr>", desc = "Mnemos: Refresh" },
-      { "<leader>hs", "<cmd>MnemosSearch<cr>", desc = "Mnemos: Search" },
-      { "<leader>hi", "<cmd>MnemosIndexFile<cr>", desc = "Mnemos: Index file" },
-      { "<leader>hp", "<cmd>MnemosIndexProject<cr>", desc = "Mnemos: Index project" },
-      { "<leader>hk", "<cmd>MnemosInsertLink<cr>", desc = "Mnemos: Insert link" },
-      { "<leader>h?", "<cmd>MnemosHelp<cr>", desc = "Mnemos: Help" },
+      { "<leader>ma", "<cmd>MnemosAddNote<cr>", desc = "Mnemos: Add note" },
+      { "<leader>mA", "<cmd>MnemosAddNoteMultiline<cr>", desc = "Mnemos: Add note (multiline)" },
+      { "<leader>ml", "<cmd>MnemosListNotes<cr>", desc = "Mnemos: List notes" },
+      { "<leader>mr", "<cmd>MnemosRefresh<cr>", desc = "Mnemos: Refresh" },
+      { "<leader>ms", "<cmd>MnemosSearch<cr>", desc = "Mnemos: Search" },
+      { "<leader>mi", "<cmd>MnemosIndexFile<cr>", desc = "Mnemos: Index file" },
+      { "<leader>mp", "<cmd>MnemosIndexProject<cr>", desc = "Mnemos: Index project" },
+      { "<leader>mk", "<cmd>MnemosInsertLink<cr>", desc = "Mnemos: Insert link" },
+      { "<leader>m?", "<cmd>MnemosHelp<cr>", desc = "Mnemos: Help" },
     },
   },
 }
@@ -57,17 +57,17 @@ Restart Neovim or run `:Lazy sync`.
 
 | Key | Command | Description |
 |-----|---------|-------------|
-| `<leader>ha` | `:MnemosAddNote` | Add note at cursor |
-| `<leader>hA` | `:MnemosAddNoteMultiline` | Add note (floating window) |
-| `<leader>hl` | `:MnemosListNotes` | List notes for current file |
-| `<leader>hr` | `:MnemosRefresh` | Refresh note display |
-| `<leader>hd` | `:MnemosDeleteNote` | Delete note at cursor |
-| `<leader>he` | `:MnemosEditNote` | Edit note at cursor |
-| `<leader>hs` | `:MnemosSearch` | Search notes and files |
-| `<leader>hi` | `:MnemosIndexFile` | Index current file |
-| `<leader>hp` | `:MnemosIndexProject` | Index all project files |
-| `<leader>hk` | `:MnemosInsertLink` | Insert link to another note |
-| `<leader>h?` | `:MnemosHelp` | Show keybindings |
+| `<leader>ma` | `:MnemosAddNote` | Add note at cursor |
+| `<leader>mA` | `:MnemosAddNoteMultiline` | Add note (floating window) |
+| `<leader>ml` | `:MnemosListNotes` | List notes for current file |
+| `<leader>mr` | `:MnemosRefresh` | Refresh note display |
+| `<leader>md` | `:MnemosDeleteNote` | Delete note at cursor |
+| `<leader>me` | `:MnemosEditNote` | Edit note at cursor |
+| `<leader>ms` | `:MnemosSearch` | Search notes and files |
+| `<leader>mi` | `:MnemosIndexFile` | Index current file |
+| `<leader>mp` | `:MnemosIndexProject` | Index all project files |
+| `<leader>mk` | `:MnemosInsertLink` | Insert link to another note |
+| `<leader>m?` | `:MnemosHelp` | Show keybindings |
 
 ## Commands
 
@@ -128,11 +128,11 @@ Mnemos notes for main.rs
 ## Workflow
 
 1. Open a source file
-2. Index it: `<leader>hi`
-3. Add notes at interesting locations: `<leader>ha`
-4. View all notes: `<leader>hl`
-5. Search across project: `<leader>hs`
-6. Link notes together: `<leader>hk`
+2. Index it: `<leader>mi`
+3. Add notes at interesting locations: `<leader>ma`
+4. View all notes: `<leader>ml`
+5. Search across project: `<leader>ms`
+6. Link notes together: `<leader>mk`
 
 ## Multi-Editor Support
 

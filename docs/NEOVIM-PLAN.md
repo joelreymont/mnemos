@@ -117,18 +117,18 @@ M.is_available()          -- Check if Tree-sitter is available for buffer
 :MnemosShutdown         -- Stop backend
 ```
 
-**Default keybindings** (under `<leader>h`):
+**Default keybindings** (under `<leader>m`):
 ```
-<leader>ha  -- Add note
-<leader>hl  -- List notes
-<leader>hr  -- Refresh notes
-<leader>hd  -- Delete note at cursor
-<leader>he  -- Edit note at cursor
-<leader>hs  -- Search
-<leader>hi  -- Index file
-<leader>hp  -- Index project
-<leader>hk  -- Insert note link
-<leader>h?  -- Help (show keybindings)
+<leader>ma  -- Add note
+<leader>ml  -- List notes
+<leader>mr  -- Refresh notes
+<leader>md  -- Delete note at cursor
+<leader>me  -- Edit note at cursor
+<leader>ms  -- Search
+<leader>mi  -- Index file
+<leader>mp  -- Index project
+<leader>mk  -- Insert note link
+<leader>m?  -- Help (show keybindings)
 ```
 
 ### Phase 5: Telescope Integration
@@ -229,13 +229,13 @@ return {
       },
       auto_refresh = true,
       keymaps = {
-        prefix = "<leader>h",
+        prefix = "<leader>m",
       },
     },
     keys = {
-      { "<leader>ha", "<cmd>MnemosAddNote<cr>", desc = "Add note" },
-      { "<leader>hl", "<cmd>MnemosListNotes<cr>", desc = "List notes" },
-      { "<leader>hs", "<cmd>MnemosSearch<cr>", desc = "Search" },
+      { "<leader>ma", "<cmd>MnemosAddNote<cr>", desc = "Add note" },
+      { "<leader>ml", "<cmd>MnemosListNotes<cr>", desc = "List notes" },
+      { "<leader>ms", "<cmd>MnemosSearch<cr>", desc = "Search" },
     },
   },
 }
@@ -261,7 +261,7 @@ return {
 
 ## Open Questions
 
-1. **Linking trigger**: Should `[[` auto-trigger like Emacs, or use explicit `<leader>hk`?
+1. **Linking trigger**: Should `[[` auto-trigger like Emacs, or use explicit `<leader>mk`?
    - Recommendation: Start with explicit keymap, add `[[` as optional iabbrev
 
 2. **Note display style**: Full comment block vs. single-line indicator?

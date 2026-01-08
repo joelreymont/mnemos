@@ -347,7 +347,7 @@ function M.edit_note()
 
   -- Add insert-link keymap for the edit buffer (uses same prefix as main keymaps)
   -- Pass captured file since edit buffer has no associated file
-  local prefix = config.get("keymap_prefix") or "<leader>h"
+  local prefix = config.get("keymap_prefix") or "<leader>m"
   vim.keymap.set({ "n", "i" }, prefix .. "k", function()
     M.insert_link({ file = file })
   end, { buffer = buf, desc = "Mnemos: Insert link" })
@@ -429,7 +429,7 @@ function M.edit_note_buffer()
   end, { buffer = buf, desc = "Close buffer" })
 
   -- Add insert-link keymap
-  local prefix = config.get("keymap_prefix") or "<leader>h"
+  local prefix = config.get("keymap_prefix") or "<leader>m"
   vim.keymap.set({ "n", "i" }, prefix .. "k", function()
     M.insert_link({ file = file })
   end, { buffer = buf, desc = "Mnemos: Insert link" })
@@ -889,7 +889,7 @@ end
 
 -- Show help in styled floating window (like which-key)
 function M.help()
-  local prefix = resolve_prefix(config.get("keymap_prefix") or "<leader>h")
+  local prefix = resolve_prefix(config.get("keymap_prefix") or "<leader>m")
 
   -- Define keybindings: { key, description }
   local bindings = {
@@ -1260,7 +1260,7 @@ function M.setup_keymaps()
     return
   end
 
-  local prefix = config.get("keymap_prefix") or "<leader>h"
+  local prefix = config.get("keymap_prefix") or "<leader>m"
 
   local mappings = {
     { "n", M.add_note, "Add note" },

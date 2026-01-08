@@ -76,7 +76,7 @@ The indentation (4 spaces) matches the code's column position so the note aligns
 
 The `explain_region` command:
 1. User selects code in visual mode
-2. User presses `<leader>hx`
+2. User presses `<leader>mx`
 3. Plugin shows "AI thinking..." status message
 4. Backend sends selected code to AI provider (Claude)
 5. AI returns explanation
@@ -328,7 +328,7 @@ Even though extmarks exist in memory:
 
 1. Open a Rust file in Neovim with Mnemos plugin
 2. Select 3-4 lines of code in visual mode
-3. Press `<leader>hx` to trigger explain_region
+3. Press `<leader>mx` to trigger explain_region
 4. Observe: "AI thinking..." appears
 5. Wait for AI response (~3-5 seconds)
 6. Observe: Message disappears

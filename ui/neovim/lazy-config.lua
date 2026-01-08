@@ -15,7 +15,7 @@ return {
       },
       auto_refresh = true,
       keymaps = true,
-      keymap_prefix = "<leader>h",
+      keymap_prefix = "<leader>m",
       display_style = "full",
       log_level = "info",
     },

@@ -94,7 +94,7 @@ Selected note stored in `M.selected_note`, operations use this state.
 - `mnemos.el`: All-in-one package
 - Uses overlays for note display
 - `mnemos-notes-mode` auto-enables in `prog-mode`
-- Keymap under `C-c h ...`
+- Keymap under `C-c m ...`
 
 ### VS Code (TypeScript)
 

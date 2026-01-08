@@ -43,29 +43,29 @@ mnemos
 > If `doom sync` shows "Skipping mnemos because it is out-of-tree", add the `package! mnemos` stanza in your personal `~/.doom.d/packages.el` as shown above and rerun `doom sync -u`—this tells Doom where to fetch Mnemos from.
 
 ## Key bindings (notes mode)
-- `C-c h a` add note at point (multiline prompt; RET inserts newline, `C-c C-c` saves)
-- `C-c h r` refresh notes overlays
-- `C-c h l` list notes for buffer
-- `C-c h i` index current file; `C-c h p` index project
-- `C-c h s` search indexed files/notes
-- `C-c h k` insert note link (`[[DESC][ID]]`); typing `[[` in notes mode also triggers search
+- `C-c m a` add note at point (multiline prompt; RET inserts newline, `C-c C-c` saves)
+- `C-c m r` refresh notes overlays
+- `C-c m l` list notes for buffer
+- `C-c m i` index current file; `C-c m p` index project
+- `C-c m s` search indexed files/notes
+- `C-c m k` insert note link (`[[DESC][ID]]`); typing `[[` in notes mode also triggers search
 
 ## End-to-end workflow
 1) `M-x mnemos-open-project` → select `/Users/joel/Work/mnemos`.
 2) Open `backend/src/lib.rs` (or any Rust file in this repo). Mnemos starts the backend and, if needed, auto-installs the Rust Tree-sitter grammar.
-3) Index the file for search: `C-c h i`.
-4) Create Note A at a line of interest: `C-c h a` → enter text (e.g., “Parser entry”).
-5) Move to another relevant line and create Note B: `C-c h a` → enter text (e.g., “Search pipeline”).
+3) Index the file for search: `C-c m i`.
+4) Create Note A at a line of interest: `C-c m a` → enter text (e.g., “Parser entry”).
+5) Move to another relevant line and create Note B: `C-c m a` → enter text (e.g., “Search pipeline”).
 6) Link Note B to Note A:
-   - Run `C-c h l` to open `*Mnemos Notes*`, note the IDs (first column), e.g., `n1` for Note A, `n2` for Note B.
-   - Use `C-c h k` inside Note B's text to search for Note A by summary and insert `[[Parser entry][n1]]`, **or** run `M-:`:
+   - Run `C-c m l` to open `*Mnemos Notes*`, note the IDs (first column), e.g., `n1` for Note A, `n2` for Note B.
+   - Use `C-c m k` inside Note B's text to search for Note A by summary and insert `[[Parser entry][n1]]`, **or** run `M-:`:
      ```lisp
      (mnemos--request "notes/update"
                      '((id . "n2")
                        (text . "Search pipeline links to [[Parser entry][n1]]")))
      ```
-   - `C-c h r` to refresh overlays.
-7) Search for the linked note: `C-c h s` → query "Parser". In `*Mnemos Search*`, note hits show `kind` "note"; `RET` jumps to the location.
+   - `C-c m r` to refresh overlays.
+7) Search for the linked note: `C-c m s` → query "Parser". In `*Mnemos Search*`, note hits show `kind` "note"; `RET` jumps to the location.
 8) View a note as Markdown: in `*Mnemos Notes*`, press `v` on a note line to open it in `*Mnemos Note*` with `markdown-mode` (falls back to `text-mode` if Markdown is unavailable).
 9) Auto-enable: Mnemos now enables `mnemos-notes-mode` automatically in programming buffers via `mnemos-notes-global-mode`. Toggle globally with `M-x mnemos-notes-global-mode` if you need to disable/re-enable.
 

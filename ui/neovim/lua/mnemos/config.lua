@@ -19,7 +19,7 @@ M.defaults = {
   log_level = "warn",
 
   -- Keymap prefix
-  keymap_prefix = "<leader>h",
+  keymap_prefix = "<leader>m",
 
   -- Enable keymaps
   keymaps = true,

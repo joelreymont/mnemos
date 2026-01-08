@@ -4,7 +4,11 @@
 
 **Multi-editor support** | **Markdown storage** | **AI-assisted understanding**
 
-Mnemos attaches persistent notes to specific code locations. Notes live **outside your codebase** in `.mnemos/notes/` as plain markdown files—version-controlled separately, never cluttering your source. Unlike line-based comments, notes are anchored to **AST nodes** (functions, classes, variables) using Tree-sitter parsing. When you refactor code, notes stay attached to their target even if line numbers change. Ask AI to explain any code region—summaries or detailed explanations are saved as notes for future reference.
+Mnemos attaches persistent notes to specific code locations. Notes live **outside your codebase** in `.mnemos/notes/` as plain markdown files—version-controlled separately, never cluttering your source.
+
+Ask AI to explain any code region—summaries or detailed explanations are saved as notes for future reference.
+
+Unlike line-based comments, notes are anchored to **AST nodes** (functions, classes, variables) using Tree-sitter parsing. When you refactor code, notes stay attached to their target even if line numbers change.
 
 ## How It Works
 

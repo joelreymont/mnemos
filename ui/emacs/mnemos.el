@@ -1585,25 +1585,25 @@ Shows picker if multiple notes at same position."
 
 (defvar mnemos-notes-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c h a") #'mnemos-add-note)
-    (define-key map (kbd "C-c h r") #'mnemos-refresh-notes)
-    (define-key map (kbd "C-c h l") #'mnemos-list-notes)
-    (define-key map (kbd "C-c h p") #'mnemos-index-project)
-    (define-key map (kbd "C-c h f") #'mnemos-search-project)
-    (define-key map (kbd "C-c h k") #'mnemos-insert-note-link)
-    (define-key map (kbd "C-c h ]") #'mnemos-follow-link)
-    (define-key map (kbd "C-c h [") #'mnemos-navigate-back)
-    (define-key map (kbd "C-c h e") #'mnemos-edit-note-at-point)
-    (define-key map (kbd "C-c h E") #'mnemos-edit-note-buffer)
-    (define-key map (kbd "C-c h d") #'mnemos-delete-note-at-point)
-    (define-key map (kbd "C-c h b") #'mnemos-show-backlinks)
-    (define-key map (kbd "C-c h x") #'mnemos-explain-region-ai)
-    (define-key map (kbd "C-c h X") #'mnemos-explain-region-ai-detailed)
-    (define-key map (kbd "C-c h R") #'mnemos-reattach-note)
-    (define-key map (kbd "C-c h S") #'mnemos-status)
-    (define-key map (kbd "C-c h s") #'mnemos-select-note)
-    (define-key map (kbd "C-c h <escape>") #'mnemos-clear-selection)
-    (define-key map (kbd "C-c h ?") #'mnemos-help)
+    (define-key map (kbd "C-c m a") #'mnemos-add-note)
+    (define-key map (kbd "C-c m r") #'mnemos-refresh-notes)
+    (define-key map (kbd "C-c m l") #'mnemos-list-notes)
+    (define-key map (kbd "C-c m p") #'mnemos-index-project)
+    (define-key map (kbd "C-c m f") #'mnemos-search-project)
+    (define-key map (kbd "C-c m k") #'mnemos-insert-note-link)
+    (define-key map (kbd "C-c m ]") #'mnemos-follow-link)
+    (define-key map (kbd "C-c m [") #'mnemos-navigate-back)
+    (define-key map (kbd "C-c m e") #'mnemos-edit-note-at-point)
+    (define-key map (kbd "C-c m E") #'mnemos-edit-note-buffer)
+    (define-key map (kbd "C-c m d") #'mnemos-delete-note-at-point)
+    (define-key map (kbd "C-c m b") #'mnemos-show-backlinks)
+    (define-key map (kbd "C-c m x") #'mnemos-explain-region-ai)
+    (define-key map (kbd "C-c m X") #'mnemos-explain-region-ai-detailed)
+    (define-key map (kbd "C-c m R") #'mnemos-reattach-note)
+    (define-key map (kbd "C-c m S") #'mnemos-status)
+    (define-key map (kbd "C-c m s") #'mnemos-select-note)
+    (define-key map (kbd "C-c m <escape>") #'mnemos-clear-selection)
+    (define-key map (kbd "C-c m ?") #'mnemos-help)
     map)
   "Keymap for `mnemos-notes-mode'.")
 
@@ -1611,25 +1611,25 @@ Shows picker if multiple notes at same position."
   "Ensure `mnemos-notes-mode-map` is a valid keymap (handles reloads)."
   (unless (keymapp mnemos-notes-mode-map)
     (setq mnemos-notes-mode-map (make-sparse-keymap))
-    (define-key mnemos-notes-mode-map (kbd "C-c h a") #'mnemos-add-note)
-    (define-key mnemos-notes-mode-map (kbd "C-c h r") #'mnemos-refresh-notes)
-    (define-key mnemos-notes-mode-map (kbd "C-c h l") #'mnemos-list-notes)
-    (define-key mnemos-notes-mode-map (kbd "C-c h p") #'mnemos-index-project)
-    (define-key mnemos-notes-mode-map (kbd "C-c h f") #'mnemos-search-project)
-    (define-key mnemos-notes-mode-map (kbd "C-c h k") #'mnemos-insert-note-link)
-    (define-key mnemos-notes-mode-map (kbd "C-c h ]") #'mnemos-follow-link)
-    (define-key mnemos-notes-mode-map (kbd "C-c h [") #'mnemos-navigate-back)
-    (define-key mnemos-notes-mode-map (kbd "C-c h e") #'mnemos-edit-note-at-point)
-    (define-key mnemos-notes-mode-map (kbd "C-c h E") #'mnemos-edit-note-buffer)
-    (define-key mnemos-notes-mode-map (kbd "C-c h d") #'mnemos-delete-note-at-point)
-    (define-key mnemos-notes-mode-map (kbd "C-c h b") #'mnemos-show-backlinks)
-    (define-key mnemos-notes-mode-map (kbd "C-c h x") #'mnemos-explain-region-ai)
-    (define-key mnemos-notes-mode-map (kbd "C-c h X") #'mnemos-explain-region-ai-detailed)
-    (define-key mnemos-notes-mode-map (kbd "C-c h R") #'mnemos-reattach-note)
-    (define-key mnemos-notes-mode-map (kbd "C-c h S") #'mnemos-status)
-    (define-key mnemos-notes-mode-map (kbd "C-c h s") #'mnemos-select-note)
-    (define-key mnemos-notes-mode-map (kbd "C-c h <escape>") #'mnemos-clear-selection)
-    (define-key mnemos-notes-mode-map (kbd "C-c h ?") #'mnemos-help)))
+    (define-key mnemos-notes-mode-map (kbd "C-c m a") #'mnemos-add-note)
+    (define-key mnemos-notes-mode-map (kbd "C-c m r") #'mnemos-refresh-notes)
+    (define-key mnemos-notes-mode-map (kbd "C-c m l") #'mnemos-list-notes)
+    (define-key mnemos-notes-mode-map (kbd "C-c m p") #'mnemos-index-project)
+    (define-key mnemos-notes-mode-map (kbd "C-c m f") #'mnemos-search-project)
+    (define-key mnemos-notes-mode-map (kbd "C-c m k") #'mnemos-insert-note-link)
+    (define-key mnemos-notes-mode-map (kbd "C-c m ]") #'mnemos-follow-link)
+    (define-key mnemos-notes-mode-map (kbd "C-c m [") #'mnemos-navigate-back)
+    (define-key mnemos-notes-mode-map (kbd "C-c m e") #'mnemos-edit-note-at-point)
+    (define-key mnemos-notes-mode-map (kbd "C-c m E") #'mnemos-edit-note-buffer)
+    (define-key mnemos-notes-mode-map (kbd "C-c m d") #'mnemos-delete-note-at-point)
+    (define-key mnemos-notes-mode-map (kbd "C-c m b") #'mnemos-show-backlinks)
+    (define-key mnemos-notes-mode-map (kbd "C-c m x") #'mnemos-explain-region-ai)
+    (define-key mnemos-notes-mode-map (kbd "C-c m X") #'mnemos-explain-region-ai-detailed)
+    (define-key mnemos-notes-mode-map (kbd "C-c m R") #'mnemos-reattach-note)
+    (define-key mnemos-notes-mode-map (kbd "C-c m S") #'mnemos-status)
+    (define-key mnemos-notes-mode-map (kbd "C-c m s") #'mnemos-select-note)
+    (define-key mnemos-notes-mode-map (kbd "C-c m <escape>") #'mnemos-clear-selection)
+    (define-key mnemos-notes-mode-map (kbd "C-c m ?") #'mnemos-help)))
 
 ;; Ensure keymap is valid before defining the minor mode.
 (mnemos--ensure-notes-mode-keymap)
@@ -1726,25 +1726,25 @@ Shows picker if multiple notes at same position."
       (insert (propertize "Code Buffer (mnemos-notes-mode)\n"
                           'face '(:weight bold :underline t)))
       (insert "
-  C-c h a    Add a note at point
-  C-c h r    Refresh notes (reload from backend)
-  C-c h l    List notes for current file
-  C-c h e    Edit note at point
-  C-c h E    Edit note in buffer (for longer notes)
-  C-c h d    Delete note at point
-  C-c h R    Reattach stale note to current position
-  C-c h b    Show backlinks to note
-  C-c h p    Index entire project
-  C-c h f    Search project (files and notes)
-  C-c h k    Insert a link to another note
-  C-c h ]    Follow link at point
-  C-c h [    Navigate back
-  C-c h x    Explain region with AI
-  C-c h X    Explain region with AI (detailed)
-  C-c h S    Show status (note/file counts)
-  C-c h s    Select note at cursor or from list
-  C-c h ESC  Clear note selection
-  C-c h ?    Show this help
+  C-c m a    Add a note at point
+  C-c m r    Refresh notes (reload from backend)
+  C-c m l    List notes for current file
+  C-c m e    Edit note at point
+  C-c m E    Edit note in buffer (for longer notes)
+  C-c m d    Delete note at point
+  C-c m R    Reattach stale note to current position
+  C-c m b    Show backlinks to note
+  C-c m p    Index entire project
+  C-c m f    Search project (files and notes)
+  C-c m k    Insert a link to another note
+  C-c m ]    Follow link at point
+  C-c m [    Navigate back
+  C-c m x    Explain region with AI
+  C-c m X    Explain region with AI (detailed)
+  C-c m S    Show status (note/file counts)
+  C-c m s    Select note at cursor or from list
+  C-c m ESC  Clear note selection
+  C-c m ?    Show this help
 
 ")
       (insert (propertize "Notes List Buffer (*Mnemos Notes*)\n"

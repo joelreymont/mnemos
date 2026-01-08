@@ -786,7 +786,7 @@ This tests what the demo visually expects to see."
       (mnemos--ensure-notes-mode-keymap)
       (mnemos-notes-mode 1)
       (should (keymapp mnemos-notes-mode-map))
-      (should (lookup-key mnemos-notes-mode-map (kbd "C-c h a"))))))
+      (should (lookup-key mnemos-notes-mode-map (kbd "C-c m a"))))))
 
 (ert-deftest mnemos-notes-list-keymap-reloads ()
   (let ((mnemos-notes-list-mode-map nil))
@@ -804,7 +804,7 @@ This tests what the demo visually expects to see."
             mnemos-notes-list-mode-map nil)
       (mnemos-reset-keymaps-and-enable)
       (mnemos-notes-mode 1)
-      (should (local-key-binding (kbd "C-c h a")))
+      (should (local-key-binding (kbd "C-c m a")))
       (should (keymapp mnemos-notes-list-mode-map)))))
 
 (ert-deftest mnemos-insert-note-link-no-results ()
@@ -1025,16 +1025,16 @@ Returns list of plists with :line :before-string :face :count :texts."
   (with-current-buffer "*Mnemos Help*"
     (goto-char (point-min))
     ;; Should show main keybindings
-    (should (search-forward "C-c h a" nil t))
+    (should (search-forward "C-c m a" nil t))
     (should (search-forward "Add a note" nil t))
     (goto-char (point-min))
-    (should (search-forward "C-c h e" nil t))
+    (should (search-forward "C-c m e" nil t))
     (should (search-forward "Edit note" nil t))
     (goto-char (point-min))
-    (should (search-forward "C-c h d" nil t))
+    (should (search-forward "C-c m d" nil t))
     (should (search-forward "Delete note" nil t))
     (goto-char (point-min))
-    (should (search-forward "C-c h S" nil t))
+    (should (search-forward "C-c m S" nil t))
     (should (search-forward "status" nil t))))
 
 (ert-deftest mnemos-status-shows-counts ()
@@ -1139,7 +1139,7 @@ Returns list of plists with :line :before-string :face :count :texts."
         (erase-buffer)
         (insert "test source\n")
         (goto-char (point-min))
-        ;; Set selected note (simulating C-c h s)
+        ;; Set selected note (simulating C-c m s)
         (setq mnemos--selected-note '((id . "selected-note-id")
                                      (shortId . "sel12345")
                                      (text . "Selected note text")))

@@ -92,7 +92,7 @@ M-x mnemos-index-project
 ### 1.4 Create First Note
 ```
 Move cursor to line 4 (server.start())
-C-c h n (mnemos-add-note)
+C-c m n (mnemos-add-note)
 → Type: "TODO: Add graceful shutdown handling"
 → C-c C-c to save
 → Shows "Note created"
@@ -102,7 +102,7 @@ C-c h n (mnemos-add-note)
 ### 1.5 Create Multiline Note
 ```
 Move cursor to line 8 (load_config function)
-C-c h n
+C-c m n
 → Type multiple lines:
   "This function needs:
   - Error handling
@@ -114,7 +114,7 @@ C-c h n
 ### 1.6 Create Note with Link
 ```
 Move cursor to line 18 (Server::new)
-C-c h n
+C-c m n
 → Type: "Related to startup: [["
 → [[ triggers link search
 → Select "TODO: Add graceful shutdown"
@@ -124,7 +124,7 @@ C-c h n
 
 ### 1.7 View Notes List
 ```
-C-c h l (mnemos-list-notes)
+C-c m l (mnemos-list-notes)
 → Shows buffer with all notes
 → j/k or n/p to navigate
 → Press RET to jump to note location
@@ -173,21 +173,21 @@ M-x mnemos-load-snapshot
 
 ### 1.14 Edit a Note
 ```
-C-c h e (mnemos-edit-note-at-point)
+C-c m e (mnemos-edit-note-at-point)
 → Modify text in buffer
 → C-c C-c to save
 ```
 
 ### 1.15 Delete a Note
 ```
-C-c h d (mnemos-delete-note-at-point)
+C-c m d (mnemos-delete-note-at-point)
 → Confirms deletion
 → Note removed
 ```
 
 ### 1.16 Check Status
 ```
-C-c h S (mnemos-status)
+C-c m S (mnemos-status)
 → Shows: "3 notes, 2 files, 0 embeddings"
 ```
 
