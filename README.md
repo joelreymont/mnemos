@@ -27,11 +27,11 @@ Unlike line-based comments, notes are anchored to **AST nodes** (functions, clas
 - **Backlinks** - See which notes reference the current note
 - **AI explanations** - Generate code explanations with Claude/Codex (optional)
 
-## Demo: Reattaching Notes After Refactoring
+## Demo
 
 When code changes, notes may become stale. Mnemos detects this and lets you reattach them:
 
-<video src="assets/demo-reattach.mov" controls width="100%"></video>
+[![Watch demo](assets/mnemos.jpg)](assets/demo-reattach.mov)
 
 ## Why Markdown Storage?
 
