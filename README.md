@@ -2,6 +2,8 @@
 
 # Mnemos: A Second Brain for Your Code
 
+**~680KB binary** | **Zero dependencies** | **Markdown storage**
+
 Mnemos attaches persistent notes to code locations, anchored to Tree-sitter nodes. Notes survive refactoring and are searchable across your project.
 
 ## Features

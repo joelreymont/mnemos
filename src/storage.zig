@@ -357,9 +357,203 @@ pub const Storage = struct {
         // No-op: markdown storage doesn't index file content
     }
 
-    /// Search content (stub - returns empty results)
-    pub fn searchContent(_: *Storage, alloc: Allocator, _: []const u8) ![]SearchHit {
-        return alloc.alloc(SearchHit, 0);
+    /// Search source file content (uses ripgrep if available, otherwise fallback)
+    pub fn searchContent(self: *Storage, alloc: Allocator, query: []const u8) ![]SearchHit {
+        if (query.len == 0) return alloc.alloc(SearchHit, 0);
+
+        if (self.rg_path) |rg| {
+            return self.searchContentWithRipgrep(alloc, rg, query);
+        }
+        return self.searchContentFallback(alloc, query);
+    }
+
+    /// Search source files using ripgrep with JSON output
+    fn searchContentWithRipgrep(self: *Storage, alloc: Allocator, rg: []const u8, query: []const u8) ![]SearchHit {
+        var hits: std.ArrayList(SearchHit) = .{};
+        errdefer {
+            for (hits.items) |hit| {
+                alloc.free(hit.file);
+                alloc.free(hit.text);
+            }
+            hits.deinit(alloc);
+        }
+
+        // Run ripgrep with JSON output: rg --json -n -i query --glob '!.mnemos' --glob '!.git' .
+        const result = std.process.Child.run(.{
+            .allocator = alloc,
+            .argv = &.{ rg, "--json", "-n", "-i", "--glob", "!.mnemos", "--glob", "!.git", "--glob", "!node_modules", query, self.project_root },
+            .max_output_bytes = 10 * 1024 * 1024, // 10MB max
+        }) catch {
+            return self.searchContentFallback(alloc, query);
+        };
+        defer alloc.free(result.stdout);
+        defer alloc.free(result.stderr);
+
+        // Parse JSON lines output
+        var line_iter = mem.splitScalar(u8, result.stdout, '\n');
+        while (line_iter.next()) |line| {
+            if (line.len == 0) continue;
+            if (hits.items.len >= 100) break; // Limit results
+
+            // Parse JSON line
+            const parsed = std.json.parseFromSlice(std.json.Value, alloc, line, .{}) catch continue;
+            defer parsed.deinit();
+
+            const obj = parsed.value.object;
+            const msg_type = obj.get("type") orelse continue;
+            if (!mem.eql(u8, msg_type.string, "match")) continue;
+
+            const data = obj.get("data") orelse continue;
+            const data_obj = data.object;
+
+            // Extract path
+            const path_obj = data_obj.get("path") orelse continue;
+            const path_text = path_obj.object.get("text") orelse continue;
+
+            // Extract line number
+            const line_num = data_obj.get("line_number") orelse continue;
+
+            // Extract line text from submatches
+            const submatches = data_obj.get("submatches") orelse continue;
+            if (submatches.array.items.len == 0) continue;
+
+            const lines_obj = data_obj.get("lines") orelse continue;
+            const line_text = lines_obj.object.get("text") orelse continue;
+
+            // Get column from first submatch
+            var col: usize = 0;
+            if (submatches.array.items.len > 0) {
+                const submatch = submatches.array.items[0].object;
+                if (submatch.get("start")) |start| {
+                    col = @intCast(start.integer);
+                }
+            }
+
+            const hit = SearchHit{
+                .file = try alloc.dupe(u8, path_text.string),
+                .line = @intCast(line_num.integer),
+                .column = col,
+                .text = try alloc.dupe(u8, mem.trim(u8, line_text.string, "\r\n")),
+            };
+            try hits.append(alloc, hit);
+        }
+
+        return hits.toOwnedSlice(alloc);
+    }
+
+    /// Fallback content search without ripgrep - walks directory tree
+    fn searchContentFallback(self: *Storage, alloc: Allocator, query: []const u8) ![]SearchHit {
+        var hits: std.ArrayList(SearchHit) = .{};
+        errdefer {
+            for (hits.items) |hit| {
+                alloc.free(hit.file);
+                alloc.free(hit.text);
+            }
+            hits.deinit(alloc);
+        }
+
+        const query_lower = try std.ascii.allocLowerString(alloc, query);
+        defer alloc.free(query_lower);
+
+        // Walk project directory
+        var dir = fs.cwd().openDir(self.project_root, .{ .iterate = true }) catch |err| {
+            if (err == error.FileNotFound) return hits.toOwnedSlice(alloc);
+            return StorageError.IoError;
+        };
+        defer dir.close();
+
+        var walker = dir.walk(alloc) catch return StorageError.IoError;
+        defer walker.deinit();
+
+        while (walker.next() catch null) |entry| {
+            if (hits.items.len >= 100) break;
+            if (entry.kind != .file) continue;
+
+            // Skip hidden dirs and common non-source dirs
+            if (mem.startsWith(u8, entry.path, ".mnemos")) continue;
+            if (mem.startsWith(u8, entry.path, ".git")) continue;
+            if (mem.indexOf(u8, entry.path, "node_modules") != null) continue;
+            if (mem.indexOf(u8, entry.path, ".zig-cache") != null) continue;
+
+            // Skip binary/non-text extensions
+            const ext = std.fs.path.extension(entry.path);
+            if (isBinaryExtension(ext)) continue;
+
+            // Read file content - skip unreadable files (permissions, symlinks, etc)
+            const file = dir.openFile(entry.path, .{}) catch |err| {
+                std.log.debug("searchContent: skipping unreadable file {s}: {}", .{ entry.path, err });
+                continue;
+            };
+            defer file.close();
+
+            const content = file.readToEndAlloc(alloc, 1024 * 1024) catch |err| {
+                std.log.debug("searchContent: skipping large/unreadable file {s}: {}", .{ entry.path, err });
+                continue;
+            };
+            defer alloc.free(content);
+
+            // Search line by line
+            try searchLinesInContent(alloc, self.project_root, entry.path, content, query_lower, &hits);
+        }
+
+        return hits.toOwnedSlice(alloc);
+    }
+
+    fn isBinaryExtension(ext: []const u8) bool {
+        const binary_exts = [_][]const u8{
+            ".png",  ".jpg",   ".jpeg", ".gif", ".ico", ".webp", ".bmp",
+            ".woff", ".woff2", ".ttf",  ".otf", ".eot", ".o",    ".a",
+            ".so",   ".dylib", ".exe",  ".dll", ".zip", ".tar",  ".gz",
+            ".bz2",  ".xz",    ".7z",   ".pdf", ".doc", ".docx", ".xls",
+            ".xlsx",
+        };
+        for (binary_exts) |bin_ext| {
+            if (mem.eql(u8, ext, bin_ext)) return true;
+        }
+        return false;
+    }
+
+    fn searchLinesInContent(
+        alloc: Allocator,
+        project_root: []const u8,
+        rel_path: []const u8,
+        content: []const u8,
+        query_lower: []const u8,
+        hits: *std.ArrayList(SearchHit),
+    ) !void {
+        var line_num: usize = 1;
+        var line_start: usize = 0;
+
+        for (content, 0..) |ch, i| {
+            if (ch == '\n' or i == content.len - 1) {
+                const line_end = if (ch == '\n') i else i + 1;
+                const line_text = content[line_start..line_end];
+
+                // Case-insensitive search
+                const line_lower = try std.ascii.allocLowerString(alloc, line_text);
+                defer alloc.free(line_lower);
+
+                if (mem.indexOf(u8, line_lower, query_lower)) |col| {
+                    if (hits.items.len >= 100) return;
+
+                    const full_path = try std.fs.path.join(alloc, &.{ project_root, rel_path });
+                    errdefer alloc.free(full_path);
+
+                    const text = try alloc.dupe(u8, line_text);
+                    errdefer alloc.free(text);
+
+                    try hits.append(alloc, SearchHit{
+                        .file = full_path,
+                        .line = line_num,
+                        .column = col,
+                        .text = text,
+                    });
+                }
+
+                line_num += 1;
+                line_start = i + 1;
+            }
+        }
     }
 
     /// Delete all notes
