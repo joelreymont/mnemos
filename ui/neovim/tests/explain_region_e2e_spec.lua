@@ -45,13 +45,15 @@ fn load_config() -> Config {
     keymaps = false,
   })
 
+  local resolved_file = vim.fn.resolve(test_file)
+
   -- Open the file in a buffer
-  vim.cmd("edit " .. test_file)
+  vim.cmd("edit " .. resolved_file)
   local buf = vim.api.nvim_get_current_buf()
 
   return {
     dir = test_dir,
-    file = test_file,
+    file = resolved_file,
     buf = buf,
     rpc = rpc,
     cleanup = function()
