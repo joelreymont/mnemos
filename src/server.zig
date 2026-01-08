@@ -34,12 +34,12 @@ const Server = struct {
     listen_fd: posix.fd_t,
     clients: [MAX_CLIENTS]?Client = .{null} ** MAX_CLIENTS,
     socket_path: []const u8,
-    db: storage.Database,
+    store: storage.Storage,
     file_watcher: ?*watcher.Watcher = null,
 
-    fn init(alloc: Allocator, socket_path: []const u8, db_path: []const u8) !Server {
-        // Open database
-        const db = try storage.Database.open(alloc, db_path);
+    fn init(alloc: Allocator, socket_path: []const u8, project_root: []const u8) !Server {
+        // Initialize storage
+        const store = try storage.Storage.init(alloc, project_root);
         // Remove stale socket
         fs.deleteFileAbsolute(socket_path) catch {};
 
@@ -61,7 +61,7 @@ const Server = struct {
             .alloc = alloc,
             .listen_fd = listen_fd,
             .socket_path = socket_path,
-            .db = db,
+            .store = store,
         };
     }
 
@@ -75,7 +75,7 @@ const Server = struct {
         }
         posix.close(self.listen_fd);
         fs.deleteFileAbsolute(self.socket_path) catch {};
-        self.db.close();
+        self.store.deinit();
     }
 
     /// Start watching a directory for file changes
@@ -133,7 +133,7 @@ const Server = struct {
         };
         defer self.alloc.free(request);
 
-        const response = rpc.dispatchWithDb(self.alloc, request, &self.db);
+        const response = rpc.dispatchWithDb(self.alloc, request, &self.store);
         defer self.alloc.free(response);
 
         stream.writeResponse(response) catch {
@@ -273,20 +273,14 @@ fn handleShutdown(_: c_int) callconv(.c) void {
 
 /// Run the server with default paths
 pub fn run(alloc: Allocator) !void {
-    const mnemos_dir = try getMnemosDir(alloc);
-    defer alloc.free(mnemos_dir);
-
     const socket_path = try getSocketPath(alloc);
     defer alloc.free(socket_path);
 
-    const db_path = try std.fmt.allocPrint(alloc, "{s}/mnemos.db", .{mnemos_dir});
-    defer alloc.free(db_path);
-
-    try runWithPaths(alloc, socket_path, db_path);
+    try runWithPaths(alloc, socket_path, ".");
 }
 
 /// Run the server with explicit paths
-pub fn runWithPaths(alloc: Allocator, socket_path: []const u8, db_path: []const u8) !void {
+pub fn runWithPaths(alloc: Allocator, socket_path: []const u8, project_root: []const u8) !void {
     // Install signal handlers
     const empty_mask = mem.zeroes(posix.sigset_t);
     const sigaction = posix.Sigaction{
@@ -297,7 +291,7 @@ pub fn runWithPaths(alloc: Allocator, socket_path: []const u8, db_path: []const 
     posix.sigaction(posix.SIG.INT, &sigaction, null);
     posix.sigaction(posix.SIG.TERM, &sigaction, null);
 
-    var srv = try Server.init(alloc, socket_path, db_path);
+    var srv = try Server.init(alloc, socket_path, project_root);
     defer srv.deinit();
 
     std.debug.print("mnemos listening on {s}\n", .{socket_path});

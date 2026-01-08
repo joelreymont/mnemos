@@ -30,3 +30,4 @@ zig-out/
 *.bak
 *.backup
 .mnemos/
+.dots/

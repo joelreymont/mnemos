@@ -1,3 +1,5 @@
+![Mnemos](assets/mnemos.jpg)
+
 # Mnemos: A Second Brain for Your Code
 
 Mnemos attaches persistent notes to code locations, anchored to Tree-sitter nodes. Notes survive refactoring and are searchable across your project.
@@ -11,6 +13,16 @@ Mnemos attaches persistent notes to code locations, anchored to Tree-sitter node
 - AI-powered code explanations (optional)
 - Project-wide indexing
 - Selected note model for precise operations
+
+## Why Markdown Storage?
+
+Mnemos stores your notes as plain markdown files in `.mnemos/notes/`. This design choice provides significant benefits:
+
+- **Human-readable** - Notes stored as plain markdown files you can read and edit anywhere
+- **Git-friendly** - Track note history, diff changes, and collaborate with your team
+- **No lock-in** - Your notes are just files you own, not trapped in a database
+- **Portable** - Share the `.mnemos/` folder with your team via git or any file sync
+- **Editor-agnostic** - Edit notes directly in any text editor, IDE, or even GitHub
 
 ## Architecture
 
@@ -30,23 +42,38 @@ Mnemos attaches persistent notes to code locations, anchored to Tree-sitter node
 │   extension │                        └──────────────┬──────────────┘
 └─────────────┘                                       │
                                                       ▼
-                                               ┌─────────────┐
-                                               │   SQLite    │
-                                               │  ~/.mnemos/ │
-                                               │  mnemos.db  │
-                                               └─────────────┘
+                                           ┌───────────────────┐
+                                           │  .mnemos/notes/   │
+                                           │    *.md files     │
+                                           │  (plain markdown) │
+                                           └───────────────────┘
 ```
 
 All editors connect to a single backend process via Unix domain socket. The first editor to need the backend starts it; subsequent editors connect. Backend shuts down after 30s with no connections.
 
-## Database Location
+## Notes Storage Location
 
-By default, Mnemos stores notes in `~/.mnemos/mnemos.db`. This enables sharing notes across Emacs, Neovim, and VS Code simultaneously.
+Mnemos stores notes as markdown files in `.mnemos/notes/` within your project directory. Each note is a standalone `.md` file with YAML frontmatter containing metadata (anchor information, timestamps, links).
 
-To use a different location (e.g., for project-specific databases):
+```
+your-project/
+  .mnemos/
+    notes/
+      abc123.md    # Individual note files
+      def456.md    # Named by unique ID
+      ...
+```
+
+This enables:
+- **Version control**: Commit `.mnemos/` alongside your code
+- **Team collaboration**: Share notes via git push/pull
+- **Backup**: Notes are backed up with your normal file backups
+- **Direct editing**: Open any `.md` file in your favorite editor
+
+To use a different location:
 
 ```bash
-export MNEMOS_DB_PATH=/path/to/custom.db
+export MNEMOS_NOTES_PATH=/path/to/custom/notes/
 ```
 
 ## Quick Start
@@ -130,9 +157,9 @@ mnemos/
     crates/
       git/              # Git operations (libgit2/CLI)
       index/            # Text indexing and search
-      notes/            # Note model and SQLite access
+      notes/            # Note model and markdown storage
       rpc/              # JSON-RPC framing
-      storage/          # SQLite helpers, migrations
+      storage/          # Markdown file helpers
       treesitter/       # Tree-sitter parsing
   ui/
     emacs/              # Emacs client (mnemos.el)

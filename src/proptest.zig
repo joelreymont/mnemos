@@ -58,8 +58,8 @@ fn generateFilePath(buf: []u8, random: std.Random) []const u8 {
 test "prop: note create-read roundtrip preserves content" {
     // Oracle: For any valid Note, create then read should return identical content
     const alloc = testing.allocator;
-    var db = try storage.Database.open(alloc, ":memory:");
-    defer db.close();
+    var store = try storage.createTestStorage(alloc);
+    defer storage.cleanupTestStorage(alloc, &store);
 
     var prng = std.Random.DefaultPrng.init(0x12345678);
     const random = prng.random();
@@ -85,9 +85,9 @@ test "prop: note create-read roundtrip preserves content" {
             .updated_at = "2024-01-01",
         };
 
-        try storage.createNote(&db, note);
+        try store.createNote(note);
 
-        const fetched = try storage.getNote(&db, alloc, id);
+        const fetched = try store.getNote(alloc, id);
         try testing.expect(fetched != null);
         defer storage.freeNoteFields(alloc, fetched.?);
 
@@ -100,8 +100,8 @@ test "prop: note create-read roundtrip preserves content" {
 test "prop: note count increases monotonically with creates" {
     // Oracle: After N creates, count should be N
     const alloc = testing.allocator;
-    var db = try storage.Database.open(alloc, ":memory:");
-    defer db.close();
+    var store = try storage.createTestStorage(alloc);
+    defer storage.cleanupTestStorage(alloc, &store);
 
     var prng = std.Random.DefaultPrng.init(0xABCDEF01);
     const random = prng.random();
@@ -111,7 +111,7 @@ test "prop: note count increases monotonically with creates" {
         var id_buf: [36]u8 = undefined;
         const id = generateId(&id_buf, random);
 
-        try storage.createNote(&db, .{
+        try store.createNote(.{
             .id = id,
             .file_path = "/test.zig",
             .node_path = null,
@@ -123,7 +123,7 @@ test "prop: note count increases monotonically with creates" {
             .updated_at = "2024-01-01",
         });
 
-        const count = try storage.countNotes(&db);
+        const count = try store.countNotes();
         try testing.expectEqual(@as(i64, @intCast(i + 1)), count);
     }
 }
@@ -131,8 +131,8 @@ test "prop: note count increases monotonically with creates" {
 test "prop: delete removes exactly one note" {
     // Oracle: delete(id) decrements count by 1 and getNote(id) returns null
     const alloc = testing.allocator;
-    var db = try storage.Database.open(alloc, ":memory:");
-    defer db.close();
+    var store = try storage.createTestStorage(alloc);
+    defer storage.cleanupTestStorage(alloc, &store);
 
     var prng = std.Random.DefaultPrng.init(0xDEADBEEF);
     const random = prng.random();
@@ -141,7 +141,7 @@ test "prop: delete removes exactly one note" {
     var ids: [10][36]u8 = undefined;
     for (&ids) |*id_buf| {
         _ = generateId(id_buf, random);
-        try storage.createNote(&db, .{
+        try store.createNote(.{
             .id = id_buf,
             .file_path = "/test.zig",
             .node_path = null,
@@ -156,20 +156,20 @@ test "prop: delete removes exactly one note" {
 
     // Delete each and verify
     for (&ids, 0..) |*id_buf, i| {
-        const before_count = try storage.countNotes(&db);
-        try storage.deleteNote(&db, id_buf);
-        const after_count = try storage.countNotes(&db);
+        const before_count = try store.countNotes();
+        try store.deleteNote(id_buf);
+        const after_count = try store.countNotes();
 
         // Oracle: count decremented by exactly 1
         try testing.expectEqual(before_count - 1, after_count);
 
         // Oracle: note no longer retrievable
-        const gone = try storage.getNote(&db, alloc, id_buf);
+        const gone = try store.getNote(alloc, id_buf);
         try testing.expect(gone == null);
 
         // Other notes still exist (spot check)
         if (i + 1 < ids.len) {
-            const other = try storage.getNote(&db, alloc, &ids[i + 1]);
+            const other = try store.getNote(alloc, &ids[i + 1]);
             try testing.expect(other != null);
             storage.freeNoteFields(alloc, other.?);
         }
@@ -179,8 +179,8 @@ test "prop: delete removes exactly one note" {
 test "prop: search results are subset of notes containing query" {
     // Oracle: Every search result must contain the query string
     const alloc = testing.allocator;
-    var db = try storage.Database.open(alloc, ":memory:");
-    defer db.close();
+    var store = try storage.createTestStorage(alloc);
+    defer storage.cleanupTestStorage(alloc, &store);
 
     // Create notes with known content patterns
     const contents = [_][]const u8{
@@ -192,10 +192,10 @@ test "prop: search results are subset of notes containing query" {
     };
 
     for (contents, 0..) |content, i| {
-        var id_buf: [36]u8 = undefined;
-        _ = std.fmt.bufPrint(&id_buf, "note-{d:0>30}", .{i}) catch unreachable;
-        try storage.createNote(&db, .{
-            .id = &id_buf,
+        var id_buf: [12]u8 = undefined;
+        const id = std.fmt.bufPrint(&id_buf, "note-{d}", .{i}) catch unreachable;
+        try store.createNote(.{
+            .id = id,
             .file_path = "/test.zig",
             .node_path = null,
             .node_text_hash = null,
@@ -208,7 +208,7 @@ test "prop: search results are subset of notes containing query" {
     }
 
     // Search for "world"
-    const results = try storage.searchNotes(&db, alloc, "world", 100, 0);
+    const results = try store.searchNotes(alloc, "world", 100, 0);
     defer storage.freeNotes(alloc, results);
 
     // Oracle: all results must contain "world"
@@ -223,8 +223,8 @@ test "prop: search results are subset of notes containing query" {
 test "prop: update preserves id and file_path" {
     // Oracle: update only changes content/updated_at, not id/file_path
     const alloc = testing.allocator;
-    var db = try storage.Database.open(alloc, ":memory:");
-    defer db.close();
+    var store = try storage.createTestStorage(alloc);
+    defer storage.cleanupTestStorage(alloc, &store);
 
     var prng = std.Random.DefaultPrng.init(0xCAFEBABE);
     const random = prng.random();
@@ -240,7 +240,7 @@ test "prop: update preserves id and file_path" {
         const original_content = generatePrintableString(&content_buf, random);
         const new_content = generatePrintableString(&new_content_buf, random);
 
-        try storage.createNote(&db, .{
+        try store.createNote(.{
             .id = id,
             .file_path = file_path,
             .node_path = null,
@@ -252,9 +252,9 @@ test "prop: update preserves id and file_path" {
             .updated_at = "2024-01-01",
         });
 
-        try storage.updateNote(&db, id, new_content, null, "2024-01-02");
+        try store.updateNote(id, new_content, null, "2024-01-02");
 
-        const fetched = try storage.getNote(&db, alloc, id);
+        const fetched = try store.getNote(alloc, id);
         try testing.expect(fetched != null);
         defer storage.freeNoteFields(alloc, fetched.?);
 
@@ -271,8 +271,8 @@ test "prop: update preserves id and file_path" {
 test "prop: getNotesForFile returns only matching files" {
     // Oracle: All notes returned by getNotesForFile have the requested file_path
     const alloc = testing.allocator;
-    var db = try storage.Database.open(alloc, ":memory:");
-    defer db.close();
+    var store = try storage.createTestStorage(alloc);
+    defer storage.cleanupTestStorage(alloc, &store);
 
     const files = [_][]const u8{ "/a.zig", "/b.zig", "/c.zig" };
     var prng = std.Random.DefaultPrng.init(0x11223344);
@@ -284,7 +284,7 @@ test "prop: getNotesForFile returns only matching files" {
         _ = generateId(&id_buf, random);
         const file = files[i % files.len];
 
-        try storage.createNote(&db, .{
+        try store.createNote(.{
             .id = &id_buf,
             .file_path = file,
             .node_path = null,
@@ -299,7 +299,7 @@ test "prop: getNotesForFile returns only matching files" {
 
     // Query each file and verify filter
     for (files) |file| {
-        const notes = try storage.getNotesForFile(&db, alloc, file);
+        const notes = try store.getNotesForFile(alloc, file);
         defer storage.freeNotes(alloc, notes);
 
         // Oracle: every returned note has the correct file_path
@@ -439,70 +439,9 @@ test "prop: languageForExtension returns null for unknown extensions" {
 // ============================================================================
 // Property Tests: File Operations
 // ============================================================================
-
-test "prop: addFile then getFile roundtrip" {
-    // Oracle: Content and hash are preserved through addFile/getFile
-    const alloc = testing.allocator;
-    var db = try storage.Database.open(alloc, ":memory:");
-    defer db.close();
-
-    var prng = std.Random.DefaultPrng.init(0x12121212);
-    const random = prng.random();
-
-    for (0..30) |_| {
-        var path_buf: [64]u8 = undefined;
-        var content_buf: [512]u8 = undefined;
-        var hash_buf: [64]u8 = undefined;
-
-        const path = generateFilePath(&path_buf, random);
-        const content = generatePrintableString(&content_buf, random);
-        const hash = generatePrintableString(&hash_buf, random);
-
-        try storage.addFile(&db, path, content, hash);
-
-        const fetched = try storage.getFile(&db, alloc, path);
-        try testing.expect(fetched != null);
-        defer {
-            alloc.free(fetched.?.path);
-            alloc.free(fetched.?.content);
-            alloc.free(fetched.?.content_hash);
-            alloc.free(fetched.?.indexed_at);
-        }
-
-        // Oracle: content and hash preserved
-        try testing.expectEqualStrings(path, fetched.?.path);
-        try testing.expectEqualStrings(content, fetched.?.content);
-        try testing.expectEqualStrings(hash, fetched.?.content_hash);
-    }
-}
-
-test "prop: addFile upsert updates existing" {
-    // Oracle: Second addFile with same path updates content/hash
-    const alloc = testing.allocator;
-    var db = try storage.Database.open(alloc, ":memory:");
-    defer db.close();
-
-    const path = "/test/file.zig";
-    try storage.addFile(&db, path, "original", "hash1");
-    try storage.addFile(&db, path, "updated", "hash2");
-
-    const fetched = try storage.getFile(&db, alloc, path);
-    try testing.expect(fetched != null);
-    defer {
-        alloc.free(fetched.?.path);
-        alloc.free(fetched.?.content);
-        alloc.free(fetched.?.content_hash);
-        alloc.free(fetched.?.indexed_at);
-    }
-
-    // Oracle: latest values win
-    try testing.expectEqualStrings("updated", fetched.?.content);
-    try testing.expectEqualStrings("hash2", fetched.?.content_hash);
-
-    // File count should still be 1
-    const count = try storage.countFiles(&db);
-    try testing.expectEqual(@as(i64, 1), count);
-}
+// NOTE: File indexing (addFile, getFile, searchFiles, countFiles) is not supported
+// in the new filesystem-based Storage. These tests have been removed.
+// The new Storage only handles note storage, not file content indexing.
 
 // ============================================================================
 // Snapshot Tests: Data Structure Representations
@@ -584,28 +523,8 @@ test "snap: Note structure with null optionals" {
     ).expectEqual(note);
 }
 
-test "snap: File structure" {
-    const oh = OhSnap{};
-    const file = storage.File{
-        .path = "/src/lib.zig",
-        .content = "pub fn add(a: i32, b: i32) i32 { return a + b; }",
-        .content_hash = "sha256:e3b0c44298fc1c149afbf4c8",
-        .indexed_at = "1704067200",
-    };
-    try oh.snap(
-        @src(),
-        \\storage.File
-        \\  .path: []const u8
-        \\    "/src/lib.zig"
-        \\  .content: []const u8
-        \\    "pub fn add(a: i32, b: i32) i32 { return a + b; }"
-        \\  .content_hash: []const u8
-        \\    "sha256:e3b0c44298fc1c149afbf4c8"
-        \\  .indexed_at: []const u8
-        \\    "1704067200"
-        ,
-    ).expectEqual(file);
-}
+// NOTE: "snap: File structure" test removed - storage.File type no longer exists
+// in the new filesystem-based Storage API.
 
 test "snap: SearchHit structure" {
     const oh = OhSnap{};
@@ -697,11 +616,11 @@ const NoteModel = struct {
 };
 
 test "model: storage matches in-memory oracle" {
-    // Oracle: SQLite storage should behave identically to simple HashMap model
+    // Oracle: Storage should behave identically to simple HashMap model
     const alloc = testing.allocator;
 
-    var db = try storage.Database.open(alloc, ":memory:");
-    defer db.close();
+    var store = try storage.createTestStorage(alloc);
+    defer storage.cleanupTestStorage(alloc, &store);
 
     var model = NoteModel.init(alloc);
     defer model.deinit();
@@ -725,7 +644,7 @@ test "model: storage matches in-memory oracle" {
                 if (model.get(id) != null) continue;
 
                 try model.create(id, content);
-                try storage.createNote(&db, .{
+                try store.createNote(.{
                     .id = id,
                     .file_path = "/test.zig",
                     .node_path = null,
@@ -748,15 +667,15 @@ test "model: storage matches in-memory oracle" {
                         @memcpy(id_copy[0..key.len], key);
                         const id_slice = id_copy[0..key.len];
                         model.delete(id_slice);
-                        try storage.deleteNote(&db, id_slice);
+                        try store.deleteNote(id_slice);
                     }
                 }
             },
             2 => {
                 // COUNT check
                 const model_count = model.count();
-                const db_count = try storage.countNotes(&db);
-                try testing.expectEqual(@as(i64, @intCast(model_count)), db_count);
+                const store_count = try store.countNotes();
+                try testing.expectEqual(@as(i64, @intCast(model_count)), store_count);
             },
             else => unreachable,
         }
@@ -764,8 +683,8 @@ test "model: storage matches in-memory oracle" {
 
     // Final count check
     const model_count = model.count();
-    const db_count = try storage.countNotes(&db);
-    try testing.expectEqual(@as(i64, @intCast(model_count)), db_count);
+    const store_count = try store.countNotes();
+    try testing.expectEqual(@as(i64, @intCast(model_count)), store_count);
 }
 
 // ============================================================================

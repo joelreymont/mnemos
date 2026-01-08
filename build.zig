@@ -87,13 +87,11 @@ fn linkLibraries(step: *std.Build.Step.Compile, dynamic: bool) void {
 
     if (dynamic) {
         // Dynamic linking - simpler, for development
-        step.linkSystemLibrary("sqlite3");
         step.linkSystemLibrary("git2");
         step.linkSystemLibrary("tree-sitter");
     } else {
         // Static linking - single binary deployment
         // Static libraries (order matters for dependency resolution)
-        step.addObjectFile(.{ .cwd_relative = "/opt/homebrew/opt/sqlite/lib/libsqlite3.a" });
         step.addObjectFile(.{ .cwd_relative = "/opt/homebrew/opt/tree-sitter/lib/libtree-sitter.a" });
         step.addObjectFile(.{ .cwd_relative = "/opt/homebrew/opt/libgit2/lib/libgit2.a" });
         step.addObjectFile(.{ .cwd_relative = "/opt/homebrew/opt/libssh2/lib/libssh2.a" });
